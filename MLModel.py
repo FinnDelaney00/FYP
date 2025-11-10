@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 # Load Employee CSV
 # ------------------------------
 def load_data():
-    csv_path = r"C:\Users\finnd\OneDrive\Documents\FYP\Oracle\Employee.csv"  # update if needed
+    csv_path = r"Employee.csv" 
     data = pd.read_csv(csv_path)
-    print("✅ Dataset loaded successfully.")
+    print("Dataset loaded successfully.")
     print(data.head())
     return data
 
@@ -55,7 +55,7 @@ def train_model(X, y):
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
-    print(f"\n✅ Model Accuracy: {acc * 100:.2f}%")
+    print(f"\n Model Accuracy: {acc * 100:.2f}%")
     print("\nClassification Report:")
     print(classification_report(y_test, y_pred))
 
@@ -70,7 +70,7 @@ def save_artifacts(model, encoders, scaler):
     joblib.dump(encoders, os.path.join(output_dir, "label_encoders.pkl"))
     joblib.dump(scaler, os.path.join(output_dir, "scaler.pkl"))
 
-    print(f"\n💾 Model and preprocessing objects saved in: {output_dir}")
+    print(f"\n Model and preprocessing objects saved in: {output_dir}")
 
 # ------------------------------
 # Visualize a feature relationship
