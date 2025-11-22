@@ -27,12 +27,13 @@ def load_data(csv_path=r"C:\Users\finnd\OneDrive\Documents\FYP\FYP\Employee.csv"
 
 
 # ==========================================
-# 2. PREPROCESSING
+# 2. PREPROCESSING (ALL COLUMNS INCLUDED)
 # ==========================================
 def preprocess_for_ml(df):
     df = df.copy()
 
-    categorical_cols = ["Education", "City", "Gender", "EverBenched"]
+    # CATEGORICAL columns -> label encode
+    categorical_cols = ["Education", "City", "Gender", "EverBenched", "PaymentTier"]
     encoders = {}
 
     for col in categorical_cols:
@@ -40,9 +41,11 @@ def preprocess_for_ml(df):
         df[col] = le.fit_transform(df[col])
         encoders[col] = le
 
+    # FEATURES & TARGET
     X = df.drop("LeaveOrNot", axis=1)
     y = df["LeaveOrNot"]
 
+    # STANDARDIZE all numeric columns
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
@@ -50,7 +53,7 @@ def preprocess_for_ml(df):
 
 
 # ==========================================
-# 3. CLASSIFICATION MODEL
+# 3. ATTRITION CLASSIFICATION
 # ==========================================
 def train_attrition_model(X_train, y_train):
     model = RandomForestClassifier(
@@ -62,11 +65,11 @@ def train_attrition_model(X_train, y_train):
 
 def evaluate_attrition_model(model, X_test, y_test):
     print("\n=== ATTRITION CLASSIFICATION ===")
-    pred = model.predict(X_test)
-    acc = accuracy_score(y_test, pred)
+    preds = model.predict(X_test)
+    acc = accuracy_score(y_test, preds)
     print(f"Accuracy: {acc*100:.2f}%")
     print("\nClassification Report:")
-    print(classification_report(y_test, pred))
+    print(classification_report(y_test, preds))
 
 
 # ==========================================
@@ -88,17 +91,15 @@ def label_anomalies(df, X_scaled, anomaly_model):
     df["anomaly_score"] = anomaly_model.decision_function(X_scaled)
 
     print("\n=== ANOMALY SUMMARY ===")
-    count = (df["anomaly_label"] == -1).sum()
-    print(f"Detected anomalies: {count}")
+    print("Total anomalies:", (df["anomaly_label"] == -1).sum())
 
     return df
 
 
 # ==========================================
-# 5. TIME SERIES FOR EMPLOYEE GROWTH
+# 5. TIME SERIES CREATION (USING JoiningYear)
 # ==========================================
 def build_time_series(df):
-    # Hires per year
     yearly = (
         df.groupby("JoiningYear")
           .size()
@@ -108,7 +109,6 @@ def build_time_series(df):
     yearly["headcount"] = yearly["hires"].cumsum()
     yearly["ds"] = pd.to_datetime(yearly["JoiningYear"].astype(str) + "-01-01")
 
-    # Convert to monthly timeseries & interpolate
     ts = (
         yearly[["ds", "headcount"]]
         .set_index("ds")
@@ -126,12 +126,12 @@ def build_time_series(df):
 
 
 # ==========================================
-# 6. PROPHET FORECASTING
+# 6. FORECASTING WITH PROPHET
 # ==========================================
 def train_forecast_model(ts):
-    m = Prophet(yearly_seasonality=True)
-    m.fit(ts)
-    return m
+    model = Prophet(yearly_seasonality=True)
+    model.fit(ts)
+    return model
 
 
 def forecast_growth(model, ts, months=6):
@@ -139,18 +139,18 @@ def forecast_growth(model, ts, months=6):
     forecast = model.predict(future)
     summary = forecast.tail(months)[["ds", "yhat", "yhat_lower", "yhat_upper"]]
 
-    print(f"\n=== FORECAST: {months} MONTHS ===")
+    print(f"\n=== FORECAST: NEXT {months} MONTHS ===")
     print(summary)
 
     return forecast, summary
 
 
 # ==========================================
-# 7. VISUALIZATIONS (IMPROVED)
+# 7. VISUALIZATIONS (USER-FRIENDLY)
 # ==========================================
 def visualize_attrition(df):
     plt.figure(figsize=(6,4))
-    df["LeaveOrNot"].value_counts().plot(kind="bar")
+    df["LeaveOrNot"].value_counts().plot(kind="bar", color=["green","red"])
     plt.title("Employees Leaving vs Staying")
     plt.xlabel("0 = Stay, 1 = Leave")
     plt.ylabel("Count")
@@ -159,14 +159,14 @@ def visualize_attrition(df):
 
 
 def visualize_anomalies(df):
-    df_sorted = df.sort_values("anomaly_score")
+    sorted_df = df.sort_values("anomaly_score")
 
     plt.figure(figsize=(10,5))
-    plt.plot(df_sorted["anomaly_score"].values)
+    plt.plot(sorted_df["anomaly_score"].values, label="Anomaly Score")
     plt.axhline(0, color="red", linestyle="--", label="Anomaly Threshold")
     plt.title("Anomaly Scores (Lower = More Anomalous)")
     plt.xlabel("Employees (sorted)")
-    plt.ylabel("Anomaly Score")
+    plt.ylabel("Score")
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -175,20 +175,17 @@ def visualize_anomalies(df):
 def plot_forecast_simple(ts, forecast, months=6):
     plt.figure(figsize=(10,6))
 
-    # Plot history
-    plt.plot(ts["ds"], ts["y"], label="Historical Headcount")
+    plt.plot(ts["ds"], ts["y"], label="Historical Headcount", linewidth=2)
 
-    # Plot forecast
     future = forecast.tail(months)
-    plt.plot(future["ds"], future["yhat"], label="Forecast", linestyle="--")
+    plt.plot(future["ds"], future["yhat"], label="Predicted Growth", linestyle="--")
 
-    # Uncertainty band
     plt.fill_between(
         future["ds"],
         future["yhat_lower"],
         future["yhat_upper"],
         alpha=0.2,
-        label="Forecast Range"
+        label="Prediction Range"
     )
 
     plt.title("Employee Growth Forecast")
@@ -212,11 +209,11 @@ def save_artifacts(path, attr_model, anom_model, encoders, scaler, features, pro
     joblib.dump(features, os.path.join(path, "features.pkl"))
     joblib.dump(prophet_model, os.path.join(path, "prophet_model.pkl"))
 
-    print(f"\nArtifacts saved to: {path}")
+    print(f"\nSaved all models to: {path}")
 
 
 # ==========================================
-# 9. MAIN
+# 9. MAIN EXECUTION
 # ==========================================
 def main():
     df = load_data()
@@ -230,16 +227,16 @@ def main():
     attr_model = train_attrition_model(X_train, y_train)
     evaluate_attrition_model(attr_model, X_test, y_test)
 
-    # Anomalies
+    # Anomaly detection
     anom_model = train_anomaly_detector(X_scaled)
     df = label_anomalies(df, X_scaled, anom_model)
 
-    # Time series + forecasting
+    # Forecasting
     ts = build_time_series(df)
     prophet_model = train_forecast_model(ts)
     forecast, summary = forecast_growth(prophet_model, ts, months=6)
 
-    # Graphs
+    # Visuals
     visualize_attrition(df)
     visualize_anomalies(df)
     plot_forecast_simple(ts, forecast)
