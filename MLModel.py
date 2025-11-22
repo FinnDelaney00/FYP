@@ -8,6 +8,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.cluster import KMeans
+
+from lifelines import KaplanMeierFitter
+import shap
 
 # Prophet import
 try:
@@ -27,12 +31,12 @@ def load_data(csv_path=r"C:\Users\finnd\OneDrive\Documents\FYP\FYP\Employee.csv"
 
 
 # ==========================================
-# 2. PREPROCESSING (ALL COLUMNS INCLUDED)
+# 2. PREPROCESSING
 # ==========================================
 def preprocess_for_ml(df):
     df = df.copy()
 
-    # CATEGORICAL columns -> label encode
+    # Categorical columns
     categorical_cols = ["Education", "City", "Gender", "EverBenched", "PaymentTier"]
     encoders = {}
 
@@ -41,15 +45,13 @@ def preprocess_for_ml(df):
         df[col] = le.fit_transform(df[col])
         encoders[col] = le
 
-    # FEATURES & TARGET
     X = df.drop("LeaveOrNot", axis=1)
     y = df["LeaveOrNot"]
 
-    # STANDARDIZE all numeric columns
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    return X_scaled, y, encoders, scaler, X.columns.tolist()
+    return X_scaled, y, encoders, scaler, X.columns.tolist(), df
 
 
 # ==========================================
@@ -73,12 +75,27 @@ def evaluate_attrition_model(model, X_test, y_test):
 
 
 # ==========================================
-# 4. ANOMALY DETECTION
+# 4. FEATURE IMPORTANCE (NEW)
+# ==========================================
+def visualize_feature_importance(model, feature_names):
+    importances = model.feature_importances_
+    sorted_idx = np.argsort(importances)
+
+    plt.figure(figsize=(8,6))
+    plt.barh(np.array(feature_names)[sorted_idx], importances[sorted_idx])
+    plt.title("Feature Importance: What Drives Attrition?")
+    plt.xlabel("Importance")
+    plt.tight_layout()
+    plt.show()
+
+
+# ==========================================
+# 5. ANOMALY DETECTION
 # ==========================================
 def train_anomaly_detector(X_scaled):
     model = IsolationForest(
         n_estimators=200,
-        contamination=0.05,
+        contamination=0.02,
         random_state=42
     )
     model.fit(X_scaled)
@@ -96,8 +113,73 @@ def label_anomalies(df, X_scaled, anomaly_model):
     return df
 
 
+def visualize_anomalies(df):
+    sorted_df = df.sort_values("anomaly_score")
+
+    plt.figure(figsize=(10,5))
+    plt.plot(sorted_df["anomaly_score"].values)
+    plt.axhline(0, color="red", linestyle="--", label="Threshold")
+    plt.title("Anomaly Scores (Lower = More Anomalous)")
+    plt.xlabel("Employees (sorted)")
+    plt.ylabel("Score")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
 # ==========================================
-# 5. TIME SERIES CREATION (USING JoiningYear)
+# 6. CLUSTERING (NEW)
+# ==========================================
+def employee_clustering(X_scaled, df):
+    kmeans = KMeans(n_clusters=3, random_state=42)
+    df["cluster"] = kmeans.fit_predict(X_scaled)
+
+    plt.figure(figsize=(8,5))
+    df.groupby("cluster")["LeaveOrNot"].mean().plot(kind="bar")
+    plt.title("Cluster vs Average Attrition Probability")
+    plt.xlabel("Cluster")
+    plt.ylabel("Avg Leave Probability")
+    plt.tight_layout()
+    plt.show()
+
+    print("\n=== CLUSTER PROFILES ===")
+    print(df.groupby("cluster").mean())
+
+    return df, kmeans
+
+
+# ==========================================
+# 7. SHAP EXPLAINABILITY (NEW)
+# ==========================================
+def shap_explain(model, X_scaled, feature_names):
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_scaled)
+
+    print("\n=== SHAP SUMMARY PLOT ===")
+    shap.summary_plot(shap_values[1], features=X_scaled, feature_names=feature_names)
+
+
+# ==========================================
+# 8. SURVIVAL ANALYSIS (NEW)
+# ==========================================
+def survival_analysis(df):
+    km = KaplanMeierFitter()
+
+    # Tenure proxy = current year - joining year
+    df["tenure_years"] = 2025 - df["JoiningYear"]
+
+    km.fit(durations=df["tenure_years"], event_observed=df["LeaveOrNot"])
+
+    km.plot_survival_function()
+    plt.title("Employee Retention Curve (Kaplan–Meier)")
+    plt.xlabel("Years at Company")
+    plt.ylabel("Probability of Staying")
+    plt.tight_layout()
+    plt.show()
+
+
+# ==========================================
+# 9. FORECASTING WITH PROPHET
 # ==========================================
 def build_time_series(df):
     yearly = (
@@ -117,17 +199,9 @@ def build_time_series(df):
         .reset_index()
         .rename(columns={"headcount": "y"})
     )
-
-    print("\n=== TIME SERIES SAMPLE ===")
-    print(ts.head())
-    print(ts.tail())
-
     return ts
 
 
-# ==========================================
-# 6. FORECASTING WITH PROPHET
-# ==========================================
 def train_forecast_model(ts):
     model = Prophet(yearly_seasonality=True)
     model.fit(ts)
@@ -137,55 +211,25 @@ def train_forecast_model(ts):
 def forecast_growth(model, ts, months=6):
     future = model.make_future_dataframe(periods=months, freq="MS")
     forecast = model.predict(future)
-    summary = forecast.tail(months)[["ds", "yhat", "yhat_lower", "yhat_upper"]]
-
-    print(f"\n=== FORECAST: NEXT {months} MONTHS ===")
+    summary = forecast.tail(months)[["ds","yhat","yhat_lower","yhat_upper"]]
     print(summary)
-
     return forecast, summary
-
-
-# ==========================================
-# 7. VISUALIZATIONS (USER-FRIENDLY)
-# ==========================================
-def visualize_attrition(df):
-    plt.figure(figsize=(6,4))
-    df["LeaveOrNot"].value_counts().plot(kind="bar", color=["green","red"])
-    plt.title("Employees Leaving vs Staying")
-    plt.xlabel("0 = Stay, 1 = Leave")
-    plt.ylabel("Count")
-    plt.tight_layout()
-    plt.show()
-
-
-def visualize_anomalies(df):
-    sorted_df = df.sort_values("anomaly_score")
-
-    plt.figure(figsize=(10,5))
-    plt.plot(sorted_df["anomaly_score"].values, label="Anomaly Score")
-    plt.axhline(0, color="red", linestyle="--", label="Anomaly Threshold")
-    plt.title("Anomaly Scores (Lower = More Anomalous)")
-    plt.xlabel("Employees (sorted)")
-    plt.ylabel("Score")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
 
 
 def plot_forecast_simple(ts, forecast, months=6):
     plt.figure(figsize=(10,6))
 
-    plt.plot(ts["ds"], ts["y"], label="Historical Headcount", linewidth=2)
+    plt.plot(ts["ds"], ts["y"], label="Historical", linewidth=2)
 
     future = forecast.tail(months)
-    plt.plot(future["ds"], future["yhat"], label="Predicted Growth", linestyle="--")
+    plt.plot(future["ds"], future["yhat"], linestyle="--", label="Forecast")
 
     plt.fill_between(
         future["ds"],
         future["yhat_lower"],
         future["yhat_upper"],
         alpha=0.2,
-        label="Prediction Range"
+        label="Range"
     )
 
     plt.title("Employee Growth Forecast")
@@ -197,59 +241,68 @@ def plot_forecast_simple(ts, forecast, months=6):
 
 
 # ==========================================
-# 8. SAVE ARTIFACTS
+# 10. SAVE ARTIFACTS
 # ==========================================
-def save_artifacts(path, attr_model, anom_model, encoders, scaler, features, prophet_model):
+def save_artifacts(path, models_dict):
     os.makedirs(path, exist_ok=True)
 
-    joblib.dump(attr_model, os.path.join(path, "attrition_model.pkl"))
-    joblib.dump(anom_model, os.path.join(path, "anomaly_model.pkl"))
-    joblib.dump(encoders, os.path.join(path, "encoders.pkl"))
-    joblib.dump(scaler, os.path.join(path, "scaler.pkl"))
-    joblib.dump(features, os.path.join(path, "features.pkl"))
-    joblib.dump(prophet_model, os.path.join(path, "prophet_model.pkl"))
+    for name, obj in models_dict.items():
+        joblib.dump(obj, os.path.join(path, f"{name}.pkl"))
 
-    print(f"\nSaved all models to: {path}")
+    print(f"\nSaved all artifacts to: {path}")
 
 
 # ==========================================
-# 9. MAIN EXECUTION
+# 11. MAIN
 # ==========================================
 def main():
-    df = load_data()
+    df_raw = load_data()
 
-    X_scaled, y, encoders, scaler, features = preprocess_for_ml(df)
+    # ML preprocessing
+    X_scaled, y, encoders, scaler, features, df = preprocess_for_ml(df_raw)
 
-    # Classification
+    # Train attrition model
     X_train, X_test, y_train, y_test = train_test_split(
         X_scaled, y, test_size=0.2, random_state=42, stratify=y
     )
-    attr_model = train_attrition_model(X_train, y_train)
-    evaluate_attrition_model(attr_model, X_test, y_test)
+    clf = train_attrition_model(X_train, y_train)
+    evaluate_attrition_model(clf, X_test, y_test)
+
+    # Feature importance
+    visualize_feature_importance(clf, features)
 
     # Anomaly detection
-    anom_model = train_anomaly_detector(X_scaled)
-    df = label_anomalies(df, X_scaled, anom_model)
+    anom = train_anomaly_detector(X_scaled)
+    df = label_anomalies(df, X_scaled, anom)
+    visualize_anomalies(df)
+
+    # Clustering
+    df, kmeans = employee_clustering(X_scaled, df)
+
+    # SHAP explainability
+    shap_explain(clf, X_scaled, features)
+
+    # Survival analysis
+    survival_analysis(df)
 
     # Forecasting
     ts = build_time_series(df)
-    prophet_model = train_forecast_model(ts)
-    forecast, summary = forecast_growth(prophet_model, ts, months=6)
-
-    # Visuals
-    visualize_attrition(df)
-    visualize_anomalies(df)
+    prophet = train_forecast_model(ts)
+    forecast, summary = forecast_growth(prophet, ts)
     plot_forecast_simple(ts, forecast)
 
-    # Save models
+    # Save everything
     save_artifacts(
         r"C:\Users\finnd\OneDrive\Documents\FYP\models",
-        attr_model,
-        anom_model,
-        encoders,
-        scaler,
-        features,
-        prophet_model
+        {
+            "attrition_model": clf,
+            "anomaly_model": anom,
+            "kmeans_model": kmeans,
+            "encoders": encoders,
+            "scaler": scaler,
+            "prophet_model": prophet,
+            "feature_names": features
+        }
     )
 
 
