@@ -59,7 +59,9 @@ def preprocess_for_ml(df):
 # ==========================================
 def train_attrition_model(X_train, y_train):
     model = RandomForestClassifier(
-        n_estimators=200, random_state=42, n_jobs=-1
+        n_estimators=200,
+        random_state=42,
+        n_jobs=-1
     )
     model.fit(X_train, y_train)
     return model
@@ -69,28 +71,14 @@ def evaluate_attrition_model(model, X_test, y_test):
     print("\n=== ATTRITION CLASSIFICATION ===")
     preds = model.predict(X_test)
     acc = accuracy_score(y_test, preds)
-    print(f"Accuracy: {acc*100:.2f}%")
+    print(f"Accuracy: {acc * 100:.2f}%")
     print("\nClassification Report:")
     print(classification_report(y_test, preds))
+    return acc
 
 
 # ==========================================
-# 4. FEATURE IMPORTANCE (NEW)
-# ==========================================
-def visualize_feature_importance(model, feature_names):
-    importances = model.feature_importances_
-    sorted_idx = np.argsort(importances)
-
-    plt.figure(figsize=(8,6))
-    plt.barh(np.array(feature_names)[sorted_idx], importances[sorted_idx])
-    plt.title("Feature Importance: What Drives Attrition?")
-    plt.xlabel("Importance")
-    plt.tight_layout()
-    plt.show()
-
-
-# ==========================================
-# 5. ANOMALY DETECTION
+# 4. ANOMALY DETECTION (NO PLOT, JUST COUNT)
 # ==========================================
 def train_anomaly_detector(X_scaled):
     model = IsolationForest(
@@ -104,82 +92,47 @@ def train_anomaly_detector(X_scaled):
 
 def label_anomalies(df, X_scaled, anomaly_model):
     df = df.copy()
-    df["anomaly_label"] = anomaly_model.predict(X_scaled)
+    df["anomaly_label"] = anomaly_model.predict(X_scaled)     # -1 = anomaly, 1 = normal
     df["anomaly_score"] = anomaly_model.decision_function(X_scaled)
 
+    n_anom = (df["anomaly_label"] == -1).sum()
     print("\n=== ANOMALY SUMMARY ===")
-    print("Total anomalies:", (df["anomaly_label"] == -1).sum())
+    print("Total anomalies detected:", n_anom)
 
-    return df
-
-
-def visualize_anomalies(df):
-    sorted_df = df.sort_values("anomaly_score")
-
-    plt.figure(figsize=(10,5))
-    plt.plot(sorted_df["anomaly_score"].values)
-    plt.axhline(0, color="red", linestyle="--", label="Threshold")
-    plt.title("Anomaly Scores (Lower = More Anomalous)")
-    plt.xlabel("Employees (sorted)")
-    plt.ylabel("Score")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    return df, n_anom
 
 
 # ==========================================
-# 6. CLUSTERING (NEW)
+# 5. CLUSTERING
 # ==========================================
-def employee_clustering(X_scaled, df):
-    kmeans = KMeans(n_clusters=3, random_state=42)
+def employee_clustering(X_scaled, df, n_clusters=3):
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init="auto")
+    df = df.copy()
     df["cluster"] = kmeans.fit_predict(X_scaled)
 
-    plt.figure(figsize=(8,5))
-    df.groupby("cluster")["LeaveOrNot"].mean().plot(kind="bar")
-    plt.title("Cluster vs Average Attrition Probability")
-    plt.xlabel("Cluster")
-    plt.ylabel("Avg Leave Probability")
-    plt.tight_layout()
-    plt.show()
+    cluster_attrition = df.groupby("cluster")["LeaveOrNot"].mean()
+    print("\n=== CLUSTER ATTRITION RATES ===")
+    print(cluster_attrition)
 
-    print("\n=== CLUSTER PROFILES ===")
-    print(df.groupby("cluster").mean())
-
-    return df, kmeans
+    return df, kmeans, cluster_attrition
 
 
 # ==========================================
-# 7. SHAP EXPLAINABILITY (NEW)
+# 6. SURVIVAL ANALYSIS
 # ==========================================
-def shap_explain(model, X_scaled, feature_names):
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(X_scaled)
+def compute_survival(df, current_year=2025):
+    df = df.copy()
+    df["tenure_years"] = current_year - df["JoiningYear"]
 
-    print("\n=== SHAP SUMMARY PLOT ===")
-    shap.summary_plot(shap_values[1], features=X_scaled, feature_names=feature_names)
-
-
-# ==========================================
-# 8. SURVIVAL ANALYSIS (NEW)
-# ==========================================
-def survival_analysis(df):
     km = KaplanMeierFitter()
-
-    # Tenure proxy = current year - joining year
-    df["tenure_years"] = 2025 - df["JoiningYear"]
-
     km.fit(durations=df["tenure_years"], event_observed=df["LeaveOrNot"])
 
-    km.plot_survival_function()
-    plt.title("Employee Retention Curve (Kaplan–Meier)")
-    plt.xlabel("Years at Company")
-    plt.ylabel("Probability of Staying")
-    plt.tight_layout()
-    plt.show()
+    survival_df = km.survival_function_.reset_index()  # columns: ['timeline', 'KM_estimate']
+    return survival_df
 
 
 # ==========================================
-# 9. FORECASTING WITH PROPHET
+# 7. TIME SERIES & FORECASTING
 # ==========================================
 def build_time_series(df):
     yearly = (
@@ -211,96 +164,161 @@ def train_forecast_model(ts):
 def forecast_growth(model, ts, months=6):
     future = model.make_future_dataframe(periods=months, freq="MS")
     forecast = model.predict(future)
-    summary = forecast.tail(months)[["ds","yhat","yhat_lower","yhat_upper"]]
+    summary = forecast.tail(months)[["ds", "yhat", "yhat_lower", "yhat_upper"]]
+    print("\n=== FORECAST SUMMARY (NEXT MONTHS) ===")
     print(summary)
     return forecast, summary
 
 
-def plot_forecast_simple(ts, forecast, months=6):
-    plt.figure(figsize=(10,6))
+# ==========================================
+# 8. DASHBOARD PLOTTING (ONE PAGE)
+# ==========================================
+def plot_insights_dashboard(
+    df,
+    feature_names,
+    clf,
+    X_scaled,
+    cluster_attrition,
+    survival_df,
+    ts,
+    forecast,
+    acc,
+    n_anom
+):
+    # Compute feature importance
+    importances = clf.feature_importances_
+    sorted_idx = np.argsort(importances)
+    sorted_features = np.array(feature_names)[sorted_idx]
+    sorted_importances = importances[sorted_idx]
 
-    plt.plot(ts["ds"], ts["y"], label="Historical", linewidth=2)
+    # SHAP: use a sample to keep it fast
+    explainer = shap.TreeExplainer(clf)
+    sample_size = min(1000, X_scaled.shape[0])
+    X_sample = X_scaled[np.random.choice(X_scaled.shape[0], sample_size, replace=False)]
+    shap_values = explainer.shap_values(X_sample)[1]   # class 1 (Leave)
+    shap_mean_abs = np.mean(np.abs(shap_values), axis=0)
+    shap_sorted_idx = np.argsort(shap_mean_abs)
+    shap_features = np.array(feature_names)[shap_sorted_idx]
+    shap_values_sorted = shap_mean_abs[shap_sorted_idx]
 
-    future = forecast.tail(months)
-    plt.plot(future["ds"], future["yhat"], linestyle="--", label="Forecast")
+    # Create dashboard
+    fig, axes = plt.subplots(3, 2, figsize=(12, 14))
+    ((ax1, ax2),
+     (ax3, ax4),
+     (ax5, ax6)) = axes
 
-    plt.fill_between(
+    # 1) Attrition counts
+    df["LeaveOrNot"].value_counts().sort_index().plot(kind="bar", ax=ax1)
+    ax1.set_title(f"Employees Leaving vs Staying\n(Model accuracy: {acc*100:.1f}%, Anomalies: {n_anom})")
+    ax1.set_xlabel("0 = Stay, 1 = Leave")
+    ax1.set_ylabel("Count")
+
+    # 2) Feature importance
+    ax2.barh(sorted_features, sorted_importances)
+    ax2.set_title("Feature Importance (RandomForest)")
+    ax2.set_xlabel("Importance")
+
+    # 3) SHAP mean |impact|
+    ax3.barh(shap_features, shap_values_sorted)
+    ax3.set_title("Average SHAP Impact on Leaving (class 1)")
+    ax3.set_xlabel("Mean |SHAP value|")
+
+    # 4) Cluster vs attrition
+    cluster_attrition.plot(kind="bar", ax=ax4)
+    ax4.set_title("Cluster-wise Average Attrition")
+    ax4.set_xlabel("Cluster")
+    ax4.set_ylabel("Avg LeaveOrNot")
+
+    # 5) Survival curve
+    ax5.plot(survival_df["timeline"], survival_df["KM_estimate"])
+    ax5.set_title("Employee Retention (Kaplan–Meier)")
+    ax5.set_xlabel("Tenure (years)")
+    ax5.set_ylabel("Probability of Staying")
+
+    # 6) Forecast (history + future)
+    ax6.plot(ts["ds"], ts["y"], label="Historical headcount")
+    future = forecast.tail(6)
+    ax6.plot(future["ds"], future["yhat"], linestyle="--", label="Forecast")
+    ax6.fill_between(
         future["ds"],
         future["yhat_lower"],
         future["yhat_upper"],
-        alpha=0.2,
-        label="Range"
+        alpha=0.2
     )
+    ax6.set_title("Employee Growth Forecast (next 6 months)")
+    ax6.set_xlabel("Date")
+    ax6.set_ylabel("Headcount")
+    ax6.legend()
 
-    plt.title("Employee Growth Forecast")
-    plt.xlabel("Date")
-    plt.ylabel("Headcount")
-    plt.legend()
     plt.tight_layout()
     plt.show()
 
 
 # ==========================================
-# 10. SAVE ARTIFACTS
+# 9. SAVE ARTIFACTS
 # ==========================================
 def save_artifacts(path, models_dict):
     os.makedirs(path, exist_ok=True)
-
     for name, obj in models_dict.items():
         joblib.dump(obj, os.path.join(path, f"{name}.pkl"))
-
     print(f"\nSaved all artifacts to: {path}")
 
 
 # ==========================================
-# 11. MAIN
+# 10. MAIN
 # ==========================================
 def main():
     df_raw = load_data()
 
-    # ML preprocessing
-    X_scaled, y, encoders, scaler, features, df = preprocess_for_ml(df_raw)
+    # Preprocess
+    X_scaled, y, encoders, scaler, features, df_encoded = preprocess_for_ml(df_raw)
 
-    # Train attrition model
+    # Train/evaluate classifier
     X_train, X_test, y_train, y_test = train_test_split(
         X_scaled, y, test_size=0.2, random_state=42, stratify=y
     )
     clf = train_attrition_model(X_train, y_train)
-    evaluate_attrition_model(clf, X_test, y_test)
+    acc = evaluate_attrition_model(clf, X_test, y_test)
 
-    # Feature importance
-    visualize_feature_importance(clf, features)
-
-    # Anomaly detection
-    anom = train_anomaly_detector(X_scaled)
-    df = label_anomalies(df, X_scaled, anom)
-    visualize_anomalies(df)
+    # Anomaly detection (no plot)
+    anom_model = train_anomaly_detector(X_scaled)
+    df_with_anom, n_anom = label_anomalies(df_encoded, X_scaled, anom_model)
 
     # Clustering
-    df, kmeans = employee_clustering(X_scaled, df)
+    df_clustered, kmeans, cluster_attrition = employee_clustering(X_scaled, df_with_anom)
 
-    # SHAP explainability
-    shap_explain(clf, X_scaled, features)
+    # Survival
+    survival_df = compute_survival(df_clustered)
 
-    # Survival analysis
-    survival_analysis(df)
+    # Time series + forecast
+    ts = build_time_series(df_clustered)
+    prophet_model = train_forecast_model(ts)
+    forecast, summary = forecast_growth(prophet_model, ts, months=6)
 
-    # Forecasting
-    ts = build_time_series(df)
-    prophet = train_forecast_model(ts)
-    forecast, summary = forecast_growth(prophet, ts)
-    plot_forecast_simple(ts, forecast)
+    # One-page dashboard
+    plot_insights_dashboard(
+        df_clustered,
+        features,
+        clf,
+        X_scaled,
+        cluster_attrition,
+        survival_df,
+        ts,
+        forecast,
+        acc,
+        n_anom
+    )
 
-    # Save everything
+    # Save models
     save_artifacts(
         r"C:\Users\finnd\OneDrive\Documents\FYP\models",
         {
             "attrition_model": clf,
-            "anomaly_model": anom,
+            "anomaly_model": anom_model,
             "kmeans_model": kmeans,
             "encoders": encoders,
             "scaler": scaler,
-            "prophet_model": prophet,
+            "prophet_model": prophet_model,
             "feature_names": features
         }
     )
