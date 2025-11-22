@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 # Load Employee CSV
 # ------------------------------
 def load_data():
-    csv_path = r"Employee.csv" 
+    csv_path = r"C:\Users\finnd\OneDrive\Documents\FYP\FYP\Employee.csv" 
     data = pd.read_csv(csv_path)
     print("Dataset loaded successfully.")
     print(data.head())
