@@ -1,3 +1,7 @@
+#OLD MODEL.
+# This model was the original model. However it wouldnt fit in Lambda due to size constraints.
+# new model is MLModelLambda.py
+
 import os
 import joblib
 import numpy as np
