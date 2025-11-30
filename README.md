@@ -26,7 +26,7 @@ For the **prototype**, these two parts are not fully automated end-to-end. The s
 
 ---
 
-## 2. `MLModelLambda.py` – Offline ML Pipeline
+## 2. MLModelLambda.py – Offline ML Pipeline
 
 `MLModelLambda.py` implements a compact ML pipeline around the employee dataset. Its responsibilities are:
 - **Preprocessing**
