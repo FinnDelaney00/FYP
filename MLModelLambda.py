@@ -49,12 +49,9 @@ def load_data(csv_path=r"C:\Users\finnd\OneDrive\Documents\FYP\FYP\Employee.csv"
 # ==========================================
 def preprocess_for_ml(df):
     """
-    Prepare the dataframe for ML models.
+    Prepare the dataframe for ML models. Turns categorical columns into numeric columns
+    using Label Encoding, and standardises numeric features using StandardScaler.
 
-    Steps:
-    - Label-encode categorical columns.
-    - Split into features (X) and target (y = 'LeaveOrNot').
-    - Standardise features.
     """
     # Create a copy of the input DataFrame to avoid mutating the original
     df = df.copy()
@@ -67,9 +64,7 @@ def preprocess_for_ml(df):
     for col in categorical_cols:
         # Create a new LabelEncoder instance
         le = LabelEncoder()
-        # Fit the encoder to the column values and transform text labels into integers
         df[col] = le.fit_transform(df[col])
-        # Store the fitted encoder in the encoders dictionary under the column name
         encoders[col] = le
 
     # Separate features X by dropping the target column 'LeaveOrNot'
