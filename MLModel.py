@@ -30,16 +30,6 @@ except ImportError:
 def load_data(csv_path=r"C:\Users\finnd\OneDrive\Documents\FYP\FYP\Employee.csv"):
     """
     Load the employee dataset from a CSV file.
-
-    Parameters
-    ----------
-    csv_path : str
-        Full path to the CSV file containing the employee data.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        Loaded dataframe with all raw columns as stored in the CSV.
     """
     df = pd.read_csv(csv_path)
     # Basic logging to confirm size and get a quick glimpse of the data
