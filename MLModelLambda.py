@@ -9,38 +9,24 @@ Prototype ML pipeline for SmartStream:
 - Compact visualisation of key insights
 """
 
-# Import operating system utilities (for managing directories/paths)
 import os
-# Import joblib for serialising Python objects (models, scalers, etc.)
 import joblib
-# Import NumPy for numerical operations (arrays, sorting, etc.)
 import numpy as np
-# Import pandas for tabular data manipulation and loading CSVs
 import pandas as pd
-# Import Matplotlib for plotting graphs and dashboards
 import matplotlib.pyplot as plt
 
-# Import train_test_split to create train/test splits from the dataset
 from sklearn.model_selection import train_test_split
-# Import LabelEncoder to convert categorical text columns into numeric codes
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-# Import RandomForestClassifier for supervised classification
-# and IsolationForest for unsupervised anomaly detection
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
-# Import accuracy_score and classification_report for evaluation metrics
 from sklearn.metrics import accuracy_score, classification_report
 
-# Try importing Prophet from the modern package
 try:
-    # Prophet is used for time-series forecasting of headcount
     from prophet import Prophet
-# If that fails, try to fall back to the older fbprophet package
 except ImportError:
     try:
         from fbprophet import Prophet
-    # If both imports fail, set Prophet to None so we can error clearly later
     except ImportError:
-        Prophet = None  # Forecasting functions will raise if Prophet is not installed
+        Prophet = None
 
 
 # ==========================================
@@ -49,16 +35,6 @@ except ImportError:
 def load_data(csv_path=r"C:\Users\finnd\OneDrive\Documents\FYP\FYP\Employee.csv"):
     """
     Load the employee dataset from a CSV file.
-
-    Parameters
-    ----------
-    csv_path : str
-        Path to the CSV file.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        Dataframe with all raw employee records.
     """
     # Read the CSV file from disk into a pandas DataFrame
     df = pd.read_csv(csv_path)
@@ -79,32 +55,12 @@ def preprocess_for_ml(df):
     - Label-encode categorical columns.
     - Split into features (X) and target (y = 'LeaveOrNot').
     - Standardise features.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-
-    Returns
-    -------
-    X_scaled : numpy.ndarray
-        Scaled feature matrix.
-    y : pandas.Series
-        Target labels (0 = stay, 1 = leave).
-    encoders : dict
-        Mapping of column name -> fitted LabelEncoder.
-    scaler : StandardScaler
-        Fitted scaler for reusing on new data.
-    feature_names : list[str]
-        Names of feature columns.
-    df_encoded : pandas.DataFrame
-        Encoded dataframe (before scaling).
     """
     # Create a copy of the input DataFrame to avoid mutating the original
     df = df.copy()
 
     # Define the list of categorical columns that should be label-encoded
     categorical_cols = ["Education", "City", "Gender", "EverBenched", "PaymentTier"]
-    # Dictionary to store the LabelEncoder used for each categorical column
     encoders = {}
 
     # Iterate over each categorical column name
@@ -138,16 +94,7 @@ def preprocess_for_ml(df):
 # ==========================================
 def train_attrition_model(X_train, y_train):
     """
-    Train a Random Forest classifier to predict attrition.
-
-    Parameters
-    ----------
-    X_train : numpy.ndarray
-    y_train : array-like
-
-    Returns
-    -------
-    model : RandomForestClassifier
+    Train a Random Forest classifier to predict attrition(LeaveOrNot).
     """
     # Create a RandomForestClassifier with 200 trees,
     # fixed random_state for reproducibility, and n_jobs=-1 to use all cores
@@ -158,41 +105,23 @@ def train_attrition_model(X_train, y_train):
     )
     # Fit the classifier on the training data
     model.fit(X_train, y_train)
-    # Log that training has completed
     print("[CLASSIFIER] RandomForest trained.")
-    # Return the trained model
     return model
 
 
 def evaluate_attrition_model(model, X_test, y_test):
     """
     Evaluate classifier with accuracy + classification report.
-
-    Parameters
-    ----------
-    model : RandomForestClassifier
-    X_test : numpy.ndarray
-    y_test : array-like
-
-    Returns
-    -------
-    acc : float
-        Accuracy in [0, 1].
     """
     # Use the trained model to predict labels for the test features
     preds = model.predict(X_test)
-    # Compute accuracy score by comparing predictions to true labels
     acc = accuracy_score(y_test, preds)
 
-    # Print section header for classification evaluation output
     print("\n=== ATTRITION CLASSIFICATION ===")
-    # Print the accuracy as a percentage with two decimal places
     print(f"Accuracy: {acc * 100:.2f}%")
     # Print a detailed classification report (precision, recall, f1-score, support)
     print("\nClassification report:")
     print(classification_report(y_test, preds))
-
-    # Return the accuracy value to the caller
     return acc
 
 
@@ -202,47 +131,24 @@ def evaluate_attrition_model(model, X_test, y_test):
 def train_anomaly_detector(X_scaled):
     """
     Train an Isolation Forest to flag anomalous employees.
-
-    Parameters
-    ----------
-    X_scaled : numpy.ndarray
-
-    Returns
-    -------
-    model : IsolationForest
     """
     # Create an IsolationForest model to detect outliers in the feature space
     model = IsolationForest(
         n_estimators=200,   # number of trees used internally
-        contamination=0.02,  # expected proportion of anomalies (2%)
+        contamination=0.01,  # expected proportion of anomalies (2%)
         random_state=42     # random seed for reproducibility
     )
     # Fit the anomaly detector on the scaled feature matrix
     model.fit(X_scaled)
     # Log that the anomaly model has been trained
     print("[ANOMALY] IsolationForest trained.")
-    # Return the trained IsolationForest instance
     return model
 
 
 def label_anomalies(df, X_scaled, anomaly_model):
     """
     Label each record as normal or anomalous.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-    X_scaled : numpy.ndarray
-    anomaly_model : IsolationForest
-
-    Returns
-    -------
-    df_out : pandas.DataFrame
-        Dataframe with 'anomaly_label' and 'anomaly_score'.
-    n_anom : int
-        Number of anomalies detected.
     """
-    # Work on a copy of the dataframe to avoid changing the original
     df = df.copy()
     # Use the anomaly_model to predict anomaly labels:
     #   1  = normal point
@@ -252,7 +158,6 @@ def label_anomalies(df, X_scaled, anomaly_model):
     # lower scores indicate more anomalous points
     df["anomaly_score"] = anomaly_model.decision_function(X_scaled)
 
-    # Count how many rows have anomaly_label == -1
     n_anom = (df["anomaly_label"] == -1).sum()
     # Log the number of anomalies detected
     print(f"[ANOMALY] Total anomalies detected: {n_anom}")
@@ -266,25 +171,9 @@ def label_anomalies(df, X_scaled, anomaly_model):
 def build_headcount_time_series(df):
     """
     Build a monthly headcount time series from 'JoiningYear'.
-
-    Approach:
-    - Count hires per year.
-    - Take cumulative sum as approximate headcount.
-    - Upsample to monthly and linearly interpolate.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Must contain 'JoiningYear'.
-
-    Returns
-    -------
-    ts : pandas.DataFrame
-        Columns: 'ds' (datetime), 'y' (headcount).
     """
     # Ensure the dataset contains the JoiningYear column required for the time series
     if "JoiningYear" not in df.columns:
-        # If not present, raise a clear error message
         raise ValueError("Dataframe must contain 'JoiningYear' for forecasting.")
 
     # Group the data by JoiningYear and count how many employees joined each year
@@ -304,29 +193,19 @@ def build_headcount_time_series(df):
         yearly[["ds", "headcount"]]
         .set_index("ds")
         .resample("MS")           # 'MS' = month start frequency
-        .interpolate("linear")    # interpolate headcount between yearly points
+        .interpolate("linear")    #  headcount between yearly points
         .reset_index()
         .rename(columns={"headcount": "y"})  # Rename to 'y' for Prophet
     )
 
     # Log that the headcount time series is ready
     print("[FORECAST] Headcount time series built.")
-    # Return the time series DataFrame with 'ds' and 'y'
     return ts
 
 
 def train_forecast_model(ts):
     """
     Train a Prophet model on the headcount time series.
-
-    Parameters
-    ----------
-    ts : pandas.DataFrame
-        Columns: 'ds', 'y'.
-
-    Returns
-    -------
-    model : Prophet
     """
     # If Prophet is not available, raise a runtime error with instructions
     if Prophet is None:
@@ -338,7 +217,6 @@ def train_forecast_model(ts):
     model = Prophet(yearly_seasonality=True)
     # Fit the Prophet model on the provided time series
     model.fit(ts)
-    # Log that the forecasting model is trained
     print("[FORECAST] Prophet model trained.")
     # Return the trained Prophet model
     return model
@@ -347,19 +225,6 @@ def train_forecast_model(ts):
 def forecast_headcount(model, periods=6):
     """
     Forecast future headcount for a number of months.
-
-    Parameters
-    ----------
-    model : Prophet
-    periods : int
-        Number of months to forecast.
-
-    Returns
-    -------
-    forecast : pandas.DataFrame
-        Full forecast.
-    summary : pandas.DataFrame
-        Last `periods` rows with main forecast columns.
     """
     # Create a DataFrame of future dates extending the series by 'periods' months
     future = model.make_future_dataframe(periods=periods, freq="MS")
@@ -370,10 +235,7 @@ def forecast_headcount(model, periods=6):
 
     # Print a header for forecast summary output
     print("\n=== HEADCOUNT FORECAST (NEXT MONTHS) ===")
-    # Print the forecast summary (date, prediction, lower/upper bounds)
     print(summary)
-
-    # Return the full forecast and the short summary
     return forecast, summary
 
 
@@ -386,20 +248,6 @@ def plot_prototype_insights(df, feature_names, clf, acc, ts, forecast, n_anom):
     (1) Attrition counts.
     (2) Feature importance.
     (3) Historical vs forecast headcount.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Must contain 'LeaveOrNot'.
-    feature_names : list[str]
-    clf : RandomForestClassifier
-    acc : float
-    ts : pandas.DataFrame
-        Historical time series ('ds', 'y').
-    forecast : pandas.DataFrame
-        Full Prophet forecast.
-    n_anom : int
-        Number of anomalies detected.
     """
     # Extract feature importances from the trained RandomForest model
     importances = clf.feature_importances_
@@ -417,44 +265,30 @@ def plot_prototype_insights(df, feature_names, clf, acc, ts, forecast, n_anom):
 
     # (1) Plot bar chart of employees staying vs leaving
     df["LeaveOrNot"].value_counts().sort_index().plot(kind="bar", ax=ax1)
-    # Set the title including model accuracy and number of anomalies detected
     ax1.set_title(
         f"Stay vs Leave\nAcc: {acc*100:.1f}% | Anomalies: {n_anom}"
     )
-    # Label the x-axis to indicate which bar is stay/leave
     ax1.set_xlabel("0 = Stay, 1 = Leave")
-    # Label the y-axis as count of employees
     ax1.set_ylabel("Count")
 
     # (2) Plot horizontal bar chart of feature importances
     ax2.barh(sorted_features, sorted_importances)
-    # Set the title for feature importance panel
     ax2.set_title("Feature Importance (RandomForest)")
-    # Label the x-axis to show the importance metric
     ax2.set_xlabel("Importance")
 
     # (3) Headcount forecast: historical and predicted
-    # Plot historical headcount over time
     ax3.plot(ts["ds"], ts["y"], label="Historical headcount")
-
-    # Select the last 6 rows from the forecast as the future segment
     future_segment = forecast.tail(6)
-    # Plot the predicted headcount (yhat) as a dashed line
     ax3.plot(future_segment["ds"], future_segment["yhat"], "--", label="Forecast")
-    # Shade the area between prediction lower and upper bounds to show uncertainty
     ax3.fill_between(
         future_segment["ds"],
         future_segment["yhat_lower"],
         future_segment["yhat_upper"],
         alpha=0.2
     )
-    # Set title for the forecast panel
     ax3.set_title("Headcount Forecast (next 6 months)")
-    # Label the x-axis as date
     ax3.set_xlabel("Date")
-    # Label the y-axis as headcount
     ax3.set_ylabel("Headcount")
-    # Add a legend to distinguish historical vs forecast lines
     ax3.legend()
 
     # Adjust subplot layouts to prevent overlapping labels
@@ -462,37 +296,8 @@ def plot_prototype_insights(df, feature_names, clf, acc, ts, forecast, n_anom):
     # Render the figure on screen
     plt.show()
 
-
 # ==========================================
-# 7. SAVE ARTIFACTS
-# ==========================================
-def save_artifacts(path, models_dict):
-    """
-    Save trained models and artefacts to disk using joblib.
-
-    Parameters
-    ----------
-    path : str
-        Directory in which to store .pkl files.
-    models_dict : dict
-        Name -> Python object mapping.
-    """
-    # Create the output directory if it does not already exist
-    os.makedirs(path, exist_ok=True)
-
-    # Iterate over all (name, object) pairs in the models_dict
-    for name, obj in models_dict.items():
-        # Build a full file path with .pkl extension for each artifact
-        file_path = os.path.join(path, f"{name}.pkl")
-        # Serialise and save the object to disk using joblib
-        joblib.dump(obj, file_path)
-
-    # Log the directory where artifacts were saved
-    print(f"[SAVE] Artifacts saved to: {path}")
-
-
-# ==========================================
-# 8. MAIN ORCHESTRATION
+# 7. MAIN ORCHESTRATION
 # ==========================================
 def main():
     """
@@ -511,13 +316,13 @@ def main():
     # 2) Preprocess data: encode categoricals, scale features, and keep encoders/scaler
     X_scaled, y, encoders, scaler, features, df_encoded = preprocess_for_ml(df_raw)
 
-    # 3) Split the scaled data into training and test sets for the classifier
+    # 3) Split data into training and test sets for classification
     X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled,        # features
-        y,               # labels
-        test_size=0.2,   # 20% of rows for test set
-        random_state=42, # random seed for reproducibility
-        stratify=y       # preserve class distribution in train and test
+        X_scaled,        
+        y,               
+        test_size=0.2,   
+        random_state=42,
+        stratify=y       
     )
     # Train the RandomForest classifier on the training data
     clf = train_attrition_model(X_train, y_train)
@@ -547,21 +352,6 @@ def main():
         n_anom          # Number of anomalies detected
     )
 
-    # 7) Persist all critical artifacts to disk for later use
-    save_artifacts(
-        r"C:\Users\finnd\OneDrive\Documents\FYP\models",  # base directory for models
-        {
-            "attrition_model": clf,        # RandomForest classifier
-            "anomaly_model": anom_model,   # IsolationForest anomaly detector
-            "encoders": encoders,          # LabelEncoders for categorical fields
-            "scaler": scaler,              # StandardScaler for features
-            "feature_names": features,     # List of feature names
-            "prophet_model": prophet_model # Trained Prophet time-series model
-        }
-    )
 
-
-# Standard Python entry-point guard to run main() only when script is executed directly
 if __name__ == "__main__":
-    # Call the main function to run the entire pipeline
     main()
