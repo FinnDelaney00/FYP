@@ -2,8 +2,8 @@
 
 This README describes how the two main Python files in the prototype fit together:
 
-- `MLModelLambda.py` – offline ML pipeline used to train and evaluate models on the employee dataset. :contentReference[oaicite:0]{index=0}  
-- `LambdaCode.py` – AWS Lambda function that transforms raw change-data-capture (CDC) events from S3 into a clean “trusted” layer. :contentReference[oaicite:1]{index=1}  
+- `MLModelLambda.py` – offline ML pipeline used to train and evaluate models on the employee dataset. 
+- `LambdaCode.py` – AWS Lambda function that transforms raw change-data-capture (CDC) events from S3 into a clean “trusted” layer. 
 
 It also explains why the ML file had to be simplified due to Lambda time limits, why the Lambda code is designed to run **inside** AWS Lambda and not as a local script, and how most of the prototype wiring was done through the AWS Console.
 
@@ -16,11 +16,11 @@ The prototype SmartStream pipeline is split into two main parts:
 1. **Streaming / ETL path (online, serverless)**  
    - Source database → AWS DMS / Firehose → **S3 raw zone**  
    - S3 ObjectCreated event → **`LambdaCode.py` Lambda**  
-   - Lambda parses and normalises records → **S3 trusted zone (partitioned by ingest_date)** :contentReference[oaicite:2]{index=2}  
+   - Lambda parses and normalises records → **S3 trusted zone (partitioned by ingest_date)** 
 
 2. **Analytics / ML path (offline, batch)**  
    - Trusted data exported / mirrored to a local CSV (or equivalent dataset)  
-   - **`MLModelLambda.py`** is run locally to: preprocess, train a RandomForest, run anomaly detection, and perform a simple headcount forecast with Prophet. :contentReference[oaicite:3]{index=3}  
+   - **`MLModelLambda.py`** is run locally to: preprocess, train a RandomForest, run anomaly detection, and perform a simple headcount forecast with Prophet.
 
 For the **prototype**, these two parts are not fully automated end-to-end. The streaming side runs continuously in AWS Lambda and S3, while the ML side is executed manually on a local machine against a static snapshot of the data.
 
@@ -28,8 +28,7 @@ For the **prototype**, these two parts are not fully automated end-to-end. The s
 
 ## 2. `MLModelLambda.py` – Offline ML Pipeline
 
-`MLModelLambda.py` implements a compact ML pipeline around the employee dataset. Its responsibilities are: :contentReference[oaicite:4]{index=4}  
-
+`MLModelLambda.py` implements a compact ML pipeline around the employee dataset. Its responsibilities are:
 - **Preprocessing**
   - Encodes categorical columns (`Education`, `City`, `Gender`, `EverBenched`, `PaymentTier`) using `LabelEncoder`.
   - Standardises all features with `StandardScaler`.
