@@ -14,7 +14,6 @@ from lifelines import KaplanMeierFitter
 import shap
 
 # Prophet import
-# Try the modern 'prophet' package; if that fails, fall back to legacy 'fbprophet'
 try:
     from prophet import Prophet
 except ImportError:
@@ -57,26 +56,6 @@ def preprocess_for_ml(df):
     2. Label-encode categorical columns so models can handle them as integers.
     3. Split into features X and target y ('LeaveOrNot').
     4. Standardise all numeric features to zero mean and unit variance.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Original dataframe loaded from CSV.
-
-    Returns
-    -------
-    X_scaled : numpy.ndarray
-        Standardised feature matrix.
-    y : pandas.Series
-        Target vector indicating whether an employee leaves (1) or stays (0).
-    encoders : dict
-        Mapping of column name -> fitted LabelEncoder for inverse transforms later.
-    scaler : StandardScaler
-        Fitted scaler used for standardising new incoming data.
-    feature_names : list of str
-        List of feature column names in the order used to build X.
-    df_encoded : pandas.DataFrame
-        Copy of the dataframe after label encoding and before scaling.
     """
     df = df.copy()
 
@@ -107,18 +86,6 @@ def preprocess_for_ml(df):
 def train_attrition_model(X_train, y_train):
     """
     Train a Random Forest classifier to predict employee attrition.
-
-    Parameters
-    ----------
-    X_train : numpy.ndarray
-        Training features (scaled).
-    y_train : array-like
-        Training labels.
-
-    Returns
-    -------
-    model : RandomForestClassifier
-        Trained Random Forest model.
     """
     model = RandomForestClassifier(
         n_estimators=200,  # Number of trees in the forest (more trees = more stable predictions)
@@ -132,24 +99,6 @@ def train_attrition_model(X_train, y_train):
 def evaluate_attrition_model(model, X_test, y_test):
     """
     Evaluate the trained classifier on a hold-out test set.
-
-    Metrics:
-    - Accuracy score
-    - Full classification report (precision, recall, F1, support)
-
-    Parameters
-    ----------
-    model : RandomForestClassifier
-        Trained classifier.
-    X_test : numpy.ndarray
-        Test features (scaled).
-    y_test : array-like
-        True labels for the test set.
-
-    Returns
-    -------
-    acc : float
-        Accuracy of the model on the test set (0.0–1.0).
     """
     print("\n=== ATTRITION CLASSIFICATION ===")
     preds = model.predict(X_test)  # Discrete predictions for each employee
@@ -169,16 +118,6 @@ def train_anomaly_detector(X_scaled):
 
     Isolation Forest works by randomly partitioning the feature space and
     identifying points that are isolated in fewer splits (potential anomalies).
-
-    Parameters
-    ----------
-    X_scaled : numpy.ndarray
-        Standardised feature matrix.
-
-    Returns
-    -------
-    model : IsolationForest
-        Fitted anomaly detection model.
     """
     model = IsolationForest(
         n_estimators=200,     # Number of base estimators (trees)
@@ -192,22 +131,6 @@ def train_anomaly_detector(X_scaled):
 def label_anomalies(df, X_scaled, anomaly_model):
     """
     Use the trained Isolation Forest to label each record as normal or anomalous.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Dataframe with all encoded employee records.
-    X_scaled : numpy.ndarray
-        Feature matrix used by the anomaly model.
-    anomaly_model : IsolationForest
-        Trained Isolation Forest model.
-
-    Returns
-    -------
-    df_out : pandas.DataFrame
-        Copy of dataframe with new anomaly_label and anomaly_score columns.
-    n_anom : int
-        Total count of rows flagged as anomalies.
     """
     df = df.copy()
 
@@ -233,24 +156,6 @@ def label_anomalies(df, X_scaled, anomaly_model):
 def employee_clustering(X_scaled, df, n_clusters=3):
     """
     Cluster employees into groups using KMeans and compute attrition rate per cluster.
-
-    Parameters
-    ----------
-    X_scaled : numpy.ndarray
-        Standardised feature matrix.
-    df : pandas.DataFrame
-        Dataframe containing encoded employee data (including 'LeaveOrNot').
-    n_clusters : int, optional
-        Number of clusters to find.
-
-    Returns
-    -------
-    df_clustered : pandas.DataFrame
-        Dataframe with an extra 'cluster' column indicating cluster membership.
-    kmeans : KMeans
-        Fitted KMeans clustering model.
-    cluster_attrition : pandas.Series
-        Mean 'LeaveOrNot' value per cluster (approx attrition probability).
     """
     # n_init="auto" lets sklearn pick a sensible number of KMeans initialisations
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init="auto")
@@ -275,18 +180,6 @@ def compute_survival(df, current_year=2025):
 
     Tenure is computed as (current_year - JoiningYear), assuming all employees
     start in their joining year and 'LeaveOrNot' marks whether they have left.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Dataframe containing at least 'JoiningYear' and 'LeaveOrNot'.
-    current_year : int
-        The reference year used to compute tenure in years.
-
-    Returns
-    -------
-    survival_df : pandas.DataFrame
-        Dataframe containing timeline and survival probabilities (KM_estimate).
     """
     df = df.copy()
     # Approximate tenure in years
@@ -309,23 +202,6 @@ def compute_survival(df, current_year=2025):
 def build_time_series(df):
     """
     Build a monthly headcount time series for Prophet.
-
-    Steps:
-    1. Aggregate number of hires per 'JoiningYear'.
-    2. Compute a cumulative 'headcount' over years.
-    3. Convert yearly headcount into a monthly time series via interpolation.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Dataframe with at least 'JoiningYear'.
-
-    Returns
-    -------
-    ts : pandas.DataFrame
-        Time series dataframe with columns:
-            ds : datetime (monthly dates)
-            y  : headcount at each point in time
     """
     # Count how many employees joined each year
     yearly = (
@@ -357,16 +233,6 @@ def build_time_series(df):
 def train_forecast_model(ts):
     """
     Train a Prophet model on the headcount time series.
-
-    Parameters
-    ----------
-    ts : pandas.DataFrame
-        Dataframe with 'ds' (datetimes) and 'y' (headcount).
-
-    Returns
-    -------
-    model : Prophet
-        Fitted forecasting model.
     """
     model = Prophet(yearly_seasonality=True)  # Allow yearly patterns in the data
     model.fit(ts)
@@ -376,23 +242,6 @@ def train_forecast_model(ts):
 def forecast_growth(model, ts, months=6):
     """
     Use the Prophet model to forecast future headcount.
-
-    Parameters
-    ----------
-    model : Prophet
-        Trained Prophet model.
-    ts : pandas.DataFrame
-        Historical time series (used only to derive last timestamp).
-    months : int
-        Number of months to forecast into the future.
-
-    Returns
-    -------
-    forecast : pandas.DataFrame
-        Full Prophet forecast, including past and future data points.
-    summary : pandas.DataFrame
-        Last `months` rows with key forecast columns:
-            ds, yhat, yhat_lower, yhat_upper
     """
     # Create a future dataframe extending the timeline by the requested number of months
     future = model.make_future_dataframe(periods=months, freq="MS")
@@ -432,29 +281,6 @@ def plot_insights_dashboard(
     (4) Cluster-wise attrition: mean leave rate by KMeans cluster.
     (5) Kaplan–Meier survival curve: retention probability over tenure.
     (6) Forecast: historical vs predicted headcount with uncertainty bands.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Dataframe containing 'LeaveOrNot' and other features.
-    feature_names : list of str
-        Feature names in the order used by X_scaled.
-    clf : RandomForestClassifier
-        Trained classifier.
-    X_scaled : numpy.ndarray
-        Full scaled feature matrix used for training.
-    cluster_attrition : pandas.Series
-        Mean 'LeaveOrNot' per cluster.
-    survival_df : pandas.DataFrame
-        Kaplan–Meier survival function.
-    ts : pandas.DataFrame
-        Historical headcount time series (columns: 'ds', 'y').
-    forecast : pandas.DataFrame
-        Full Prophet forecast output.
-    acc : float
-        Accuracy of the classifier.
-    n_anom : int
-        Total count of anomalies detected.
     """
     # ---- Random Forest feature importance ----
     importances = clf.feature_importances_
@@ -541,31 +367,7 @@ def plot_insights_dashboard(
 
 
 # ==========================================
-# 9. SAVE ARTIFACTS
-# ==========================================
-def save_artifacts(path, models_dict):
-    """
-    Serialise and save all trained models and artefacts to disk using joblib.
-
-    Parameters
-    ----------
-    path : str
-        Directory path where all .pkl files will be stored.
-    models_dict : dict
-        Mapping of name -> Python object (model, scaler, encoders, feature list, etc.).
-        Each object will be saved as '<name>.pkl' in the given directory.
-    """
-    # Create directory if it does not exist
-    os.makedirs(path, exist_ok=True)
-
-    # Persist each object for reuse in deployment / dashboards / APIs
-    for name, obj in models_dict.items():
-        joblib.dump(obj, os.path.join(path, f"{name}.pkl"))
-    print(f"\nSaved all artifacts to: {path}")
-
-
-# ==========================================
-# 10. MAIN
+# 9. MAIN
 # ==========================================
 def main():
     """
@@ -627,22 +429,7 @@ def main():
         n_anom
     )
 
-    # 9) Save all key artefacts for later reuse (e.g., dashboard, API, or batch jobs)
-    save_artifacts(
-        r"C:\Users\finnd\OneDrive\Documents\FYP\models",
-        {
-            "attrition_model": clf,
-            "anomaly_model": anom_model,
-            "kmeans_model": kmeans,
-            "encoders": encoders,
-            "scaler": scaler,
-            "prophet_model": prophet_model,
-            "feature_names": features
-        }
-    )
 
 
 if __name__ == "__main__":
-    # Only run the full pipeline when the script is executed directly.
-    # This guard allows the functions to be imported elsewhere without side effects.
     main()
