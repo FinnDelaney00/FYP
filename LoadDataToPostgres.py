@@ -1,7 +1,7 @@
 import pandas as pd
 import psycopg2
 
-# === Update these with your RDS details ===
+# === RDS Details ===
 db_config = {
     "host": "database-1-instance-1.c5s2wqw6wv7h.eu-north-1.rds.amazonaws.com",
     "dbname": "postgres",
@@ -10,7 +10,7 @@ db_config = {
     "port": 5432
 }
 
-# Path to your CSV file
+# Path to CSV file
 csv_file = r"C:\Users\finnd\OneDrive\Documents\FYP\Oracle\Employee.csv"
 
 # Load CSV into a DataFrame
@@ -44,3 +44,4 @@ cur.close()
 conn.close()
 
 print("Employee data loaded successfully into RDS!")
+
