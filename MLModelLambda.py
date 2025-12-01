@@ -1,3 +1,4 @@
+#This code is largely Ai generated based on user prompts and instructions.
 """
 MLModelLambda.py
 
@@ -72,9 +73,8 @@ def preprocess_for_ml(df):
     # Extract the target y as the 'LeaveOrNot' column
     y = df["LeaveOrNot"]
 
-    # Create a StandardScaler instance to standardise numeric features
+    # Standardise features using so models are not biased by feature scale
     scaler = StandardScaler()
-    # Fit the scaler on all features and transform them into a scaled NumPy array
     X_scaled = scaler.fit_transform(X)
 
     # Log to indicate that preprocessing is complete
@@ -87,6 +87,7 @@ def preprocess_for_ml(df):
 # ==========================================
 # 3. ATTRITION CLASSIFICATION
 # ==========================================
+# AI Prompt: "Train a Random Forest classifier to predict whether an employee will leave."
 def train_attrition_model(X_train, y_train):
     """
     Train a Random Forest classifier to predict attrition(LeaveOrNot).
@@ -123,6 +124,7 @@ def evaluate_attrition_model(model, X_test, y_test):
 # ==========================================
 # 4. ANOMALY DETECTION
 # ==========================================
+# AI Prompt: "Train an Isolation Forest to flag anomalous employees based on feature space."
 def train_anomaly_detector(X_scaled):
     """
     Train an Isolation Forest to flag anomalous employees.
@@ -161,8 +163,9 @@ def label_anomalies(df, X_scaled, anomaly_model):
 
 
 # ==========================================
-# 5. SIMPLE FORECASTING (HEADCOUNT)
+# 5. SIMPLE FORECASTING 
 # ==========================================
+# AI Prompt: "Create a simple headcount time series based on 'JoiningYear' and forecast future headcount using Prophet."
 def build_headcount_time_series(df):
     """
     Build a monthly headcount time series from 'JoiningYear'.
