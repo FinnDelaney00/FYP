@@ -7,6 +7,7 @@ variable "aws_region" {
 variable "project" {
   type        = string
   description = "Project name (used for naming)"
+  default     = "SmartStream"
 }
 
 variable "env" {
@@ -18,11 +19,41 @@ variable "env" {
 variable "owner" {
   type        = string
   description = "Owner tag value"
-  default     = "finn"
+  default     = "C22392083"
 }
 
-variable "first_bucket_name" {
+variable "rds_endpoint" {
+  description = "The endpoint of the RDS instance"
   type        = string
-  description = "Name of the S3 bucket"
-  default     = "firsttfbucketest"
+}
+
+variable "db_name" {
+  description = "The name of the database"
+  type        = string
+}
+
+variable "db_user" {
+  description = "The database username"
+  type        = string
+}
+
+variable "kinesis_stream_arn" {
+  description = "The ARN of the Kinesis stream"
+  type        = string
+}
+
+variable "dms_subnet_ids" {
+  description = "List of subnet IDs for DMS"
+  type        = list(string)
+}
+
+variable "dms_security_group_id" {
+  description = "Security group ID for DMS"
+  type        = string
+}
+
+variable "db_password" {
+  description = "The database password"
+  type        = string
+  sensitive   = true
 }
