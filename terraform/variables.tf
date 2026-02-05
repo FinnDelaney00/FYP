@@ -24,5 +24,5 @@ variable "owner" {
 variable "first_bucket_name" {
   type        = string
   description = "Name of the S3 bucket"
-  default     = "FirstTFbucketTest"
+  default     = "firsttfbucketest"
 }

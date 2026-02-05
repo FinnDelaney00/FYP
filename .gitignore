@@ -15,3 +15,6 @@ pnpm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+LICENSE.txt
+terraform-provider-aws_v5.100.0_x5.exe
