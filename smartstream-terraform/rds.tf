@@ -1,8 +1,13 @@
 # RDS PostgreSQL instance (source database)
 resource "aws_db_instance" "main" {
-  identifier     = "${local.name_prefix}-postgres"
-  engine         = "postgres"
-  engine_version = "15.4"
+  identifier = "${local.name_prefix}-postgres"
+  engine     = "postgres"
+
+  # Let AWS pick a supported engine version in the region.
+  # This avoids errors like "Cannot find version 15.4" and keeps things portable.
+  # The parameter group family below is set to postgres17 to match the default you’re seeing.
+  # If your account/region later defaults to a different major version, update the family to match.
+  # engine_version = "17.x" # Optional: pin AFTER verifying availability
 
   instance_class    = var.rds_instance_class
   allocated_storage = var.rds_allocated_storage
@@ -33,8 +38,7 @@ resource "aws_db_instance" "main" {
   deletion_protection = false
   skip_final_snapshot = true
 
-  # Required for DMS CDC
-  # Enable logical replication for change data capture
+  # Required for DMS CDC (logical replication)
   parameter_group_name = aws_db_parameter_group.postgres_cdc.name
 
   tags = merge(local.common_tags, {
@@ -45,18 +49,24 @@ resource "aws_db_instance" "main" {
 # Parameter group for PostgreSQL with CDC enabled
 resource "aws_db_parameter_group" "postgres_cdc" {
   name_prefix = "${local.name_prefix}-postgres-cdc-"
-  family      = "postgres15"
+
+  # MUST match the major version of the DB instance.
+  # Your error indicates the instance is running Postgres 17, so the family must be postgres17.
+  family      = "postgres17"
   description = "PostgreSQL parameter group with logical replication enabled for DMS CDC"
 
-  # Enable logical replication for DMS CDC
+  # Enable logical replication for DMS CDC (RDS parameter)
   parameter {
-    name  = "rds.logical_replication"
-    value = "1"
+    name         = "rds.logical_replication"
+    value        = "1"
+    apply_method = "pending-reboot"
   }
 
+  # Disable timeout for CDC connections
   parameter {
-    name  = "wal_sender_timeout"
-    value = "0" # Disable timeout for CDC connections
+    name         = "wal_sender_timeout"
+    value        = "0"
+    apply_method = "pending-reboot"
   }
 
   tags = merge(local.common_tags, {

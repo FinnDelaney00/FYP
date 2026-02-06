@@ -1,10 +1,9 @@
 # DMS Replication Instance
 resource "aws_dms_replication_instance" "main" {
   replication_instance_id   = "${local.name_prefix}-replication-instance"
-  replication_instance_class = "dms.t3.micro" # Cost-conscious default
+  replication_instance_class = "dms.t3.small" # Cost-conscious default
   
   allocated_storage = 20
-  engine_version    = "3.5.2"
 
   # Networking
   replication_subnet_group_id = aws_dms_replication_subnet_group.main.id
@@ -24,6 +23,8 @@ resource "aws_dms_endpoint" "source" {
   endpoint_id   = "${local.name_prefix}-source-postgres"
   endpoint_type = "source"
   engine_name   = "postgres"
+
+  database_name = var.db_name
 
   # Use Secrets Manager for credentials
   secrets_manager_access_role_arn = aws_iam_role.dms_secrets_access.arn

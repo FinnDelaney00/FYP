@@ -111,11 +111,24 @@ resource "aws_cloudwatch_composite_alarm" "pipeline_health" {
   tags = local.common_tags
 }
 
-# Metric filter for DMS task failures (example)
+# Create the DMS task log group explicitly so metric filters can be created reliably
+resource "aws_cloudwatch_log_group" "dms_task" {
+  name              = "/aws/dms/tasks/${aws_dms_replication_task.cdc_task.replication_task_id}"
+  retention_in_days = 14
+
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-dms-task-log-group"
+  })
+}
+
+# Metric filter for DMS task errors
 resource "aws_cloudwatch_log_metric_filter" "dms_task_errors" {
   name           = "${local.name_prefix}-dms-task-errors"
-  log_group_name = "/aws/dms/tasks/${aws_dms_replication_task.cdc_task.replication_task_id}"
-  pattern        = "[time, request_id, event_type = ERROR*, ...]"
+  log_group_name = aws_cloudwatch_log_group.dms_task.name
+
+  # Use a generic pattern unless you know the exact DMS log format.
+  # This triggers on any line containing ERROR, Error, or FATAL.
+  pattern = "?ERROR ?Error ?FATAL"
 
   metric_transformation {
     name      = "DMSTaskErrors"
@@ -123,7 +136,10 @@ resource "aws_cloudwatch_log_metric_filter" "dms_task_errors" {
     value     = "1"
     unit      = "Count"
   }
+
+  depends_on = [aws_cloudwatch_log_group.dms_task]
 }
+
 
 # Additional log groups for DMS
 resource "aws_cloudwatch_log_group" "dms_tasks" {

@@ -13,8 +13,8 @@ resource "aws_kinesis_firehose_delivery_stream" "s3_delivery" {
   extended_s3_configuration {
     role_arn   = aws_iam_role.firehose.arn
     bucket_arn = aws_s3_bucket.data_lake.arn
-    prefix     = "${local.s3_raw_prefix}year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/"
-    error_output_prefix = "errors/firehose/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/"
+    prefix = "raw/!{timestamp:yyyy/MM/dd/HH}/"
+    error_output_prefix = "raw-errors/!{firehose:error-output-type}/!{timestamp:yyyy/MM/dd/HH}/"
 
     # Buffering configuration (low-latency defaults)
     buffering_interval = var.firehose_buffer_interval_seconds
