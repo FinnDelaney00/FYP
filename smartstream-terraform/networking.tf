@@ -116,14 +116,6 @@ resource "aws_security_group" "rds" {
   description = "Security group for RDS PostgreSQL"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description     = "PostgreSQL from DMS"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.dms.id]
-  }
-
   egress {
     description = "Allow all outbound"
     from_port   = 0
@@ -135,6 +127,16 @@ resource "aws_security_group" "rds" {
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-rds-sg"
   })
+}
+
+resource "aws_security_group_rule" "rds_from_dms" {
+  type                     = "ingress"
+  description              = "PostgreSQL from DMS"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.rds.id
+  source_security_group_id = aws_security_group.dms.id
 }
 
 # Security group for DMS replication instance
@@ -200,7 +202,7 @@ locals {
 # DB subnet group for RDS
 resource "aws_db_subnet_group" "main" {
   name       = "${local.name_prefix}-db-subnet-group"
-  subnet_ids = aws_subnet.private[*].id
+  subnet_ids = aws_subnet.public[*].id
 
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-db-subnet-group"

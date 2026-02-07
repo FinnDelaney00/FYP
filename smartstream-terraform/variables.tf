@@ -33,7 +33,7 @@ variable "db_password" {
   description = "RDS master password (will be stored in Secrets Manager)"
   type        = string
   sensitive   = true
-  default     = null # Will be auto-generated if not provided
+  default     = "Cooperdel1234{}" #SmartstreamDev_2026!
 }
 
 variable "kinesis_shards" {

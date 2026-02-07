@@ -58,7 +58,7 @@ resource "aws_dms_endpoint" "target_kinesis" {
     include_transaction_details = true
     include_partition_value     = true
     include_table_alter_operations = true
-    include_control_details     = true
+    include_control_details     = false
   }
 
   tags = merge(local.common_tags, {
@@ -89,6 +89,46 @@ resource "aws_dms_replication_task" "cdc_task" {
           table-name  = "%"
         }
         rule-action = "include"
+      },
+      {
+        rule-type = "selection"
+        rule-id   = "2"
+        rule-name = "exclude-dms-status-table"
+        object-locator = {
+          schema-name = "public"
+          table-name  = "awsdms_status"
+        }
+        rule-action = "exclude"
+      },
+      {
+        rule-type = "selection"
+        rule-id   = "3"
+        rule-name = "exclude-dms-history-table"
+        object-locator = {
+          schema-name = "public"
+          table-name  = "awsdms_history"
+        }
+        rule-action = "exclude"
+      },
+      {
+        rule-type = "selection"
+        rule-id   = "4"
+        rule-name = "exclude-dms-apply-exceptions"
+        object-locator = {
+          schema-name = "public"
+          table-name  = "awsdms_apply_exceptions"
+        }
+        rule-action = "exclude"
+      },
+      {
+        rule-type = "selection"
+        rule-id   = "5"
+        rule-name = "exclude-dms-suspended-tables"
+        object-locator = {
+          schema-name = "public"
+          table-name  = "awsdms_suspended_tables"
+        }
+        rule-action = "exclude"
       }
     ]
   })
