@@ -55,9 +55,9 @@ resource "aws_dms_endpoint" "target_kinesis" {
     message_format       = "json-unformatted"
     
     # Include transaction details in messages
-    include_transaction_details = true
-    include_partition_value     = true
-    include_table_alter_operations = true
+    include_transaction_details = false
+    include_partition_value     = false
+    include_table_alter_operations = false
     include_control_details     = false
   }
 
@@ -163,9 +163,9 @@ resource "aws_dms_replication_task" "cdc_task" {
     ControlTablesSettings = {
       ControlSchema                = ""
       HistoryTimeslotInMinutes     = 5
-      HistoryTableEnabled          = true
-      SuspendedTablesTableEnabled  = true
-      StatusTableEnabled           = true
+      HistoryTableEnabled          = false
+      SuspendedTablesTableEnabled  = false
+      StatusTableEnabled           = false
     }
     ChangeProcessingDdlHandlingPolicy = {
       HandleSourceTableDropped   = true
@@ -186,7 +186,7 @@ resource "aws_dms_replication_task" "cdc_task" {
   })
 
   # Start replication task automatically
-  start_replication_task = false # Set to true to auto-start after apply
+  start_replication_task = true # Set to true to auto-start after apply
 
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-cdc-replication-task"

@@ -2,12 +2,328 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>Interactive Analytics Dashboard</title>
+    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <div class="bg-layer" aria-hidden="true">
+      <span class="orb orb-a"></span>
+      <span class="orb orb-b"></span>
+      <span class="orb orb-c"></span>
+    </div>
+
+    <section id="login-view" class="view view-active" aria-label="Login view">
+      <div class="login-shell">
+        <div class="login-brand">
+          <span class="brand-mark">AI</span>
+          <div>
+            <p class="brand-eyebrow">SmartStream Platform</p>
+            <h1>Interactive Analytics Dashboard</h1>
+          </div>
+        </div>
+
+        <form id="login-form" class="login-card" novalidate>
+          <h2>Sign in</h2>
+          <p>Access employee and financial analytics in one workspace.</p>
+
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" placeholder="name@company.com" required />
+
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" placeholder="Enter password" required />
+
+          <button type="submit">Enter Dashboard</button>
+          <p id="login-error" class="form-error" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+
+    <section id="workspace-view" class="view" aria-label="Dashboard view">
+      <aside id="sidebar" class="sidebar" aria-label="Primary navigation">
+        <div class="sidebar-head">
+          <span class="brand-mark">AI</span>
+          <div>
+            <h2>Analytics</h2>
+            <p>Company Insights</p>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-link is-active" data-page-target="dashboard">Dashboard</button>
+          <button class="nav-link" data-page-target="create-graph">Create Graphs</button>
+          <button class="nav-link" data-page-target="query">Query Data</button>
+          <button class="nav-link" data-page-target="anomalies">Anomalies</button>
+          <button class="nav-link" data-page-target="forecasts">Forecasts</button>
+        </nav>
+
+        <button id="logout-btn" class="logout-btn" type="button">Log out</button>
+      </aside>
+
+      <div class="workspace-main">
+        <header class="topbar">
+          <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle menu">Menu</button>
+          <div>
+            <h1 id="page-title">Dashboard Overview</h1>
+            <p id="page-subtitle">Real-time analytics and insights for your organization</p>
+          </div>
+          <div class="status-pill">Live Data</div>
+        </header>
+
+        <main class="page-shell">
+          <section class="page page-active" data-page="dashboard">
+            <div class="metrics-grid">
+              <article class="metric-card metric-blue">
+                <h3>Total Employees</h3>
+                <strong>178</strong>
+                <p>+6 from last month</p>
+              </article>
+              <article class="metric-card metric-violet">
+                <h3>Revenue</h3>
+                <strong>$67,000</strong>
+                <p>+15.5% from last month</p>
+              </article>
+              <article class="metric-card metric-rose">
+                <h3>Growth Rate</h3>
+                <strong>+12.3%</strong>
+                <p>Compared to last quarter</p>
+              </article>
+              <article class="metric-card metric-teal">
+                <h3>Productivity</h3>
+                <strong>93%</strong>
+                <p>+2% from last week</p>
+              </article>
+            </div>
+
+            <div class="panel-grid two-up">
+              <article class="panel chart-panel">
+                <header>
+                  <h3>Revenue vs Expenses</h3>
+                  <p>Monthly financial overview</p>
+                </header>
+                <div class="bar-compare">
+                  <div class="month-row"><span>Jan</span><div class="track"><i style="--v:67"></i></div><div class="track alt"><i style="--v:48"></i></div></div>
+                  <div class="month-row"><span>Feb</span><div class="track"><i style="--v:78"></i></div><div class="track alt"><i style="--v:53"></i></div></div>
+                  <div class="month-row"><span>Mar</span><div class="track"><i style="--v:72"></i></div><div class="track alt"><i style="--v:50"></i></div></div>
+                  <div class="month-row"><span>Apr</span><div class="track"><i style="--v:90"></i></div><div class="track alt"><i style="--v:58"></i></div></div>
+                  <div class="month-row"><span>May</span><div class="track"><i style="--v:86"></i></div><div class="track alt"><i style="--v:54"></i></div></div>
+                  <div class="month-row"><span>Jun</span><div class="track"><i style="--v:98"></i></div><div class="track alt"><i style="--v:63"></i></div></div>
+                </div>
+                <div class="chart-legend"><span><i class="dot rev"></i>Revenue</span><span><i class="dot exp"></i>Expenses</span></div>
+              </article>
+
+              <article class="panel chart-panel">
+                <header>
+                  <h3>Employee Growth</h3>
+                  <p>Total headcount over time</p>
+                </header>
+                <div class="line-chart-wrap">
+                  <svg viewBox="0 0 520 220" preserveAspectRatio="none" aria-label="Employee growth line chart">
+                    <polyline class="line-fill" points="20,190 95,165 170,175 245,130 320,114 395,92 470,70 470,220 20,220" />
+                    <polyline class="line-stroke" points="20,190 95,165 170,175 245,130 320,114 395,92 470,70" />
+                  </svg>
+                  <div class="x-axis"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div>
+                </div>
+              </article>
+
+              <article class="panel chart-panel">
+                <header>
+                  <h3>Department Distribution</h3>
+                  <p>Employees by department</p>
+                </header>
+                <div class="donut-wrap">
+                  <div class="donut" aria-hidden="true"></div>
+                  <ul>
+                    <li><span class="dot eng"></span>Engineering (36%)</li>
+                    <li><span class="dot sales"></span>Sales (25%)</li>
+                    <li><span class="dot mark"></span>Marketing (17%)</li>
+                    <li><span class="dot hr"></span>HR (11%)</li>
+                    <li><span class="dot ops"></span>Operations (11%)</li>
+                  </ul>
+                </div>
+              </article>
+
+              <article class="panel chart-panel">
+                <header>
+                  <h3>Weekly Productivity</h3>
+                  <p>Team productivity metrics</p>
+                </header>
+                <div class="vertical-bars">
+                  <div><i style="--h:84"></i><span>W1</span></div>
+                  <div><i style="--h:88"></i><span>W2</span></div>
+                  <div><i style="--h:82"></i><span>W3</span></div>
+                  <div><i style="--h:91"></i><span>W4</span></div>
+                  <div><i style="--h:87"></i><span>W5</span></div>
+                  <div><i style="--h:93"></i><span>W6</span></div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="page" data-page="create-graph">
+            <div class="panel-grid">
+              <article class="panel">
+                <header>
+                  <h3>Create Custom Graph</h3>
+                  <p>Build chart views from your latest data</p>
+                </header>
+                <form class="inline-form" onsubmit="return false;">
+                  <label>Graph type
+                    <select>
+                      <option>Line Chart</option>
+                      <option>Bar Chart</option>
+                      <option>Area Chart</option>
+                    </select>
+                  </label>
+                  <label>Primary metric
+                    <select>
+                      <option>Revenue</option>
+                      <option>Expenses</option>
+                      <option>Employee Count</option>
+                    </select>
+                  </label>
+                  <label>Time window
+                    <select>
+                      <option>Last 6 months</option>
+                      <option>Last 12 months</option>
+                      <option>Year to date</option>
+                    </select>
+                  </label>
+                  <button type="button" class="action">Generate Preview</button>
+                </form>
+              </article>
+
+              <article class="panel">
+                <header>
+                  <h3>Graph Preview</h3>
+                  <p>Live preview of selected settings</p>
+                </header>
+                <div class="preview-grid">
+                  <div class="preview-line"></div>
+                  <div class="preview-line"></div>
+                  <div class="preview-line"></div>
+                  <div class="preview-line"></div>
+                </div>
+                <p class="muted-note">Tip: You can export generated charts as PNG or SVG in your next backend integration step.</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="page" data-page="query">
+            <div class="panel-grid">
+              <article class="panel">
+                <header>
+                  <h3>Query Data</h3>
+                  <p>Run ad-hoc queries against your analytics dataset</p>
+                </header>
+                <label class="query-label" for="query-input">SQL query</label>
+                <textarea id="query-input" rows="6">SELECT department, AVG(performance_score) AS avg_score
+FROM employee_metrics
+WHERE review_month >= '2025-10-01'
+GROUP BY department
+ORDER BY avg_score DESC;</textarea>
+                <button class="action" type="button">Run Query</button>
+              </article>
+
+              <article class="panel">
+                <header>
+                  <h3>Query Results</h3>
+                  <p>Last executed sample output</p>
+                </header>
+                <table class="results-table">
+                  <thead>
+                    <tr><th>Department</th><th>Avg. Score</th><th>Trend</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Engineering</td><td>92.3</td><td>Up</td></tr>
+                    <tr><td>Operations</td><td>89.4</td><td>Up</td></tr>
+                    <tr><td>Sales</td><td>87.8</td><td>Stable</td></tr>
+                    <tr><td>Marketing</td><td>84.9</td><td>Down</td></tr>
+                  </tbody>
+                </table>
+              </article>
+            </div>
+          </section>
+
+          <section class="page" data-page="anomalies">
+            <div class="metrics-grid anomalies-summary">
+              <article class="metric-card metric-danger"><h3>High Priority</h3><strong>2</strong><p>Immediate review needed</p></article>
+              <article class="metric-card metric-warn"><h3>Medium Priority</h3><strong>2</strong><p>Monitor closely</p></article>
+              <article class="metric-card metric-info"><h3>Low Priority</h3><strong>1</strong><p>Track over time</p></article>
+            </div>
+
+            <article class="panel">
+              <header>
+                <h3>Recent Anomalies</h3>
+                <p>Automated detection feed</p>
+              </header>
+              <div class="anomaly-list">
+                <div class="anomaly-item high">
+                  <div>
+                    <h4>Unusual Expense Spike</h4>
+                    <p>Marketing expenses increased by 145% versus rolling average.</p>
+                  </div>
+                  <span>Investigating</span>
+                </div>
+                <div class="anomaly-item medium">
+                  <div>
+                    <h4>Productivity Drop</h4>
+                    <p>Engineering productivity decreased by 18% during the previous week.</p>
+                  </div>
+                  <span>New</span>
+                </div>
+                <div class="anomaly-item high">
+                  <div>
+                    <h4>Turnover Risk</h4>
+                    <p>Increased resignation requests in sales across the latest sprint.</p>
+                  </div>
+                  <span>Investigating</span>
+                </div>
+                <div class="anomaly-item low">
+                  <div>
+                    <h4>Revenue Pattern Change</h4>
+                    <p>Revenue seasonality deviates from expected historical profile.</p>
+                  </div>
+                  <span>Resolved</span>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="page" data-page="forecasts">
+            <div class="panel-grid two-up">
+              <article class="panel">
+                <header>
+                  <h3>Revenue Forecast</h3>
+                  <p>Predicted next 6 months</p>
+                </header>
+                <div class="forecast-list">
+                  <div><span>Jul</span><b>$71,200</b></div>
+                  <div><span>Aug</span><b>$73,900</b></div>
+                  <div><span>Sep</span><b>$76,300</b></div>
+                  <div><span>Oct</span><b>$78,800</b></div>
+                  <div><span>Nov</span><b>$81,100</b></div>
+                  <div><span>Dec</span><b>$84,000</b></div>
+                </div>
+              </article>
+
+              <article class="panel">
+                <header>
+                  <h3>Headcount Forecast</h3>
+                  <p>Hiring and attrition estimate</p>
+                </header>
+                <div class="forecast-bars">
+                  <div><label>Hiring</label><i style="--w:68"></i><span>+22</span></div>
+                  <div><label>Attrition</label><i style="--w:24"></i><span>-8</span></div>
+                  <div><label>Net Growth</label><i style="--w:44"></i><span>+14</span></div>
+                </div>
+              </article>
+            </div>
+          </section>
+        </main>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.js"></script>
   </body>
 </html>
