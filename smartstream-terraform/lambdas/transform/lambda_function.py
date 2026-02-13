@@ -4,22 +4,31 @@ Lambda function to transform data from S3 raw zone to trusted zone.
 This function:
 1. Reads raw data files from S3 (triggered by S3 events)
 2. Filters out DMS control/heartbeat records (awsdms_*)
-3. Keeps only "employees" table events
+3. Routes finance and employees records by schema/table
 4. Unwraps DMS envelope -> writes ONLY row fields to trusted zone
 5. Removes duplicates and null/empty fields
 6. Standardizes timestamp formats
-7. Writes cleaned data to S3 trusted zone with deterministic keys
+7. Writes cleaned data to S3 trusted zone with deterministic keys:
+   - trusted/employees/<table>/...
+   - trusted/finance/<table>/...
 """
 
 import json
 import boto3
 import gzip
 import hashlib
+import os
 from datetime import datetime, timezone
 from urllib.parse import unquote_plus
 from io import BytesIO
 
 s3_client = boto3.client("s3")
+FINANCE_SCHEMA_NAME = os.environ.get("FINANCE_SCHEMA_NAME", "finance").lower()
+FINANCE_TABLE_LIST = {
+    t.strip().lower()
+    for t in os.environ.get("FINANCE_TABLE_LIST", "transactions,accounts").split(",")
+    if t.strip()
+}
 
 
 def lambda_handler(event, context):
@@ -51,17 +60,17 @@ def lambda_handler(event, context):
                 continue
 
             raw_data = read_s3_object(bucket, key)
-            transformed_data = transform_data(raw_data, source_key=key)
+            transformed_groups = transform_data(raw_data, source_key=key)
 
             # If nothing survived filtering, don't write empty trusted objects
-            if not transformed_data.strip():
+            if not transformed_groups:
                 print(f"No valid records after transform. Skipping write for: {key}")
                 continue
 
-            trusted_key = generate_trusted_key(key)
-            write_to_trusted(bucket, trusted_key, transformed_data)
-
-            print(f"Successfully transformed: {key} -> {trusted_key}")
+            for route_key, transformed_data in transformed_groups.items():
+                trusted_key = generate_trusted_key(key, route_key)
+                write_to_trusted(bucket, trusted_key, transformed_data)
+                print(f"Successfully transformed: {key} -> {trusted_key}")
 
         return {"statusCode": 200, "body": json.dumps("Transformation completed successfully")}
 
@@ -93,8 +102,8 @@ def transform_data(raw_data, source_key):
     }
     """
     lines = raw_data.strip().split("\n")
-    records = []
-    seen_hashes = set()
+    grouped_records = {}
+    grouped_hashes = {}
 
     for line_num, line in enumerate(lines, 1):
         if not line.strip():
@@ -107,13 +116,20 @@ def transform_data(raw_data, source_key):
             if isinstance(record, dict) and "metadata" in record and "data" in record:
                 meta = record.get("metadata") or {}
                 table_name = (meta.get("table-name") or "").lower()
+                schema_name = (meta.get("schema-name") or "").lower()
 
                 # 1) Drop DMS internal control/heartbeat tables (awsdms_status, etc.)
                 if table_name.startswith("awsdms_"):
                     continue
 
-                # 2) Keep only employees table
-                if table_name != "employees":
+                # 2) Route recognized datasets only
+                if schema_name == FINANCE_SCHEMA_NAME:
+                    if FINANCE_TABLE_LIST and table_name not in FINANCE_TABLE_LIST:
+                        continue
+                    domain = "finance"
+                elif schema_name in {"public", ""} and table_name == "employees":
+                    domain = "employees"
+                else:
                     continue
 
                 # 3) Keep ONLY the row fields
@@ -121,6 +137,8 @@ def transform_data(raw_data, source_key):
             else:
                 # If a plain row ever arrives, accept it as-is
                 cleaned_record = record
+                table_name = "employees"
+                domain = "employees"
 
             if not isinstance(cleaned_record, dict):
                 continue
@@ -134,13 +152,18 @@ def transform_data(raw_data, source_key):
             # Standardize timestamps on common fields (including updated_at)
             cleaned_record = standardize_timestamps(cleaned_record)
 
-            # Deduplicate by content hash
+            # Deduplicate by content hash per route
+            route_key = f"{domain}/{table_name or 'unknown'}"
+            if route_key not in grouped_records:
+                grouped_records[route_key] = []
+                grouped_hashes[route_key] = set()
+
             record_hash = hashlib.md5(json.dumps(cleaned_record, sort_keys=True).encode()).hexdigest()
-            if record_hash in seen_hashes:
+            if record_hash in grouped_hashes[route_key]:
                 continue
 
-            seen_hashes.add(record_hash)
-            records.append(cleaned_record)
+            grouped_hashes[route_key].add(record_hash)
+            grouped_records[route_key].append(cleaned_record)
 
         except json.JSONDecodeError as e:
             print(f"Line {line_num}: Invalid JSON - {str(e)}")
@@ -149,10 +172,16 @@ def transform_data(raw_data, source_key):
             print(f"Line {line_num}: Error transforming record - {str(e)}")
             continue
 
-    print(f"Transformed {len(records)} records from {source_key}")
+    transformed_groups = {
+        route_key: "\n".join(json.dumps(r) for r in records)
+        for route_key, records in grouped_records.items()
+        if records
+    }
+    total_records = sum(len(records) for records in grouped_records.values())
+    print(f"Transformed {total_records} records from {source_key}")
 
-    # Return as JSON lines (trusted format)
-    return "\n".join(json.dumps(r) for r in records)
+    # Return grouped JSON lines by dataset/table route
+    return transformed_groups
 
 
 def standardize_timestamps(record):
@@ -192,12 +221,12 @@ def standardize_timestamps(record):
     return record
 
 
-def generate_trusted_key(raw_key):
+def generate_trusted_key(raw_key, route_key):
     """
     Generate deterministic S3 key for trusted zone.
 
     Example:
-    raw/year=2026/month=02/day=07/file.gz -> trusted/year=2026/month=02/day=07/file.json
+    raw/2026/02/07/file.gz -> trusted/finance/transactions/2026/02/07/file.json
     """
     key_parts = raw_key.replace("raw/", "", 1)
 
@@ -209,7 +238,7 @@ def generate_trusted_key(raw_key):
     if not key_parts.endswith(".json"):
         key_parts += ".json"
 
-    return f"trusted/{key_parts}"
+    return f"trusted/{route_key}/{key_parts}"
 
 
 def write_to_trusted(bucket, key, data):

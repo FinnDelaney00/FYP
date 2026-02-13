@@ -132,6 +132,11 @@ output "dms_replication_task_arn" {
   value       = aws_dms_replication_task.cdc_task.replication_task_arn
 }
 
+output "dms_finance_replication_task_arn" {
+  description = "DMS finance replication task ARN"
+  value       = aws_dms_replication_task.finance_cdc_task.replication_task_arn
+}
+
 # =============================================================================
 # Lambda Outputs
 # =============================================================================
@@ -211,17 +216,21 @@ output "quick_start_commands" {
   description = "Quick start commands for common operations"
   value = {
     start_dms_task = "aws dms start-replication-task --replication-task-arn ${aws_dms_replication_task.cdc_task.replication_task_arn} --start-replication-task-type start-replication"
-    
+
+    start_finance_dms_task = "aws dms start-replication-task --replication-task-arn ${aws_dms_replication_task.finance_cdc_task.replication_task_arn} --start-replication-task-type start-replication"
+
     stop_dms_task = "aws dms stop-replication-task --replication-task-arn ${aws_dms_replication_task.cdc_task.replication_task_arn}"
-    
+
+    stop_finance_dms_task = "aws dms stop-replication-task --replication-task-arn ${aws_dms_replication_task.finance_cdc_task.replication_task_arn}"
+
     run_glue_crawler_trusted = "aws glue start-crawler --name ${aws_glue_crawler.trusted.name}"
-    
+
     run_glue_crawler_analytics = "aws glue start-crawler --name ${aws_glue_crawler.analytics.name}"
-    
+
     invoke_ml_lambda = "aws lambda invoke --function-name ${aws_lambda_function.ml_inference.function_name} /tmp/response.json"
-    
+
     view_cloudwatch_dashboard = "https://console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
-    
+
     athena_console = "https://console.aws.amazon.com/athena/home?region=${var.region}#/query-editor"
   }
 }

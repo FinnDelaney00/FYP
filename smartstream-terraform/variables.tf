@@ -36,6 +36,18 @@ variable "db_password" {
   default     = "Cooperdel1234{}" #SmartstreamDev_2026!
 }
 
+variable "finance_schema_name" {
+  description = "Schema name for finance tables replicated by the finance DMS task"
+  type        = string
+  default     = "finance"
+}
+
+variable "finance_table_list" {
+  description = "Finance tables to replicate from the finance schema"
+  type        = list(string)
+  default     = ["transactions", "accounts"]
+}
+
 variable "kinesis_shards" {
   description = "Number of shards for Kinesis Data Stream"
   type        = number

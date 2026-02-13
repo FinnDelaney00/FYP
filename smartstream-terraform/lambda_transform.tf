@@ -9,19 +9,21 @@ data "archive_file" "transform_lambda" {
 resource "aws_lambda_function" "transform" {
   filename         = data.archive_file.transform_lambda.output_path
   function_name    = "${local.name_prefix}-data-transform"
-  role            = aws_iam_role.lambda_transform.arn
-  handler         = "lambda_function.lambda_handler"
+  role             = aws_iam_role.lambda_transform.arn
+  handler          = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.transform_lambda.output_base64sha256
-  runtime         = "python3.11"
-  timeout         = 300 # 5 minutes
-  memory_size     = 512
+  runtime          = "python3.11"
+  timeout          = 300 # 5 minutes
+  memory_size      = 512
 
   environment {
     variables = {
-      DATA_LAKE_BUCKET = aws_s3_bucket.data_lake.id
-      RAW_PREFIX       = local.s3_raw_prefix
-      TRUSTED_PREFIX   = local.s3_trusted_prefix
-      LOG_LEVEL        = "INFO"
+      DATA_LAKE_BUCKET    = aws_s3_bucket.data_lake.id
+      RAW_PREFIX          = local.s3_raw_prefix
+      TRUSTED_PREFIX      = local.s3_trusted_prefix
+      FINANCE_SCHEMA_NAME = var.finance_schema_name
+      FINANCE_TABLE_LIST  = join(",", var.finance_table_list)
+      LOG_LEVEL           = "INFO"
     }
   }
 
