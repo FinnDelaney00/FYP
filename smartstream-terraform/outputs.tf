@@ -51,6 +51,21 @@ output "s3_analytics_prefix" {
   value       = local.s3_trusted_analytics_prefix
 }
 
+output "web_bucket_name" {
+  description = "Frontend S3 bucket name"
+  value       = aws_s3_bucket.web.id
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID for frontend hosting"
+  value       = aws_cloudfront_distribution.web.id
+}
+
+output "cloudfront_domain_name" {
+  description = "CloudFront domain name for frontend hosting"
+  value       = aws_cloudfront_distribution.web.domain_name
+}
+
 # =============================================================================
 # RDS Outputs
 # =============================================================================
@@ -232,6 +247,15 @@ output "quick_start_commands" {
     view_cloudwatch_dashboard = "https://console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
 
     athena_console = "https://console.aws.amazon.com/athena/home?region=${var.region}#/query-editor"
+  }
+}
+
+output "frontend_deploy_commands" {
+  description = "Commands to build, upload, and invalidate frontend assets"
+  value = {
+    build      = "npm ci && npm run build"
+    sync       = "aws s3 sync dist s3://${aws_s3_bucket.web.id} --delete"
+    invalidate = "aws cloudfront create-invalidation --distribution-id ${aws_cloudfront_distribution.web.id} --paths \"/*\""
   }
 }
 

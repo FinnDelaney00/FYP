@@ -95,3 +95,8 @@ variable "glue_crawler_schedule" {
   type        = string
   default     = "cron(0 2 * * ? *)" # Run daily at 2 AM UTC
 }
+
+variable "web_bucket_name" {
+  description = "Globally unique S3 bucket name for SmartStream frontend hosting"
+  type        = string
+}
