@@ -99,4 +99,35 @@ variable "glue_crawler_schedule" {
 variable "web_bucket_name" {
   description = "Globally unique S3 bucket name for SmartStream frontend hosting"
   type        = string
+  default = "smartstream-dev-web"
+}
+
+variable "data_lake_bucket_name" {
+  description = "Existing S3 data lake bucket name used by the live API (defaults to Terraform-managed data lake bucket)"
+  type        = string
+  default     = null
+}
+
+variable "trusted_prefix_finance_transactions" {
+  description = "Trusted prefix for finance transactions consumed by the live API"
+  type        = string
+  default     = "trusted/finance/transactions/"
+}
+
+variable "allowed_origin" {
+  description = "Allowed CORS origin for the live API (set to CloudFront domain or * for demo)"
+  type        = string
+  default     = "*"
+}
+
+variable "poll_interval_ms" {
+  description = "Frontend polling interval in milliseconds"
+  type        = number
+  default     = 3000
+}
+
+variable "max_items" {
+  description = "Maximum number of items returned by the live API"
+  type        = number
+  default     = 200
 }

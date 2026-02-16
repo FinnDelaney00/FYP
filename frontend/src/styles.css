@@ -374,6 +374,16 @@ textarea:focus-visible {
   font-size: 0.84rem;
 }
 
+.status-pill.is-live {
+  background: rgba(14, 165, 164, 0.2);
+  color: #0f766e;
+}
+
+.status-pill.is-error {
+  background: rgba(220, 38, 38, 0.16);
+  color: #991b1b;
+}
+
 .sidebar-toggle {
   display: none;
   border: 1px solid rgba(37, 99, 235, 0.2);
@@ -487,6 +497,29 @@ textarea:focus-visible {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
   padding: 1rem;
+}
+
+.live-feed-panel {
+  margin-bottom: 1rem;
+}
+
+.live-feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.live-feed-list li {
+  border: 1px solid rgba(17, 37, 73, 0.1);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.82rem;
+  color: #223f6d;
 }
 
 .panel > header {

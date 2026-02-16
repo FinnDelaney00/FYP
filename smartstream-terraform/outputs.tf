@@ -176,6 +176,26 @@ output "lambda_ml_arn" {
   value       = aws_lambda_function.ml_inference.arn
 }
 
+output "lambda_live_api_function_name" {
+  description = "Live API Lambda function name"
+  value       = aws_lambda_function.live_api.function_name
+}
+
+output "lambda_live_api_arn" {
+  description = "Live API Lambda function ARN"
+  value       = aws_lambda_function.live_api.arn
+}
+
+output "live_api_base_url" {
+  description = "HTTP API base URL for frontend live updates"
+  value       = trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")
+}
+
+output "live_api_latest_endpoint" {
+  description = "Live API latest endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/latest"
+}
+
 # =============================================================================
 # Glue Outputs
 # =============================================================================
@@ -243,6 +263,8 @@ output "quick_start_commands" {
     run_glue_crawler_analytics = "aws glue start-crawler --name ${aws_glue_crawler.analytics.name}"
 
     invoke_ml_lambda = "aws lambda invoke --function-name ${aws_lambda_function.ml_inference.function_name} /tmp/response.json"
+
+    live_api_sample_request = "curl \"${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/latest?limit=50\""
 
     view_cloudwatch_dashboard = "https://console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
 

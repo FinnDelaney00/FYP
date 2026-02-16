@@ -1,3 +1,5 @@
+import { startLiveUpdates } from "./liveUpdates";
+
 const loginView = document.getElementById("login-view");
 const workspaceView = document.getElementById("workspace-view");
 const loginForm = document.getElementById("login-form");
@@ -10,6 +12,9 @@ const pageTitle = document.getElementById("page-title");
 const pageSubtitle = document.getElementById("page-subtitle");
 const navLinks = Array.from(document.querySelectorAll(".nav-link"));
 const pages = Array.from(document.querySelectorAll(".page"));
+const liveStatusPill = document.getElementById("live-status-pill");
+const liveFeedMeta = document.getElementById("live-feed-meta");
+const liveFeedList = document.getElementById("live-feed-list");
 
 const pageMeta = {
   dashboard: {
@@ -106,4 +111,10 @@ window.addEventListener("resize", () => {
   if (window.innerWidth > 980) {
     sidebar.classList.remove("open");
   }
+});
+
+startLiveUpdates({
+  listElement: liveFeedList,
+  metaElement: liveFeedMeta,
+  statusElement: liveStatusPill
 });

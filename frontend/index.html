@@ -67,7 +67,7 @@
             <h1 id="page-title">Dashboard Overview</h1>
             <p id="page-subtitle">Real-time analytics and insights for your organization</p>
           </div>
-          <div class="status-pill">Live Data</div>
+          <div id="live-status-pill" class="status-pill">Live Data: idle</div>
         </header>
 
         <main class="page-shell">
@@ -94,6 +94,16 @@
                 <p>+2% from last week</p>
               </article>
             </div>
+
+            <article class="panel live-feed-panel">
+              <header>
+                <h3>Latest Trusted Events</h3>
+                <p id="live-feed-meta">Waiting for live data feed...</p>
+              </header>
+              <ul id="live-feed-list" class="live-feed-list">
+                <li>No events loaded yet.</li>
+              </ul>
+            </article>
 
             <div class="panel-grid two-up">
               <article class="panel chart-panel">
