@@ -335,22 +335,42 @@ resource "aws_iam_role_policy" "lambda_ml_s3" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "ListTrustedPrefixes"
         Effect = "Allow"
         Action = [
-          "s3:GetObject",
           "s3:ListBucket"
         ]
         Resource = [
-          aws_s3_bucket.data_lake.arn,
+          aws_s3_bucket.data_lake.arn
+        ]
+        Condition = {
+          StringLike = {
+            "s3:prefix" = [
+              "${local.s3_trusted_prefix}*",
+              "${local.s3_trusted_analytics_prefix}predictions/*"
+            ]
+          }
+        }
+      },
+      {
+        Sid    = "ReadTrustedObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject"
+        ]
+        Resource = [
           "${aws_s3_bucket.data_lake.arn}/${local.s3_trusted_prefix}*"
         ]
       },
       {
+        Sid    = "WritePredictionObjects"
         Effect = "Allow"
         Action = [
           "s3:PutObject"
         ]
-        Resource = "${aws_s3_bucket.data_lake.arn}/${local.s3_trusted_analytics_prefix}*"
+        Resource = [
+          "${aws_s3_bucket.data_lake.arn}/${local.s3_trusted_analytics_prefix}predictions/*"
+        ]
       }
     ]
   })

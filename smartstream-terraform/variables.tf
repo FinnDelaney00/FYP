@@ -81,13 +81,35 @@ variable "rds_instance_class" {
 variable "rds_allocated_storage" {
   description = "RDS allocated storage in GB"
   type        = number
-  default     = 20
+  default     = 80
 }
 
 variable "ml_schedule_expression" {
   description = "EventBridge schedule expression for ML inference"
   type        = string
   default     = "rate(1 hour)" # Run ML inference hourly
+}
+
+variable "ml_max_input_files" {
+  description = "Maximum number of recent trusted files to read per dataset (employees/finance)"
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.ml_max_input_files >= 1
+    error_message = "ml_max_input_files must be at least 1."
+  }
+}
+
+variable "ml_forecast_days" {
+  description = "Forecast horizon in days for ML predictions"
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.ml_forecast_days >= 30 && var.ml_forecast_days <= 90
+    error_message = "ml_forecast_days must be between 30 and 90."
+  }
 }
 
 variable "glue_crawler_schedule" {
@@ -99,7 +121,7 @@ variable "glue_crawler_schedule" {
 variable "web_bucket_name" {
   description = "Globally unique S3 bucket name for SmartStream frontend hosting"
   type        = string
-  default = "smartstream-dev-web"
+  default     = "smartstream-dev-web"
 }
 
 variable "data_lake_bucket_name" {

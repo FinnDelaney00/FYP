@@ -3,7 +3,7 @@ resource "aws_dms_replication_instance" "main" {
   replication_instance_id    = "${local.name_prefix}-replication-instance"
   replication_instance_class = "dms.t3.small" # Cost-conscious default
 
-  allocated_storage = 20
+  allocated_storage = 80
 
   # Networking
   replication_subnet_group_id = aws_dms_replication_subnet_group.main.id

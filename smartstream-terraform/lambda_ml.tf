@@ -9,18 +9,20 @@ data "archive_file" "ml_lambda" {
 resource "aws_lambda_function" "ml_inference" {
   filename         = data.archive_file.ml_lambda.output_path
   function_name    = "${local.name_prefix}-ml-inference"
-  role            = aws_iam_role.lambda_ml.arn
-  handler         = "lambda_function.lambda_handler"
+  role             = aws_iam_role.lambda_ml.arn
+  handler          = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.ml_lambda.output_base64sha256
-  runtime         = "python3.11"
-  timeout         = 900 # 15 minutes (for ML processing)
-  memory_size     = 1024
+  runtime          = "python3.11"
+  timeout          = 900 # 15 minutes (for ML processing)
+  memory_size      = 1024
 
   environment {
     variables = {
       DATA_LAKE_BUCKET = aws_s3_bucket.data_lake.id
       TRUSTED_PREFIX   = local.s3_trusted_prefix
-      ANALYTICS_PREFIX = local.s3_trusted_analytics_prefix
+      ANALYTICS_PREFIX = "${local.s3_trusted_analytics_prefix}predictions/"
+      MAX_INPUT_FILES  = tostring(var.ml_max_input_files)
+      FORECAST_DAYS    = tostring(var.ml_forecast_days)
       LOG_LEVEL        = "INFO"
     }
   }

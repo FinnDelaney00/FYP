@@ -7,7 +7,7 @@ resource "aws_cloudfront_origin_access_control" "web" {
 }
 
 resource "aws_cloudfront_distribution" "web" {
-  enabled             = true
+  enabled             = false
   is_ipv6_enabled     = true
   default_root_object = "index.html"
 
