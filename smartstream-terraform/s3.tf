@@ -119,7 +119,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_results" {
     id     = "cleanup-old-results"
     status = "Enabled"
 
-    filter {}  # Empty filter applies to all objects
+    filter {} # Empty filter applies to all objects
 
     expiration {
       days = 30

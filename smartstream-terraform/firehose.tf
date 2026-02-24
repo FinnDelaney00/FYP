@@ -11,9 +11,9 @@ resource "aws_kinesis_firehose_delivery_stream" "s3_delivery" {
 
   # Destination: S3 (raw zone)
   extended_s3_configuration {
-    role_arn   = aws_iam_role.firehose.arn
-    bucket_arn = aws_s3_bucket.data_lake.arn
-    prefix = "raw/!{timestamp:yyyy/MM/dd/HH}/"
+    role_arn            = aws_iam_role.firehose.arn
+    bucket_arn          = aws_s3_bucket.data_lake.arn
+    prefix              = "raw/!{timestamp:yyyy/MM/dd/HH}/"
     error_output_prefix = "raw-errors/!{firehose:error-output-type}/!{timestamp:yyyy/MM/dd/HH}/"
 
     # Buffering configuration (low-latency defaults)

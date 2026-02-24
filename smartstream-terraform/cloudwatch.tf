@@ -76,9 +76,9 @@ resource "aws_cloudwatch_dashboard" "main" {
       {
         type = "log"
         properties = {
-          query   = "SOURCE '/aws/lambda/${aws_lambda_function.transform.function_name}' | fields @timestamp, @message | filter @message like /ERROR/ | sort @timestamp desc | limit 20"
-          region  = var.region
-          title   = "Recent Transform Lambda Errors"
+          query  = "SOURCE '/aws/lambda/${aws_lambda_function.transform.function_name}' | fields @timestamp, @message | filter @message like /ERROR/ | sort @timestamp desc | limit 20"
+          region = var.region
+          title  = "Recent Transform Lambda Errors"
         }
       }
     ]
@@ -96,10 +96,10 @@ resource "aws_sns_topic" "alerts" {
 
 # CloudWatch Composite Alarm for Pipeline Health
 resource "aws_cloudwatch_composite_alarm" "pipeline_health" {
-  alarm_name          = "${local.name_prefix}-pipeline-health"
-  alarm_description   = "Composite alarm for overall pipeline health"
-  actions_enabled     = true
-  alarm_actions       = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${local.name_prefix}-pipeline-health"
+  alarm_description = "Composite alarm for overall pipeline health"
+  actions_enabled   = true
+  alarm_actions     = [aws_sns_topic.alerts.arn]
 
   alarm_rule = join(" OR ", [
     "ALARM(${aws_cloudwatch_metric_alarm.kinesis_write_throttle.alarm_name})",
