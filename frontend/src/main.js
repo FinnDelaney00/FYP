@@ -1,4 +1,5 @@
 import { startLiveUpdates } from "./liveUpdates";
+import { initInsightsData } from "./insightsData";
 
 const loginView = document.getElementById("login-view");
 const workspaceView = document.getElementById("workspace-view");
@@ -14,7 +15,7 @@ const navLinks = Array.from(document.querySelectorAll(".nav-link"));
 const pages = Array.from(document.querySelectorAll(".page"));
 const liveStatusPill = document.getElementById("live-status-pill");
 const liveFeedMeta = document.getElementById("live-feed-meta");
-const liveFeedList = document.getElementById("live-feed-list");
+const liveFeedChart = document.getElementById("live-feed-chart");
 
 const pageMeta = {
   dashboard: {
@@ -114,7 +115,9 @@ window.addEventListener("resize", () => {
 });
 
 startLiveUpdates({
-  listElement: liveFeedList,
+  chartElement: liveFeedChart,
   metaElement: liveFeedMeta,
   statusElement: liveStatusPill
 });
+
+initInsightsData();

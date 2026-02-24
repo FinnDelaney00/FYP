@@ -196,6 +196,21 @@ output "live_api_latest_endpoint" {
   value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/latest"
 }
 
+output "live_api_dashboard_endpoint" {
+  description = "Live API dashboard endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/dashboard"
+}
+
+output "live_api_forecasts_endpoint" {
+  description = "Live API forecasts endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/forecasts"
+}
+
+output "live_api_query_endpoint" {
+  description = "Live API SQL query endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/query"
+}
+
 # =============================================================================
 # Glue Outputs
 # =============================================================================

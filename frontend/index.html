@@ -75,23 +75,23 @@
             <div class="metrics-grid">
               <article class="metric-card metric-blue">
                 <h3>Total Employees</h3>
-                <strong>178</strong>
-                <p>+6 from last month</p>
+                <strong id="metric-total-employees-value">--</strong>
+                <p id="metric-total-employees-subtitle">Loading from trusted data...</p>
               </article>
               <article class="metric-card metric-violet">
                 <h3>Revenue</h3>
-                <strong>$67,000</strong>
-                <p>+15.5% from last month</p>
+                <strong id="metric-revenue-value">--</strong>
+                <p id="metric-revenue-subtitle">Loading from trusted data...</p>
               </article>
               <article class="metric-card metric-rose">
                 <h3>Growth Rate</h3>
-                <strong>+12.3%</strong>
-                <p>Compared to last quarter</p>
+                <strong id="metric-growth-rate-value">--</strong>
+                <p id="metric-growth-rate-subtitle">Loading forecast trend...</p>
               </article>
               <article class="metric-card metric-teal">
-                <h3>Productivity</h3>
-                <strong>93%</strong>
-                <p>+2% from last week</p>
+                <h3>Data Health</h3>
+                <strong id="metric-data-health-value">--</strong>
+                <p id="metric-data-health-subtitle">Loading pipeline diagnostics...</p>
               </article>
             </div>
 
@@ -100,9 +100,9 @@
                 <h3>Latest Trusted Events</h3>
                 <p id="live-feed-meta">Waiting for live data feed...</p>
               </header>
-              <ul id="live-feed-list" class="live-feed-list">
-                <li>No events loaded yet.</li>
-              </ul>
+              <div id="live-feed-chart" class="live-feed-chart" role="img" aria-label="Live finance chart">
+                <p class="live-chart-empty">No events loaded yet.</p>
+              </div>
             </article>
 
             <div class="panel-grid two-up">
@@ -111,13 +111,8 @@
                   <h3>Revenue vs Expenses</h3>
                   <p>Monthly financial overview</p>
                 </header>
-                <div class="bar-compare">
-                  <div class="month-row"><span>Jan</span><div class="track"><i style="--v:67"></i></div><div class="track alt"><i style="--v:48"></i></div></div>
-                  <div class="month-row"><span>Feb</span><div class="track"><i style="--v:78"></i></div><div class="track alt"><i style="--v:53"></i></div></div>
-                  <div class="month-row"><span>Mar</span><div class="track"><i style="--v:72"></i></div><div class="track alt"><i style="--v:50"></i></div></div>
-                  <div class="month-row"><span>Apr</span><div class="track"><i style="--v:90"></i></div><div class="track alt"><i style="--v:58"></i></div></div>
-                  <div class="month-row"><span>May</span><div class="track"><i style="--v:86"></i></div><div class="track alt"><i style="--v:54"></i></div></div>
-                  <div class="month-row"><span>Jun</span><div class="track"><i style="--v:98"></i></div><div class="track alt"><i style="--v:63"></i></div></div>
+                <div id="revenue-expense-bars" class="bar-compare">
+                  <div class="month-row"><span>--</span><div class="track"><i style="--v:0"></i></div><div class="track alt"><i style="--v:0"></i></div></div>
                 </div>
                 <div class="chart-legend"><span><i class="dot rev"></i>Revenue</span><span><i class="dot exp"></i>Expenses</span></div>
               </article>
@@ -127,12 +122,12 @@
                   <h3>Employee Growth</h3>
                   <p>Total headcount over time</p>
                 </header>
-                <div class="line-chart-wrap">
+                <div id="employee-growth-chart" class="line-chart-wrap">
                   <svg viewBox="0 0 520 220" preserveAspectRatio="none" aria-label="Employee growth line chart">
-                    <polyline class="line-fill" points="20,190 95,165 170,175 245,130 320,114 395,92 470,70 470,220 20,220" />
-                    <polyline class="line-stroke" points="20,190 95,165 170,175 245,130 320,114 395,92 470,70" />
+                    <polyline class="line-fill" points="20,210 500,210 500,210 20,210" />
+                    <polyline class="line-stroke" points="20,210 500,210" />
                   </svg>
-                  <div class="x-axis"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div>
+                  <div class="x-axis"><span>--</span><span>--</span><span>--</span><span>--</span><span>--</span><span>--</span></div>
                 </div>
               </article>
 
@@ -142,29 +137,20 @@
                   <p>Employees by department</p>
                 </header>
                 <div class="donut-wrap">
-                  <div class="donut" aria-hidden="true"></div>
-                  <ul>
-                    <li><span class="dot eng"></span>Engineering (36%)</li>
-                    <li><span class="dot sales"></span>Sales (25%)</li>
-                    <li><span class="dot mark"></span>Marketing (17%)</li>
-                    <li><span class="dot hr"></span>HR (11%)</li>
-                    <li><span class="dot ops"></span>Operations (11%)</li>
+                  <div id="department-donut" class="donut" aria-hidden="true"></div>
+                  <ul id="department-list">
+                    <li><span class="dot eng"></span>Loading...</li>
                   </ul>
                 </div>
               </article>
 
               <article class="panel chart-panel">
                 <header>
-                  <h3>Weekly Productivity</h3>
-                  <p>Team productivity metrics</p>
+                  <h3>Daily Activity</h3>
+                  <p>Recent transaction volume from trusted finance data</p>
                 </header>
-                <div class="vertical-bars">
-                  <div><i style="--h:84"></i><span>W1</span></div>
-                  <div><i style="--h:88"></i><span>W2</span></div>
-                  <div><i style="--h:82"></i><span>W3</span></div>
-                  <div><i style="--h:91"></i><span>W4</span></div>
-                  <div><i style="--h:87"></i><span>W5</span></div>
-                  <div><i style="--h:93"></i><span>W6</span></div>
+                <div id="weekly-activity-bars" class="vertical-bars">
+                  <div><i style="--h:0"></i><span>--</span></div>
                 </div>
               </article>
             </div>
@@ -227,28 +213,22 @@
                   <p>Run ad-hoc queries against your analytics dataset</p>
                 </header>
                 <label class="query-label" for="query-input">SQL query</label>
-                <textarea id="query-input" rows="6">SELECT department, AVG(performance_score) AS avg_score
-FROM employee_metrics
-WHERE review_month >= '2025-10-01'
-GROUP BY department
-ORDER BY avg_score DESC;</textarea>
-                <button class="action" type="button">Run Query</button>
+                <textarea id="query-input" rows="6">SELECT * FROM employees LIMIT 20</textarea>
+                <button id="query-run-btn" class="action" type="button">Run Query</button>
+                <p id="query-status" class="muted-note">Ready.</p>
               </article>
 
               <article class="panel">
                 <header>
                   <h3>Query Results</h3>
-                  <p>Last executed sample output</p>
+                  <p id="query-results-meta">No query executed yet.</p>
                 </header>
-                <table class="results-table">
-                  <thead>
-                    <tr><th>Department</th><th>Avg. Score</th><th>Trend</th></tr>
+                <table id="query-results-table" class="results-table">
+                  <thead id="query-results-head">
+                    <tr><th>Run a query to see results</th></tr>
                   </thead>
-                  <tbody>
-                    <tr><td>Engineering</td><td>92.3</td><td>Up</td></tr>
-                    <tr><td>Operations</td><td>89.4</td><td>Up</td></tr>
-                    <tr><td>Sales</td><td>87.8</td><td>Stable</td></tr>
-                    <tr><td>Marketing</td><td>84.9</td><td>Down</td></tr>
+                  <tbody id="query-results-body">
+                    <tr><td>Results will appear here.</td></tr>
                   </tbody>
                 </table>
               </article>
@@ -305,27 +285,20 @@ ORDER BY avg_score DESC;</textarea>
               <article class="panel">
                 <header>
                   <h3>Revenue Forecast</h3>
-                  <p>Predicted next 6 months</p>
+                  <p id="forecast-generated-at">Waiting for latest ML predictions...</p>
                 </header>
-                <div class="forecast-list">
-                  <div><span>Jul</span><b>$71,200</b></div>
-                  <div><span>Aug</span><b>$73,900</b></div>
-                  <div><span>Sep</span><b>$76,300</b></div>
-                  <div><span>Oct</span><b>$78,800</b></div>
-                  <div><span>Nov</span><b>$81,100</b></div>
-                  <div><span>Dec</span><b>$84,000</b></div>
+                <div id="revenue-forecast-list" class="forecast-list">
+                  <div><span>--</span><b>Loading...</b></div>
                 </div>
               </article>
 
               <article class="panel">
                 <header>
                   <h3>Headcount Forecast</h3>
-                  <p>Hiring and attrition estimate</p>
+                  <p>Projected employee growth from ML inference output</p>
                 </header>
-                <div class="forecast-bars">
-                  <div><label>Hiring</label><i style="--w:68"></i><span>+22</span></div>
-                  <div><label>Attrition</label><i style="--w:24"></i><span>-8</span></div>
-                  <div><label>Net Growth</label><i style="--w:44"></i><span>+14</span></div>
+                <div id="headcount-forecast-bars" class="forecast-bars">
+                  <div><label>Current</label><i style="--w:0"></i><span>--</span></div>
                 </div>
               </article>
             </div>

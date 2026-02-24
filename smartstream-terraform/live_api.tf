@@ -46,7 +46,11 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
           StringLike = {
             "s3:prefix" = [
               var.trusted_prefix_finance_transactions,
-              "${var.trusted_prefix_finance_transactions}*"
+              "${var.trusted_prefix_finance_transactions}*",
+              var.trusted_prefix_employees,
+              "${var.trusted_prefix_employees}*",
+              var.trusted_prefix_predictions,
+              "${var.trusted_prefix_predictions}*"
             ]
           }
         }
@@ -56,7 +60,32 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
         Action = [
           "s3:GetObject"
         ]
-        Resource = "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_finance_transactions}*"
+        Resource = [
+          "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_finance_transactions}*",
+          "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_employees}*",
+          "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_predictions}*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "athena:StartQueryExecution",
+          "athena:GetQueryExecution",
+          "athena:GetQueryResults",
+          "athena:StopQueryExecution"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "glue:GetDatabase",
+          "glue:GetDatabases",
+          "glue:GetTable",
+          "glue:GetTables",
+          "glue:GetPartitions"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -79,11 +108,16 @@ resource "aws_lambda_function" "live_api" {
 
   environment {
     variables = {
-      DATA_LAKE_BUCKET  = local.live_api_data_lake_bucket
-      TRUSTED_PREFIX    = var.trusted_prefix_finance_transactions
-      MAX_ITEMS_DEFAULT = tostring(var.max_items)
-      ALLOWED_ORIGIN    = var.allowed_origin
-      POLL_INTERVAL_MS  = tostring(var.poll_interval_ms)
+      DATA_LAKE_BUCKET   = local.live_api_data_lake_bucket
+      TRUSTED_PREFIX     = var.trusted_prefix_finance_transactions
+      EMPLOYEES_PREFIX   = var.trusted_prefix_employees
+      PREDICTIONS_PREFIX = var.trusted_prefix_predictions
+      MAX_ITEMS_DEFAULT  = tostring(var.max_items)
+      QUERY_MAX_ROWS     = tostring(var.query_max_rows)
+      ALLOWED_ORIGIN     = var.allowed_origin
+      POLL_INTERVAL_MS   = tostring(var.poll_interval_ms)
+      ATHENA_WORKGROUP   = aws_athena_workgroup.main.name
+      ATHENA_DATABASE    = aws_glue_catalog_database.main.name
     }
   }
 
@@ -108,7 +142,7 @@ resource "aws_apigatewayv2_api" "live_api" {
 
   cors_configuration {
     allow_origins = [var.allowed_origin]
-    allow_methods = ["GET", "OPTIONS"]
+    allow_methods = ["GET", "POST", "OPTIONS"]
     allow_headers = ["Content-Type"]
     max_age       = 300
   }
@@ -129,6 +163,24 @@ resource "aws_apigatewayv2_integration" "live_api_lambda" {
 resource "aws_apigatewayv2_route" "live_api_latest" {
   api_id    = aws_apigatewayv2_api.live_api.id
   route_key = "GET /latest"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_dashboard" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "GET /dashboard"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_forecasts" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "GET /forecasts"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_query" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "POST /query"
   target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
 }
 

@@ -136,6 +136,18 @@ variable "trusted_prefix_finance_transactions" {
   default     = "trusted/finance/transactions/"
 }
 
+variable "trusted_prefix_employees" {
+  description = "Trusted prefix for employee records consumed by the live API"
+  type        = string
+  default     = "trusted/employees/"
+}
+
+variable "trusted_prefix_predictions" {
+  description = "Trusted analytics prefix for ML prediction outputs consumed by the live API"
+  type        = string
+  default     = "trusted-analytics/predictions/"
+}
+
 variable "allowed_origin" {
   description = "Allowed CORS origin for the live API (set to CloudFront domain or * for demo)"
   type        = string
@@ -152,4 +164,15 @@ variable "max_items" {
   description = "Maximum number of items returned by the live API"
   type        = number
   default     = 200
+}
+
+variable "query_max_rows" {
+  description = "Maximum number of rows returned for live API SQL query endpoint"
+  type        = number
+  default     = 200
+
+  validation {
+    condition     = var.query_max_rows >= 1 && var.query_max_rows <= 1000
+    error_message = "query_max_rows must be between 1 and 1000."
+  }
 }

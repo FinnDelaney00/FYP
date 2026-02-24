@@ -503,23 +503,106 @@ textarea:focus-visible {
   margin-bottom: 1rem;
 }
 
-.live-feed-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.45rem;
-  max-height: 220px;
-  overflow: auto;
+.live-feed-chart {
+  border: 1px solid rgba(17, 37, 73, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 250, 255, 0.95));
+  border-radius: 12px;
+  padding: 0.8rem;
+  min-height: 290px;
 }
 
-.live-feed-list li {
-  border: 1px solid rgba(17, 37, 73, 0.1);
-  background: rgba(255, 255, 255, 0.7);
+.live-chart-empty {
+  margin: 0;
+  color: #51688f;
+  font-size: 0.86rem;
+}
+
+.live-chart-wrap {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.live-chart-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.55rem;
+}
+
+.live-chart-stat {
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  background: rgba(255, 255, 255, 0.72);
   border-radius: 10px;
-  padding: 0.5rem 0.65rem;
-  font-size: 0.82rem;
-  color: #223f6d;
+  padding: 0.45rem 0.6rem;
+}
+
+.live-chart-stat .label {
+  display: block;
+  color: #657ca7;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.22rem;
+}
+
+.live-chart-stat .value {
+  color: #1b3a6c;
+  font-size: 1rem;
+}
+
+.live-stat-delta-wrap.is-up .value {
+  color: #0f766e;
+}
+
+.live-stat-delta-wrap.is-down .value {
+  color: #b91c1c;
+}
+
+.live-chart-svg {
+  width: 100%;
+  height: 220px;
+  display: block;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(6, 182, 212, 0.04));
+}
+
+.live-chart-grid-line {
+  stroke: rgba(37, 99, 235, 0.14);
+  stroke-width: 1;
+}
+
+.live-chart-area {
+  fill: url(#live-area-gradient);
+}
+
+.live-chart-line {
+  fill: none;
+  stroke: #1d4ed8;
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.live-chart-point {
+  fill: #fff;
+  stroke: #0ea5e9;
+  stroke-width: 2;
+}
+
+.live-chart-axis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  color: #5d7398;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.live-chart-axis span:nth-child(2) {
+  text-align: center;
+}
+
+.live-chart-axis span:nth-child(3) {
+  text-align: right;
 }
 
 .panel > header {

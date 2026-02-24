@@ -70,6 +70,7 @@ def load_module(
     relative_path: str,
     module_name: str,
     fake_s3_client: Optional[FakeS3Client] = None,
+    fake_clients: Optional[Dict[str, Any]] = None,
     env: Optional[Dict[str, str]] = None,
 ):
     module_path = REPO_ROOT / relative_path
@@ -77,14 +78,17 @@ def load_module(
         raise FileNotFoundError(f"Module path not found: {module_path}")
 
     fake_client = fake_s3_client or FakeS3Client()
+    boto_clients = {"s3": fake_client}
+    if fake_clients:
+        boto_clients.update(fake_clients)
     env_vars = env or {}
 
     fake_boto3 = types.ModuleType("boto3")
 
     def client(service_name: str, *_args, **_kwargs):
-        if service_name != "s3":
+        if service_name not in boto_clients:
             raise ValueError(f"Unsupported boto3 client: {service_name}")
-        return fake_client
+        return boto_clients[service_name]
 
     fake_boto3.client = client
 
