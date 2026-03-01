@@ -33,7 +33,7 @@ variable "db_password" {
   description = "RDS master password (will be stored in Secrets Manager)"
   type        = string
   sensitive   = true
-  default     = "Cooperdel1234{}" #SmartstreamDev_2026!
+  default     = null
 }
 
 variable "finance_schema_name" {
@@ -187,3 +187,4 @@ variable "auth_token_ttl_seconds" {
     error_message = "auth_token_ttl_seconds must be between 3600 and 2592000."
   }
 }
+
