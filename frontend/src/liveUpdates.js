@@ -116,6 +116,11 @@ function formatSignedCurrency(value) {
   return `${sign}${formatCurrency(Math.abs(value))}`;
 }
 
+function buildAuthHeaders(getAuthToken) {
+  const token = typeof getAuthToken === "function" ? String(getAuthToken() || "").trim() : "";
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function buildSeries(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -253,7 +258,8 @@ export function startLiveUpdates({
   metaElement,
   statusElement,
   limit = 50,
-  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  getAuthToken = () => ""
 }) {
   if (!DEFAULT_API_BASE_URL) {
     metaElement.textContent = "Missing VITE_API_BASE_URL";
@@ -267,7 +273,11 @@ export function startLiveUpdates({
 
   const refresh = async () => {
     try {
-      const response = await fetch(`${DEFAULT_API_BASE_URL}/latest?limit=${limit}`);
+      const response = await fetch(`${DEFAULT_API_BASE_URL}/latest?limit=${limit}`, {
+        headers: {
+          ...buildAuthHeaders(getAuthToken)
+        }
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }

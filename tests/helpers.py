@@ -71,6 +71,7 @@ def load_module(
     module_name: str,
     fake_s3_client: Optional[FakeS3Client] = None,
     fake_clients: Optional[Dict[str, Any]] = None,
+    fake_resources: Optional[Dict[str, Any]] = None,
     env: Optional[Dict[str, str]] = None,
 ):
     module_path = REPO_ROOT / relative_path
@@ -81,6 +82,7 @@ def load_module(
     boto_clients = {"s3": fake_client}
     if fake_clients:
         boto_clients.update(fake_clients)
+    boto_resources = dict(fake_resources or {})
     env_vars = env or {}
 
     fake_boto3 = types.ModuleType("boto3")
@@ -90,7 +92,13 @@ def load_module(
             raise ValueError(f"Unsupported boto3 client: {service_name}")
         return boto_clients[service_name]
 
+    def resource(service_name: str, *_args, **_kwargs):
+        if service_name not in boto_resources:
+            raise ValueError(f"Unsupported boto3 resource: {service_name}")
+        return boto_resources[service_name]
+
     fake_boto3.client = client
+    fake_boto3.resource = resource
 
     previous_env: Dict[str, Optional[str]] = {}
     for key, value in env_vars.items():

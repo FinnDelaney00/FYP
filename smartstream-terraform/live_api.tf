@@ -8,6 +8,31 @@ data "archive_file" "live_api_lambda" {
   output_path = "${path.module}/lambdas/live_api.zip"
 }
 
+resource "random_password" "auth_token_secret" {
+  length  = 48
+  special = false
+}
+
+resource "aws_dynamodb_table" "accounts" {
+  name         = "${local.name_prefix}-accounts"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "email"
+
+  attribute {
+    name = "email"
+    type = "S"
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = merge(local.common_tags, {
+    Name    = "${local.name_prefix}-accounts"
+    Purpose = "UserAuth"
+  })
+}
+
 resource "aws_iam_role" "lambda_live_api" {
   name_prefix = "${local.name_prefix}-lambda-live-api-"
 
@@ -86,6 +111,15 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
           "glue:GetPartitions"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem"
+        ]
+        Resource = aws_dynamodb_table.accounts.arn
       }
     ]
   })
@@ -108,16 +142,19 @@ resource "aws_lambda_function" "live_api" {
 
   environment {
     variables = {
-      DATA_LAKE_BUCKET   = local.live_api_data_lake_bucket
-      TRUSTED_PREFIX     = var.trusted_prefix_finance_transactions
-      EMPLOYEES_PREFIX   = var.trusted_prefix_employees
-      PREDICTIONS_PREFIX = var.trusted_prefix_predictions
-      MAX_ITEMS_DEFAULT  = tostring(var.max_items)
-      QUERY_MAX_ROWS     = tostring(var.query_max_rows)
-      ALLOWED_ORIGIN     = var.allowed_origin
-      POLL_INTERVAL_MS   = tostring(var.poll_interval_ms)
-      ATHENA_WORKGROUP   = aws_athena_workgroup.main.name
-      ATHENA_DATABASE    = aws_glue_catalog_database.main.name
+      DATA_LAKE_BUCKET       = local.live_api_data_lake_bucket
+      TRUSTED_PREFIX         = var.trusted_prefix_finance_transactions
+      EMPLOYEES_PREFIX       = var.trusted_prefix_employees
+      PREDICTIONS_PREFIX     = var.trusted_prefix_predictions
+      MAX_ITEMS_DEFAULT      = tostring(var.max_items)
+      QUERY_MAX_ROWS         = tostring(var.query_max_rows)
+      ALLOWED_ORIGIN         = var.allowed_origin
+      POLL_INTERVAL_MS       = tostring(var.poll_interval_ms)
+      ATHENA_WORKGROUP       = aws_athena_workgroup.main.name
+      ATHENA_DATABASE        = aws_glue_catalog_database.main.name
+      ACCOUNTS_TABLE         = aws_dynamodb_table.accounts.name
+      AUTH_TOKEN_SECRET      = random_password.auth_token_secret.result
+      AUTH_TOKEN_TTL_SECONDS = tostring(var.auth_token_ttl_seconds)
     }
   }
 
@@ -143,7 +180,7 @@ resource "aws_apigatewayv2_api" "live_api" {
   cors_configuration {
     allow_origins = [var.allowed_origin]
     allow_methods = ["GET", "POST", "OPTIONS"]
-    allow_headers = ["Content-Type"]
+    allow_headers = ["Content-Type", "Authorization"]
     max_age       = 300
   }
 
@@ -181,6 +218,24 @@ resource "aws_apigatewayv2_route" "live_api_forecasts" {
 resource "aws_apigatewayv2_route" "live_api_query" {
   api_id    = aws_apigatewayv2_api.live_api.id
   route_key = "POST /query"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_auth_signup" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "POST /auth/signup"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_auth_login" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "POST /auth/login"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_auth_me" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "GET /auth/me"
   target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
 }
 

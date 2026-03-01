@@ -176,3 +176,14 @@ variable "query_max_rows" {
     error_message = "query_max_rows must be between 1 and 1000."
   }
 }
+
+variable "auth_token_ttl_seconds" {
+  description = "Authentication token time-to-live in seconds for live API login tokens"
+  type        = number
+  default     = 604800
+
+  validation {
+    condition     = var.auth_token_ttl_seconds >= 3600 && var.auth_token_ttl_seconds <= 2592000
+    error_message = "auth_token_ttl_seconds must be between 3600 and 2592000."
+  }
+}

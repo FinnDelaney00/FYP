@@ -29,12 +29,25 @@ function formatDateLabel(value) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function getJSON(path, options) {
+function buildAuthHeaders(getAuthToken) {
+  const token = typeof getAuthToken === "function" ? String(getAuthToken() || "").trim() : "";
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function getJSON(path, options, getAuthToken) {
   if (!API_BASE_URL) {
     throw new Error("VITE_API_BASE_URL is not configured");
   }
 
-  return fetch(`${API_BASE_URL}${path}`, options).then(async (response) => {
+  const headers = {
+    ...(options?.headers || {}),
+    ...buildAuthHeaders(getAuthToken)
+  };
+
+  return fetch(`${API_BASE_URL}${path}`, {
+    ...(options || {}),
+    headers
+  }).then(async (response) => {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = payload?.message || `HTTP ${response.status}`;
@@ -345,7 +358,7 @@ function renderQueryResult(payload) {
   meta.textContent = `${payload.row_count || 0} rows returned. Query ID: ${payload.query_execution_id || "n/a"}`;
 }
 
-async function runQuery() {
+async function runQuery(getAuthToken) {
   const input = document.getElementById("query-input");
   const status = document.getElementById("query-status");
   if (!input || !status) {
@@ -369,7 +382,7 @@ async function runQuery() {
         query,
         limit: 100
       })
-    });
+    }, getAuthToken);
 
     renderQueryResult(payload);
     status.textContent = "Query completed.";
@@ -378,21 +391,21 @@ async function runQuery() {
   }
 }
 
-async function refreshDashboard() {
-  const payload = await getJSON("/dashboard");
+async function refreshDashboard(getAuthToken) {
+  const payload = await getJSON("/dashboard", undefined, getAuthToken);
   renderDashboard(payload);
 }
 
-async function refreshForecasts() {
-  const payload = await getJSON("/forecasts");
+async function refreshForecasts(getAuthToken) {
+  const payload = await getJSON("/forecasts", undefined, getAuthToken);
   renderForecasts(payload);
 }
 
-export function initInsightsData() {
+export function initInsightsData({ getAuthToken = () => "" } = {}) {
   const queryButton = document.getElementById("query-run-btn");
   if (queryButton) {
     queryButton.addEventListener("click", () => {
-      runQuery();
+      runQuery(getAuthToken);
     });
   }
 
@@ -405,7 +418,7 @@ export function initInsightsData() {
   }
 
   const refreshAll = async () => {
-    await Promise.allSettled([refreshDashboard(), refreshForecasts()]);
+    await Promise.allSettled([refreshDashboard(getAuthToken), refreshForecasts(getAuthToken)]);
   };
 
   refreshAll();

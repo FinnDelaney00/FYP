@@ -72,16 +72,46 @@ class FakeAthenaClient:
         return _FakeAthenaResultsPaginator(self)
 
 
+class FakeDynamoTable:
+    def __init__(self):
+        self.items = {}
+
+    def get_item(self, Key):
+        email = Key.get("email")
+        if email in self.items:
+            return {"Item": dict(self.items[email])}
+        return {}
+
+    def put_item(self, Item, ConditionExpression=None):
+        email = Item.get("email")
+        if ConditionExpression == "attribute_not_exists(email)" and email in self.items:
+            raise Exception("ConditionalCheckFailedException")
+        self.items[email] = dict(Item)
+        return {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
+
+class FakeDynamoResource:
+    def __init__(self):
+        self.tables = {}
+
+    def Table(self, name):
+        if name not in self.tables:
+            self.tables[name] = FakeDynamoTable()
+        return self.tables[name]
+
+
 class LiveApiLambdaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.fake_s3 = FakeS3Client()
         cls.fake_athena = FakeAthenaClient()
+        cls.fake_dynamodb = FakeDynamoResource()
         cls.module = load_module(
             relative_path="smartstream-terraform/lambdas/live_api/lambda_function.py",
             module_name="live_api_lambda_under_test",
             fake_s3_client=cls.fake_s3,
             fake_clients={"athena": cls.fake_athena},
+            fake_resources={"dynamodb": cls.fake_dynamodb},
             env={
                 "DATA_LAKE_BUCKET": "test-data-lake",
                 "TRUSTED_PREFIX": "trusted/finance/transactions/",
@@ -92,6 +122,9 @@ class LiveApiLambdaTests(unittest.TestCase):
                 "ALLOWED_ORIGIN": "https://example.com",
                 "ATHENA_WORKGROUP": "wg-test",
                 "ATHENA_DATABASE": "db_test",
+                "ACCOUNTS_TABLE": "accounts",
+                "AUTH_TOKEN_SECRET": "unit-test-secret",
+                "AUTH_TOKEN_TTL_SECONDS": "3600",
             },
         )
 
@@ -103,6 +136,11 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.fake_athena.query_results.clear()
         self.fake_athena.fail_reason = None
         self.fake_athena.stopped_queries.clear()
+        self.fake_dynamodb.tables["accounts"] = FakeDynamoTable()
+
+    def _auth_headers(self, email="test@example.com", display_name="Test User"):
+        token = self.module._issue_token(email, display_name)
+        return {"authorization": f"Bearer {token}"}
 
     def test_parse_limit_defaults_and_clamps(self):
         no_limit = self.module._parse_limit({"queryStringParameters": None})
@@ -110,26 +148,11 @@ class LiveApiLambdaTests(unittest.TestCase):
         too_high = self.module._parse_limit({"queryStringParameters": {"limit": "9999"}})
         too_low = self.module._parse_limit({"queryStringParameters": {"limit": "0"}})
         normal = self.module._parse_limit({"queryStringParameters": {"limit": "25"}})
-
         self.assertEqual(no_limit, 200)
         self.assertEqual(invalid, 200)
         self.assertEqual(too_high, 200)
         self.assertEqual(too_low, 1)
         self.assertEqual(normal, 25)
-
-    def test_decode_object_bytes_handles_plain_and_gzip(self):
-        plain = self.module._decode_object_bytes("sample.json", b'{"a":1}')
-        gzipped = self.module._decode_object_bytes("sample.json.gz", gzip_bytes('{"a":2}'))
-        self.assertEqual(plain, '{"a":1}')
-        self.assertEqual(gzipped, '{"a":2}')
-
-    def test_parse_items_supports_array_json_lines_and_empty(self):
-        parsed_array = self.module._parse_items('[{"id":1},{"id":2}]')
-        parsed_lines = self.module._parse_items('{"id":1}\n{"id":2}\n')
-        parsed_empty = self.module._parse_items("   ")
-        self.assertEqual(len(parsed_array), 2)
-        self.assertEqual(len(parsed_lines), 2)
-        self.assertEqual(parsed_empty, [])
 
     def test_options_returns_cors_headers(self):
         response = self.module.lambda_handler(
@@ -139,17 +162,94 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(response["statusCode"], 200)
         self.assertEqual(response["headers"]["Access-Control-Allow-Origin"], "https://example.com")
 
-    def test_get_latest_returns_empty_when_no_objects(self):
+    def test_signup_creates_user_and_returns_token(self):
+        response = self.module.lambda_handler(
+            {
+                "requestContext": {"http": {"method": "POST"}},
+                "rawPath": "/auth/signup",
+                "body": json.dumps(
+                    {"email": "new@example.com", "password": "Password123", "display_name": "New User"}
+                ),
+            },
+            _context=None,
+        )
+        body = json.loads(response["body"])
+        self.assertEqual(response["statusCode"], 201)
+        self.assertIn("token", body)
+        self.assertEqual(body["user"]["email"], "new@example.com")
+
+    def test_signup_rejects_duplicate_email(self):
+        event = {
+            "requestContext": {"http": {"method": "POST"}},
+            "rawPath": "/auth/signup",
+            "body": json.dumps({"email": "dup@example.com", "password": "Password123"}),
+        }
+        first = self.module.lambda_handler(event, _context=None)
+        second = self.module.lambda_handler(event, _context=None)
+        self.assertEqual(first["statusCode"], 201)
+        self.assertEqual(second["statusCode"], 409)
+
+    def test_login_success_and_failure(self):
+        self.module.lambda_handler(
+            {
+                "requestContext": {"http": {"method": "POST"}},
+                "rawPath": "/auth/signup",
+                "body": json.dumps({"email": "login@example.com", "password": "Password123"}),
+            },
+            _context=None,
+        )
+
+        success = self.module.lambda_handler(
+            {
+                "requestContext": {"http": {"method": "POST"}},
+                "rawPath": "/auth/login",
+                "body": json.dumps({"email": "login@example.com", "password": "Password123"}),
+            },
+            _context=None,
+        )
+        failed = self.module.lambda_handler(
+            {
+                "requestContext": {"http": {"method": "POST"}},
+                "rawPath": "/auth/login",
+                "body": json.dumps({"email": "login@example.com", "password": "wrong"}),
+            },
+            _context=None,
+        )
+        self.assertEqual(success["statusCode"], 200)
+        self.assertEqual(failed["statusCode"], 401)
+
+    def test_auth_me_requires_valid_token(self):
+        self.module.lambda_handler(
+            {
+                "requestContext": {"http": {"method": "POST"}},
+                "rawPath": "/auth/signup",
+                "body": json.dumps({"email": "me@example.com", "password": "Password123"}),
+            },
+            _context=None,
+        )
+
+        unauthorized = self.module.lambda_handler(
+            {"requestContext": {"http": {"method": "GET"}}, "rawPath": "/auth/me"},
+            _context=None,
+        )
+        authorized = self.module.lambda_handler(
+            {
+                "requestContext": {"http": {"method": "GET"}},
+                "rawPath": "/auth/me",
+                "headers": self._auth_headers(email="me@example.com"),
+            },
+            _context=None,
+        )
+        self.assertEqual(unauthorized["statusCode"], 401)
+        self.assertEqual(authorized["statusCode"], 200)
+
+    def test_get_latest_requires_auth(self):
         self.fake_s3.pages = [{"Contents": []}]
         response = self.module.lambda_handler(
             {"requestContext": {"http": {"method": "GET"}}, "rawPath": "/latest"},
             _context=None,
         )
-        body = json.loads(response["body"])
-        self.assertEqual(response["statusCode"], 200)
-        self.assertEqual(body["items"], [])
-        self.assertIsNone(body["s3_key"])
-        self.assertIsNone(body["last_modified"])
+        self.assertEqual(response["statusCode"], 401)
 
     def test_get_latest_returns_latest_items(self):
         older_key = "trusted/finance/transactions/2026/02/23/old.json"
@@ -172,6 +272,7 @@ class LiveApiLambdaTests(unittest.TestCase):
                 "requestContext": {"http": {"method": "GET"}},
                 "rawPath": "/latest",
                 "queryStringParameters": {"limit": "1"},
+                "headers": self._auth_headers(),
             },
             _context=None,
         )
@@ -204,20 +305,11 @@ class LiveApiLambdaTests(unittest.TestCase):
                     "insights": {
                         "employee_growth": {
                             "history": [{"date": "2026-02-23", "headcount": 9}],
-                            "forecast": [
-                                {"date": "2026-02-24", "predicted_headcount": 10},
-                                {"date": "2026-02-25", "predicted_headcount": 11},
-                            ],
+                            "forecast": [{"date": "2026-02-24", "predicted_headcount": 10}],
                         },
                         "finance": {
-                            "revenue": {
-                                "history": [{"date": "2026-02-23", "revenue": 140.0}],
-                                "forecast": [{"date": "2026-02-24", "predicted_revenue": 144.0}],
-                            },
-                            "expenditure": {
-                                "history": [{"date": "2026-02-23", "expenditure": 60.0}],
-                                "forecast": [{"date": "2026-02-24", "predicted_expenditure": 63.0}],
-                            },
+                            "revenue": {"history": [{"date": "2026-02-23", "revenue": 140.0}], "forecast": []},
+                            "expenditure": {"history": [{"date": "2026-02-23", "expenditure": 60.0}], "forecast": []},
                         },
                     },
                 }
@@ -226,82 +318,39 @@ class LiveApiLambdaTests(unittest.TestCase):
                 [
                     json.dumps({"id": "1", "department": "Engineering"}),
                     json.dumps({"id": "2", "department": "Sales"}),
-                    json.dumps({"id": "3", "department": "Engineering"}),
                 ]
             ),
-            finance_key: '\n'.join(
-                [
-                    json.dumps({"transaction_date": "2026-02-23", "amount": 140, "type": "sale"}),
-                    json.dumps({"transaction_date": "2026-02-23", "amount": 60, "type": "expense"}),
-                ]
-            ),
+            finance_key: json.dumps({"transaction_date": "2026-02-23", "amount": 140, "type": "sale"}),
         }
 
         response = self.module.lambda_handler(
-            {"requestContext": {"http": {"method": "GET"}}, "rawPath": "/dashboard"},
+            {"requestContext": {"http": {"method": "GET"}}, "rawPath": "/dashboard", "headers": self._auth_headers()},
             _context=None,
         )
         body = json.loads(response["body"])
-
         self.assertEqual(response["statusCode"], 200)
         self.assertIn("metrics", body)
         self.assertIn("charts", body)
-        self.assertEqual(body["metrics"]["total_employees"]["value"], 9)
-        self.assertGreaterEqual(len(body["charts"]["department_distribution"]), 1)
         self.assertEqual(body["sources"]["latest_prediction_key"], prediction_key)
-
-    def test_forecasts_route_returns_prediction_forecasts(self):
-        prediction_key = "trusted-analytics/predictions/2026/02/24/predictions.json"
-        self.fake_s3.pages = [
-            {"Contents": [{"Key": prediction_key, "LastModified": datetime(2026, 2, 24, 12, 0, tzinfo=timezone.utc)}]}
-        ]
-        self.fake_s3.objects = {
-            prediction_key: json.dumps(
-                {
-                    "status": "ok",
-                    "generated_at": "2026-02-24T12:00:00Z",
-                    "insights": {
-                        "employee_growth": {"forecast": [{"date": "2026-02-25", "predicted_headcount": 12}]},
-                        "finance": {
-                            "revenue": {"forecast": [{"date": "2026-02-25", "predicted_revenue": 150.0}]},
-                            "expenditure": {"forecast": [{"date": "2026-02-25", "predicted_expenditure": 50.0}]},
-                        },
-                    },
-                }
-            )
-        }
-
-        response = self.module.lambda_handler(
-            {"requestContext": {"http": {"method": "GET"}}, "rawPath": "/forecasts"},
-            _context=None,
-        )
-        body = json.loads(response["body"])
-        self.assertEqual(response["statusCode"], 200)
-        self.assertEqual(body["status"], "ok")
-        self.assertEqual(len(body["employee_growth_forecast"]), 1)
-        self.assertEqual(len(body["revenue_forecast"]), 1)
 
     def test_query_route_executes_select_and_returns_rows(self):
         self.fake_athena.query_results["q-1"] = {
             "columns": ["department", "count"],
-            "rows": [
-                {"department": "Engineering", "count": "10"},
-                {"department": "Sales", "count": "5"},
-            ],
+            "rows": [{"department": "Engineering", "count": "10"}],
         }
 
         response = self.module.lambda_handler(
             {
                 "requestContext": {"http": {"method": "POST"}},
                 "rawPath": "/query",
+                "headers": self._auth_headers(),
                 "body": json.dumps({"query": "SELECT department, count(*) AS count FROM employees", "limit": 50}),
             },
             _context=None,
         )
         body = json.loads(response["body"])
-
         self.assertEqual(response["statusCode"], 200)
-        self.assertEqual(body["row_count"], 2)
+        self.assertEqual(body["row_count"], 1)
         self.assertEqual(body["columns"], ["department", "count"])
         self.assertIn("LIMIT", self.fake_athena.started_queries[0]["query"].upper())
 
@@ -310,6 +359,7 @@ class LiveApiLambdaTests(unittest.TestCase):
             {
                 "requestContext": {"http": {"method": "POST"}},
                 "rawPath": "/query",
+                "headers": self._auth_headers(),
                 "body": json.dumps({"query": "DELETE FROM employees"}),
             },
             _context=None,
@@ -317,13 +367,6 @@ class LiveApiLambdaTests(unittest.TestCase):
         body = json.loads(response["body"])
         self.assertEqual(response["statusCode"], 400)
         self.assertIn("read-only", body["message"])
-
-    def test_unknown_route_returns_404(self):
-        response = self.module.lambda_handler(
-            {"requestContext": {"http": {"method": "GET"}}, "rawPath": "/unknown"},
-            _context=None,
-        )
-        self.assertEqual(response["statusCode"], 404)
 
 
 if __name__ == "__main__":

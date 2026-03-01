@@ -24,8 +24,13 @@
         </div>
 
         <form id="login-form" class="login-card" novalidate>
-          <h2>Sign in</h2>
-          <p>Access employee and financial analytics in one workspace.</p>
+          <h2 id="auth-title">Sign in</h2>
+          <p id="auth-subtitle">Access employee and financial analytics in one workspace.</p>
+
+          <div id="signup-name-group" class="signup-only is-hidden">
+            <label for="display-name">Display name</label>
+            <input id="display-name" name="display_name" type="text" placeholder="Your name" />
+          </div>
 
           <label for="email">Email</label>
           <input id="email" name="email" type="email" placeholder="name@company.com" required />
@@ -33,7 +38,8 @@
           <label for="password">Password</label>
           <input id="password" name="password" type="password" placeholder="Enter password" required />
 
-          <button type="submit">Enter Dashboard</button>
+          <button id="auth-submit-btn" type="submit">Sign In</button>
+          <button id="auth-toggle-btn" class="login-toggle-btn" type="button">Need an account? Create one</button>
           <p id="login-error" class="form-error" role="status" aria-live="polite"></p>
         </form>
       </div>

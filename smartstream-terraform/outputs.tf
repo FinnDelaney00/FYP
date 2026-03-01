@@ -211,6 +211,26 @@ output "live_api_query_endpoint" {
   value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/query"
 }
 
+output "live_api_auth_signup_endpoint" {
+  description = "Live API account signup endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/auth/signup"
+}
+
+output "live_api_auth_login_endpoint" {
+  description = "Live API account login endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/auth/login"
+}
+
+output "live_api_auth_me_endpoint" {
+  description = "Live API authenticated profile endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/auth/me"
+}
+
+output "accounts_table_name" {
+  description = "DynamoDB table storing frontend user accounts"
+  value       = aws_dynamodb_table.accounts.name
+}
+
 # =============================================================================
 # Glue Outputs
 # =============================================================================

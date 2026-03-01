@@ -63,6 +63,10 @@ textarea {
   font: inherit;
 }
 
+.is-hidden {
+  display: none !important;
+}
+
 .bg-layer {
   position: fixed;
   inset: 0;
@@ -252,6 +256,17 @@ textarea:focus-visible {
   cursor: pointer;
   box-shadow: 0 10px 22px rgba(30, 64, 175, 0.28);
   transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.login-toggle-btn {
+  background: transparent;
+  color: #1d4ed8;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  box-shadow: none;
+}
+
+.login-toggle-btn:hover {
+  box-shadow: none;
 }
 
 .login-card button:hover,

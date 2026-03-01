@@ -1,8 +1,11 @@
 import base64
 import gzip
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -13,6 +16,7 @@ import boto3
 
 s3_client = boto3.client("s3")
 athena_client = boto3.client("athena")
+dynamodb = boto3.resource("dynamodb")
 
 DATA_LAKE_BUCKET = os.environ["DATA_LAKE_BUCKET"]
 TRUSTED_PREFIX = os.environ.get("TRUSTED_PREFIX", "trusted/finance/transactions/")
@@ -25,6 +29,13 @@ ATHENA_WORKGROUP = os.environ.get("ATHENA_WORKGROUP", "").strip()
 ATHENA_DATABASE = os.environ.get("ATHENA_DATABASE", "").strip()
 ATHENA_QUERY_TIMEOUT_SECONDS = int(os.environ.get("ATHENA_QUERY_TIMEOUT_SECONDS", "20"))
 ATHENA_POLL_INTERVAL_SECONDS = float(os.environ.get("ATHENA_POLL_INTERVAL_SECONDS", "0.5"))
+ACCOUNTS_TABLE_NAME = os.environ.get("ACCOUNTS_TABLE", "smartstream-accounts")
+AUTH_TOKEN_SECRET = os.environ.get("AUTH_TOKEN_SECRET", "dev-secret-change-me")
+AUTH_TOKEN_TTL_SECONDS = int(os.environ.get("AUTH_TOKEN_TTL_SECONDS", "604800"))
+
+accounts_table = dynamodb.Table(ACCOUNTS_TABLE_NAME)
+
+EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
 DATE_FIELDS = (
     "transaction_date",
@@ -52,7 +63,7 @@ HAS_LIMIT_PATTERN = re.compile(r"\blimit\s+\d+\b", re.IGNORECASE)
 def _cors_headers() -> Dict[str, str]:
     return {
         "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization",
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     }
 
@@ -785,6 +796,180 @@ def _run_query(event: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _base64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("utf-8").rstrip("=")
+
+
+def _base64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def _hash_password(password: str, salt_hex: Optional[str] = None) -> Tuple[str, str]:
+    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
+    hashed = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120_000)
+    return salt.hex(), hashed.hex()
+
+
+def _validate_email(email: str) -> str:
+    normalized = email.strip().lower()
+    if not EMAIL_PATTERN.match(normalized):
+        raise ValueError("Please provide a valid email address.")
+    return normalized
+
+
+def _validate_password(password: str) -> str:
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters long.")
+    return password
+
+
+def _sign_token_segment(segment: str) -> str:
+    signature = hmac.new(AUTH_TOKEN_SECRET.encode("utf-8"), segment.encode("utf-8"), hashlib.sha256).digest()
+    return _base64url_encode(signature)
+
+
+def _issue_token(email: str, display_name: str) -> str:
+    now = int(time.time())
+    payload = {
+        "sub": email,
+        "name": display_name,
+        "iat": now,
+        "exp": now + AUTH_TOKEN_TTL_SECONDS,
+    }
+    payload_segment = _base64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature_segment = _sign_token_segment(payload_segment)
+    return f"{payload_segment}.{signature_segment}"
+
+
+def _verify_token(token: str) -> Dict[str, Any]:
+    if "." not in token:
+        raise ValueError("Invalid auth token.")
+
+    payload_segment, signature_segment = token.split(".", 1)
+    expected_signature = _sign_token_segment(payload_segment)
+    if not hmac.compare_digest(signature_segment, expected_signature):
+        raise ValueError("Invalid auth token signature.")
+
+    try:
+        payload = json.loads(_base64url_decode(payload_segment).decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("Invalid auth token payload.") from exc
+
+    if int(payload.get("exp", 0)) < int(time.time()):
+        raise ValueError("Auth token expired.")
+
+    return payload
+
+
+def _get_header(event: Dict[str, Any], header_name: str) -> Optional[str]:
+    headers = event.get("headers") or {}
+    target = header_name.lower()
+    for key, value in headers.items():
+        if str(key).lower() == target:
+            return value
+    return None
+
+
+def _require_auth(event: Dict[str, Any]) -> Dict[str, Any]:
+    auth_header = _get_header(event, "Authorization")
+    if not auth_header:
+        raise PermissionError("Missing Authorization header.")
+
+    parts = auth_header.strip().split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise PermissionError("Authorization header must be Bearer token.")
+
+    token = parts[1].strip()
+    if not token:
+        raise PermissionError("Missing bearer token.")
+
+    try:
+        return _verify_token(token)
+    except ValueError as exc:
+        raise PermissionError(str(exc)) from exc
+
+
+def _sanitize_account(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "email": item.get("email"),
+        "display_name": item.get("display_name") or "",
+        "created_at": item.get("created_at"),
+    }
+
+
+def _get_account(email: str) -> Optional[Dict[str, Any]]:
+    response = accounts_table.get_item(Key={"email": email})
+    item = response.get("Item")
+    return item if isinstance(item, dict) else None
+
+
+def _handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
+    body = _parse_json_body(event)
+    email = _validate_email(str(body.get("email", "")))
+    password = _validate_password(str(body.get("password", "")))
+    display_name = str(body.get("display_name") or "").strip()
+
+    if _get_account(email):
+        return _response(409, {"message": "An account with that email already exists."})
+
+    salt_hex, hash_hex = _hash_password(password)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    item = {
+        "email": email,
+        "display_name": display_name,
+        "password_salt": salt_hex,
+        "password_hash": hash_hex,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+
+    try:
+        accounts_table.put_item(Item=item, ConditionExpression="attribute_not_exists(email)")
+    except Exception as exc:
+        message = str(exc)
+        if "ConditionalCheckFailed" in message:
+            return _response(409, {"message": "An account with that email already exists."})
+        raise
+
+    token = _issue_token(email, display_name)
+    return _response(201, {"token": token, "user": _sanitize_account(item)})
+
+
+def _handle_login(event: Dict[str, Any]) -> Dict[str, Any]:
+    body = _parse_json_body(event)
+    email = _validate_email(str(body.get("email", "")))
+    password = str(body.get("password", ""))
+
+    account = _get_account(email)
+    if not account:
+        return _response(401, {"message": "Invalid email or password."})
+
+    salt_hex = str(account.get("password_salt") or "")
+    stored_hash = str(account.get("password_hash") or "")
+    if not salt_hex or not stored_hash:
+        return _response(401, {"message": "Invalid email or password."})
+
+    _, computed_hash = _hash_password(password, salt_hex=salt_hex)
+    if not hmac.compare_digest(stored_hash, computed_hash):
+        return _response(401, {"message": "Invalid email or password."})
+
+    token = _issue_token(email, str(account.get("display_name") or ""))
+    return _response(200, {"token": token, "user": _sanitize_account(account)})
+
+
+def _handle_auth_me(claims: Dict[str, Any]) -> Dict[str, Any]:
+    email = str(claims.get("sub") or "")
+    if not email:
+        return _response(401, {"message": "Invalid auth claims."})
+
+    account = _get_account(email)
+    if not account:
+        return _response(404, {"message": "Account not found."})
+
+    return _response(200, {"user": _sanitize_account(account)})
+
+
 def _handle_latest(event: Dict[str, Any]) -> Dict[str, Any]:
     limit = _parse_limit(event)
     latest = _get_latest_object(TRUSTED_PREFIX)
@@ -817,6 +1002,24 @@ def lambda_handler(event, _context):
         }
 
     try:
+        if path == "/auth/signup":
+            if method != "POST":
+                return _response(405, {"message": "Method not allowed"})
+            return _handle_signup(event)
+
+        if path == "/auth/login":
+            if method != "POST":
+                return _response(405, {"message": "Method not allowed"})
+            return _handle_login(event)
+
+        if path == "/auth/me":
+            if method != "GET":
+                return _response(405, {"message": "Method not allowed"})
+            claims = _require_auth(event)
+            return _handle_auth_me(claims)
+
+        _require_auth(event)
+
         if path == "/query":
             if method != "POST":
                 return _response(405, {"message": "Method not allowed"})
@@ -834,6 +1037,8 @@ def lambda_handler(event, _context):
 
         return _response(404, {"message": f"Route not found: {path}"})
 
+    except PermissionError as exc:
+        return _response(401, {"message": str(exc)})
     except ValueError as exc:
         return _response(400, {"message": str(exc)})
     except TimeoutError as exc:
