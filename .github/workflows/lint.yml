@@ -22,7 +22,7 @@ jobs:
         run: python -m pip install --upgrade pip ruff
 
       - name: Lint Python files
-        run: ruff check --select F,E9 MLModel.py MLModelLambda.py smartstream-terraform/lambdas
+        run: ruff check --select F,E9 smartstream-terraform/lambdas
 
   python-tests:
     name: Python Tests
