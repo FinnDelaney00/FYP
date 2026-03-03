@@ -1,8 +1,8 @@
 resource "aws_s3_bucket" "web" {
-  bucket = var.web_bucket_name
+  bucket = local.web_bucket_name
 
   tags = merge(local.common_tags, {
-    Name    = var.web_bucket_name
+    Name    = local.web_bucket_name
     Purpose = "FrontendHosting"
   })
 }

@@ -218,4 +218,7 @@ resource "aws_dms_replication_subnet_group" "main" {
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-dms-subnet-group"
   })
+
+  # Ensure AWS-required DMS VPC role exists before subnet group creation.
+  depends_on = [aws_iam_role_policy_attachment.dms_vpc_role_management]
 }

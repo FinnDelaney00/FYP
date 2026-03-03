@@ -119,9 +119,9 @@ variable "glue_crawler_schedule" {
 }
 
 variable "web_bucket_name" {
-  description = "Globally unique S3 bucket name for SmartStream frontend hosting"
+  description = "Optional override for frontend hosting bucket name. If null, a globally unique name using account ID is generated."
   type        = string
-  default     = "smartstream-dev-web"
+  default     = null
 }
 
 variable "data_lake_bucket_name" {

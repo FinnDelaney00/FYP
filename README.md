@@ -1,52 +1,230 @@
-# SmartStream Prototype – Lambda & ML Scripts
+﻿# SmartStream: End-to-End Data Pipeline and Live Analytics
 
-This README describes how the two main Python files in the prototype fit together:
+SmartStream is a full-stack AWS data platform prototype. It streams source data from PostgreSQL, transforms it into a trusted data lake zone, generates forecast insights, and serves an authenticated live analytics API for a browser dashboard.
 
-- `MLModelLambda.py` – offline ML pipeline used to train and evaluate models on the employee dataset. 
-- `LambdaCode.py` – AWS Lambda function that transforms raw change-data-capture (CDC) events from S3 into a clean “trusted” layer. 
+This repository is the top-level project workspace. It contains:
 
-It also explains why the ML file had to be simplified due to Lambda time limits, why the Lambda code is designed to run **inside** AWS Lambda and not as a local script, and how most of the prototype wiring was done through the AWS Console.
+- Terraform infrastructure (`smartstream-terraform/`)
+- Lambda application code (transform, ML inference, live API)
+- Frontend dashboard (`frontend/`)
+- Python unit tests (`tests/`)
 
----
+## Architecture at a Glance
 
-## 1. High-Level Flow
+```text
+PostgreSQL (RDS)
+  -> DMS (CDC)
+  -> Kinesis Data Stream
+  -> Firehose
+  -> S3 raw/
+  -> Transform Lambda
+  -> S3 trusted/{employees|finance}/...
+  -> ML Inference Lambda (scheduled)
+  -> S3 trusted-analytics/predictions/
+  -> Live API Lambda + API Gateway
+  -> Frontend dashboard (Vite app, deployable to S3)
+```
 
-The prototype SmartStream pipeline is split into two main parts:
+Glue crawlers and Athena are provisioned for cataloging and SQL analytics.
 
-1. **Streaming / ETL path (online, serverless)**  
-   - Source database → AWS DMS / Firehose → **S3 raw zone**  
-   - S3 ObjectCreated event → **`LambdaCode.py` Lambda**  
-   - Lambda parses and normalises records → **S3 trusted zone (partitioned by ingest_date)** 
+## Repository Structure
 
-2. **Analytics / ML path (offline, batch)**  
-   - Trusted data exported / mirrored to a local CSV (or equivalent dataset)  
-   - **`MLModelLambda.py`** is run locally to: preprocess, train a RandomForest, run anomaly detection, and perform a simple headcount forecast with Prophet.
+```text
+.
+|-- README.md
+|-- tests/
+|   |-- test_transform_lambda.py
+|   |-- test_ml_inference_lambda.py
+|   `-- test_live_api_lambda.py
+|-- frontend/
+|   |-- package.json
+|   |-- index.html
+|   `-- src/
+`-- smartstream-terraform/
+    |-- *.tf
+    `-- lambdas/
+        |-- transform/lambda_function.py
+        |-- ml/lambda_function.py
+        `-- live_api/lambda_function.py
+```
 
-For the **prototype**, these two parts are not fully automated end-to-end. The streaming side runs continuously in AWS Lambda and S3, while the ML side is executed manually on a local machine against a static snapshot of the data.
+## Key Components
 
----
+### Transform Lambda
 
-## 2. MLModelLambda.py – Offline ML Pipeline
+File: `smartstream-terraform/lambdas/transform/lambda_function.py`
 
-`MLModelLambda.py` implements a compact ML pipeline around the employee dataset. Its responsibilities are:
-- **Preprocessing**
-  - Encodes categorical columns (`Education`, `City`, `Gender`, `EverBenched`, `PaymentTier`) using `LabelEncoder`.
-  - Standardises all features with `StandardScaler`.
-- **Classification**
-  - Trains a `RandomForestClassifier` to predict `LeaveOrNot` (attrition).
-  - Evaluates with accuracy and a classification report.
-- **Anomaly detection**
-  - Trains an `IsolationForest` on the scaled features.
-  - Labels each employee as normal (`1`) or anomalous (`-1`) and computes anomaly scores.
-- **Forecasting**
-  - Builds a headcount time series from `JoiningYear` and uses `Prophet` to forecast the next 6 months of headcount.
-- **Visualisation**
-  - Produces a simple 3-panel dashboard:
-    1. Stay vs leave counts,
-    2. Feature importance,
-    3. Historical vs forecasted headcount.
+- Triggered by S3 `ObjectCreated` events on `raw/`
+- Reads JSON/JSONL (including `.gz`)
+- Filters DMS control records and unsupported tables
+- Routes records to:
+  - `trusted/employees/<table>/...`
+  - `trusted/finance/<table>/...`
+- Removes null/empty fields, normalizes timestamps, de-duplicates rows
 
-The script is intended to be run **locally** (e.g. from a terminal or IDE), not inside Lambda:
+### ML Inference Lambda
+
+File: `smartstream-terraform/lambdas/ml/lambda_function.py`
+
+- Reads recent trusted employee and finance files
+- Builds:
+  - employee headcount trend + forecast
+  - revenue and expenditure trend + forecast
+- Writes output JSON to:
+  - `trusted-analytics/predictions/YYYY/MM/DD/predictions_<timestamp>.json`
+
+### Live API Lambda
+
+File: `smartstream-terraform/lambdas/live_api/lambda_function.py`
+
+- HTTP API (API Gateway v2) endpoints:
+  - `POST /auth/signup`
+  - `POST /auth/login`
+  - `GET /auth/me`
+  - `GET /latest`
+  - `GET /dashboard`
+  - `GET /forecasts`
+  - `POST /query`
+- Uses DynamoDB for user accounts
+- Uses Athena for read-only SQL queries (`SELECT`/`WITH` only)
+- Requires bearer token auth on non-auth routes
+
+## Prerequisites
+
+- AWS account with permissions to create networking, compute, storage, IAM, and analytics resources
+- Terraform >= 1.5
+- AWS CLI configured (`aws configure`)
+- Python 3.11+ (for local tests)
+- Node.js 20+ and npm (for frontend)
+
+## Quick Start (Infrastructure)
 
 ```bash
-python MLModelLambda.py
+cd smartstream-terraform
+terraform init
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Edit `terraform.tfvars` for your environment, then:
+
+```bash
+terraform plan
+terraform apply
+```
+
+Get important outputs:
+
+```bash
+terraform output
+terraform output -raw live_api_base_url
+terraform output -raw data_lake_bucket_name
+```
+
+## Seed Source Data (Minimum)
+
+After deployment, connect to RDS and create the source tables expected by the pipeline:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS finance;
+
+CREATE TABLE IF NOT EXISTS public.employees (
+  id SERIAL PRIMARY KEY,
+  department TEXT,
+  employment_status TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS finance.transactions (
+  id SERIAL PRIMARY KEY,
+  employee_id INT,
+  transaction_date DATE,
+  amount NUMERIC(12,2),
+  type TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Insert sample rows into both tables and verify files appear under:
+
+- `s3://<data-lake-bucket>/raw/`
+- `s3://<data-lake-bucket>/trusted/`
+- `s3://<data-lake-bucket>/trusted-analytics/predictions/`
+
+## Frontend Local Development
+
+```bash
+cd frontend
+npm ci
+```
+
+Create `frontend/.env.local`:
+
+```env
+VITE_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com
+VITE_POLL_INTERVAL_MS=3000
+```
+
+Run locally:
+
+```bash
+npm run dev
+```
+
+Build for deployment:
+
+```bash
+npm run build
+```
+
+## Frontend Deployment (S3/CloudFront)
+
+The Terraform outputs include helper commands:
+
+```bash
+cd smartstream-terraform
+terraform output frontend_deploy_commands
+```
+
+Typical flow:
+
+```bash
+cd frontend
+npm ci && npm run build
+aws s3 sync dist s3://<web_bucket_name> --delete
+aws cloudfront create-invalidation --distribution-id <distribution_id> --paths "/*"
+```
+
+Note: `smartstream-terraform/cloudfront.tf` currently sets `enabled = false`. If you want public CDN delivery, set it to `true` and re-apply Terraform.
+
+## Testing and Validation
+
+Run Python unit tests from repo root:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Run frontend lint:
+
+```bash
+cd frontend
+npm run lint
+```
+
+Run Terraform formatting check:
+
+```bash
+terraform -chdir=smartstream-terraform fmt -check -recursive
+```
+
+## Useful Terraform Docs in This Repo
+
+- `smartstream-terraform/README.md`
+- `smartstream-terraform/DEPLOYMENT_CHECKLIST.md`
+- `smartstream-terraform/QUICK_REFERENCE.md`
+- `smartstream-terraform/PROJECT_SUMMARY.md`
+
+## Notes
+
+- This repo contains implementation code and tests for pipeline behavior; it is not just infrastructure.
+- The live API uses a lightweight custom token flow for prototype use. For production, integrate a managed identity provider and hardened auth controls.

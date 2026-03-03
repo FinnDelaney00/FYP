@@ -11,6 +11,7 @@ locals {
   # S3 bucket names (must be globally unique)
   data_lake_bucket      = "${local.name_prefix}-datalake-${local.account_id}"
   athena_results_bucket = "${local.name_prefix}-athena-results-${local.account_id}"
+  web_bucket_name      = coalesce(var.web_bucket_name, "${local.name_prefix}-web-${local.account_id}")
 
   # S3 prefixes
   s3_raw_prefix               = "raw/"

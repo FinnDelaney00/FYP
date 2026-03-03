@@ -112,6 +112,10 @@ def transform_data(raw_data, source_key):
         try:
             record = json.loads(line)
 
+            # Drop DMS metadata-only/control records from raw files
+            if isinstance(record, dict) and "metadata" in record and "data" not in record:
+                continue
+
             # We expect DMS envelope with "metadata" + "data"
             if isinstance(record, dict) and "metadata" in record and "data" in record:
                 meta = record.get("metadata") or {}
