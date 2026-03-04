@@ -106,13 +106,68 @@ function renderRevenueExpenseBars(series) {
     .join("");
 }
 
-function renderEmployeeGrowth(points) {
+function buildSmoothLinePath(points) {
+  if (!Array.isArray(points) || points.length === 0) {
+    return "";
+  }
+
+  if (points.length === 1) {
+    return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  }
+
+  const tension = 0.2;
+  let path = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i - 1] || points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] || p2;
+
+    const c1x = p1.x + ((p2.x - p0.x) * tension) / 6;
+    const c1y = p1.y + ((p2.y - p0.y) * tension) / 6;
+    const c2x = p2.x - ((p3.x - p1.x) * tension) / 6;
+    const c2y = p2.y - ((p3.y - p1.y) * tension) / 6;
+
+    path += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+
+  return path;
+}
+
+function buildAreaPath(points, baselineY, linePath) {
+  if (!Array.isArray(points) || points.length === 0) {
+    return "";
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `${linePath} L ${last.x.toFixed(1)} ${baselineY.toFixed(1)} L ${first.x.toFixed(1)} ${baselineY.toFixed(1)} Z`;
+}
+
+function pickAxisLabels(series, slots = 6) {
+  if (!Array.isArray(series) || series.length === 0) {
+    return Array.from({ length: slots }, () => "--");
+  }
+
+  if (series.length === 1) {
+    return Array.from({ length: slots }, () => series[0].label || "--");
+  }
+
+  return Array.from({ length: slots }, (_, index) => {
+    const ratio = index / (slots - 1);
+    const pointIndex = Math.round(ratio * (series.length - 1));
+    return series[pointIndex]?.label || "--";
+  });
+}
+
+function renderEmployeeGrowth(series) {
   const container = document.getElementById("employee-growth-chart");
   if (!container) {
     return;
   }
 
-  if (!Array.isArray(points) || points.length === 0) {
+  if (!Array.isArray(series) || series.length === 0) {
     container.innerHTML = `
       <svg viewBox="0 0 520 220" preserveAspectRatio="none" aria-label="Employee growth line chart">
         <polyline class="line-fill" points="20,210 500,210 500,210 20,210"></polyline>
@@ -127,35 +182,47 @@ function renderEmployeeGrowth(points) {
   const height = 220;
   const paddingX = 20;
   const paddingY = 15;
-  const values = points.map((point) => Number(point.value) || 0);
+  const values = series.map((point) => Number(point.value) || 0);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
-  const range = Math.max(1, maxValue - minValue);
+  const spread = maxValue - minValue;
+  const domainPadding = spread > 0 ? spread * 0.2 : Math.max(Math.abs(maxValue) * 0.15, 1);
+  const domainMin = minValue - domainPadding;
+  const domainMax = maxValue + domainPadding;
+  const range = Math.max(1, domainMax - domainMin);
+  const baselineY = height - paddingY;
 
-  const coords = points.map((point, index) => {
+  const coords = series.map((point, index) => {
     const x =
-      points.length === 1
+      series.length === 1
         ? width / 2
-        : paddingX + (index / (points.length - 1)) * (width - paddingX * 2);
-    const y = paddingY + ((maxValue - (Number(point.value) || 0)) / range) * (height - paddingY * 2);
+        : paddingX + (index / (series.length - 1)) * (width - paddingX * 2);
+    const y = paddingY + ((domainMax - (Number(point.value) || 0)) / range) * (height - paddingY * 2);
     return { x, y };
   });
 
-  const line = coords.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
-  const area = `${coords[0].x.toFixed(1)},210 ${line} ${coords[coords.length - 1].x.toFixed(1)},210`;
-  const labels = [
-    points[0]?.label || "--",
-    points[Math.floor((points.length - 1) / 5)]?.label || "--",
-    points[Math.floor((points.length - 1) * 2 / 5)]?.label || "--",
-    points[Math.floor((points.length - 1) * 3 / 5)]?.label || "--",
-    points[Math.floor((points.length - 1) * 4 / 5)]?.label || "--",
-    points[points.length - 1]?.label || "--"
-  ];
+  const linePath = buildSmoothLinePath(coords);
+  const areaPath = buildAreaPath(coords, baselineY, linePath);
+  const labels = pickAxisLabels(series);
+  const gridLines = [0.2, 0.4, 0.6, 0.8]
+    .map((position) => {
+      const y = (paddingY + (height - paddingY * 2) * position).toFixed(1);
+      return `<line class="line-grid-line" x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}"></line>`;
+    })
+    .join("");
+  const dots = coords
+    .map((point, index) => {
+      const forecastClass = series[index]?.is_forecast ? " is-forecast" : "";
+      return `<circle class="line-point${forecastClass}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.8"></circle>`;
+    })
+    .join("");
 
   container.innerHTML = `
     <svg viewBox="0 0 520 220" preserveAspectRatio="none" aria-label="Employee growth line chart">
-      <polyline class="line-fill" points="${area}"></polyline>
-      <polyline class="line-stroke" points="${line}"></polyline>
+      ${gridLines}
+      <path class="line-fill" d="${areaPath}"></path>
+      <path class="line-stroke" d="${linePath}"></path>
+      ${dots}
     </svg>
     <div class="x-axis">
       ${labels.map((label) => `<span>${label}</span>`).join("")}

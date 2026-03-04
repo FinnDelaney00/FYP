@@ -64,21 +64,10 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
       {
         Effect = "Allow"
         Action = [
+          "s3:GetBucketLocation",
           "s3:ListBucket"
         ]
         Resource = "arn:aws:s3:::${local.live_api_data_lake_bucket}"
-        Condition = {
-          StringLike = {
-            "s3:prefix" = [
-              var.trusted_prefix_finance_transactions,
-              "${var.trusted_prefix_finance_transactions}*",
-              var.trusted_prefix_employees,
-              "${var.trusted_prefix_employees}*",
-              var.trusted_prefix_predictions,
-              "${var.trusted_prefix_predictions}*"
-            ]
-          }
-        }
       },
       {
         Effect = "Allow"
@@ -90,6 +79,25 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
           "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_employees}*",
           "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_predictions}*"
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetBucketLocation",
+          "s3:ListBucket",
+          "s3:ListBucketMultipartUploads"
+        ]
+        Resource = aws_s3_bucket.athena_results.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:AbortMultipartUpload",
+          "s3:GetObject",
+          "s3:ListMultipartUploadParts",
+          "s3:PutObject"
+        ]
+        Resource = "${aws_s3_bucket.athena_results.arn}/results/*"
       },
       {
         Effect = "Allow"
@@ -152,6 +160,7 @@ resource "aws_lambda_function" "live_api" {
       POLL_INTERVAL_MS       = tostring(var.poll_interval_ms)
       ATHENA_WORKGROUP       = aws_athena_workgroup.main.name
       ATHENA_DATABASE        = aws_glue_catalog_database.main.name
+      ATHENA_OUTPUT_LOCATION = "s3://${aws_s3_bucket.athena_results.id}/results/"
       ACCOUNTS_TABLE         = aws_dynamodb_table.accounts.name
       AUTH_TOKEN_SECRET      = random_password.auth_token_secret.result
       AUTH_TOKEN_TTL_SECONDS = tostring(var.auth_token_ttl_seconds)

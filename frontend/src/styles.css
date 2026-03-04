@@ -524,40 +524,75 @@ textarea:focus-visible {
 }
 
 .live-feed-chart {
-  border: 1px solid rgba(17, 37, 73, 0.1);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 250, 255, 0.95));
-  border-radius: 12px;
-  padding: 0.8rem;
-  min-height: 290px;
+  border: 1px solid rgba(30, 64, 175, 0.14);
+  background:
+    radial-gradient(circle at 12% 16%, rgba(37, 99, 235, 0.12), transparent 46%),
+    radial-gradient(circle at 88% 12%, rgba(6, 182, 212, 0.09), transparent 44%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 255, 0.97));
+  border-radius: 14px;
+  padding: 0.9rem;
+  min-height: 0;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.live-feed-chart .line-chart-wrap {
+  min-width: 0;
+}
+
+.live-feed-chart .line-chart-wrap svg {
+  height: clamp(210px, 30vw, 320px);
 }
 
 .live-chart-empty {
   margin: 0;
-  color: #51688f;
+  color: #4f6590;
   font-size: 0.86rem;
 }
 
 .live-chart-wrap {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.8rem;
+}
+
+.live-chart-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.live-chart-series {
+  color: #1d3f77;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.live-chart-range {
+  color: #6179a6;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .live-chart-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
 }
 
 .live-chart-stat {
-  border: 1px solid rgba(37, 99, 235, 0.14);
-  background: rgba(255, 255, 255, 0.72);
-  border-radius: 10px;
-  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(248, 251, 255, 0.75));
+  border-radius: 11px;
+  padding: 0.5rem 0.65rem;
+  box-shadow: 0 8px 18px rgba(29, 78, 216, 0.07);
 }
 
 .live-chart-stat .label {
   display: block;
-  color: #657ca7;
+  color: #5f77a2;
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -580,15 +615,26 @@ textarea:focus-visible {
 
 .live-chart-svg {
   width: 100%;
-  height: 220px;
+  height: 260px;
   display: block;
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(6, 182, 212, 0.04));
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.02)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.82), rgba(247, 251, 255, 0.96));
+  border: 1px solid rgba(37, 99, 235, 0.08);
 }
 
 .live-chart-grid-line {
-  stroke: rgba(37, 99, 235, 0.14);
+  stroke: rgba(55, 89, 146, 0.17);
   stroke-width: 1;
+  stroke-dasharray: 4 5;
+}
+
+.live-chart-y-label {
+  fill: #5e779f;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .live-chart-area {
@@ -597,24 +643,43 @@ textarea:focus-visible {
 
 .live-chart-line {
   fill: none;
-  stroke: #1d4ed8;
-  stroke-width: 3.5;
+  stroke: url(#live-line-gradient);
+  stroke-width: 3.8;
   stroke-linejoin: round;
   stroke-linecap: round;
+  filter: url(#live-line-glow);
 }
 
 .live-chart-point {
-  fill: #fff;
-  stroke: #0ea5e9;
-  stroke-width: 2;
+  fill: rgba(255, 255, 255, 0.97);
+  stroke: rgba(14, 116, 144, 0.75);
+  stroke-width: 1.8;
+}
+
+.live-chart-latest-guide {
+  stroke: rgba(14, 116, 144, 0.32);
+  stroke-width: 1.1;
+  stroke-dasharray: 3 4;
+}
+
+.live-chart-point-focus {
+  fill: rgba(14, 165, 233, 0.24);
+}
+
+.live-chart-point-focus-core {
+  fill: #ffffff;
+  stroke: #0891b2;
+  stroke-width: 2.1;
 }
 
 .live-chart-axis {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  color: #5d7398;
-  font-size: 0.74rem;
-  font-weight: 600;
+  color: #58709b;
+  font-size: 0.73rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .live-chart-axis span:nth-child(2) {
@@ -751,12 +816,27 @@ textarea:focus-visible {
   fill: rgba(37, 99, 235, 0.16);
 }
 
+.line-grid-line {
+  stroke: rgba(37, 99, 235, 0.15);
+  stroke-width: 1;
+}
+
 .line-stroke {
   fill: none;
   stroke: #1d4ed8;
   stroke-width: 5;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.line-point {
+  fill: #fff;
+  stroke: #1d4ed8;
+  stroke-width: 2;
+}
+
+.line-point.is-forecast {
+  stroke: #0ea5e9;
 }
 
 .x-axis {
@@ -1080,5 +1160,14 @@ textarea {
 
   .metrics-grid {
     grid-template-columns: 1fr;
+  }
+
+  .live-chart-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .live-chart-svg {
+    height: 235px;
   }
 }

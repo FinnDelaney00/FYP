@@ -27,6 +27,7 @@ QUERY_MAX_ROWS = int(os.environ.get("QUERY_MAX_ROWS", str(MAX_ITEMS_DEFAULT)))
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
 ATHENA_WORKGROUP = os.environ.get("ATHENA_WORKGROUP", "").strip()
 ATHENA_DATABASE = os.environ.get("ATHENA_DATABASE", "").strip()
+ATHENA_OUTPUT_LOCATION = os.environ.get("ATHENA_OUTPUT_LOCATION", "").strip()
 ATHENA_QUERY_TIMEOUT_SECONDS = int(os.environ.get("ATHENA_QUERY_TIMEOUT_SECONDS", "20"))
 ATHENA_POLL_INTERVAL_SECONDS = float(os.environ.get("ATHENA_POLL_INTERVAL_SECONDS", "0.5"))
 ACCOUNTS_TABLE_NAME = os.environ.get("ACCOUNTS_TABLE", "smartstream-accounts")
@@ -774,11 +775,15 @@ def _run_query(event: Dict[str, Any]) -> Dict[str, Any]:
 
     query_text = _enforce_limit(sql, limit)
 
-    start = athena_client.start_query_execution(
-        QueryString=query_text,
-        QueryExecutionContext={"Database": ATHENA_DATABASE},
-        WorkGroup=ATHENA_WORKGROUP,
-    )
+    start_kwargs: Dict[str, Any] = {
+        "QueryString": query_text,
+        "QueryExecutionContext": {"Database": ATHENA_DATABASE},
+        "WorkGroup": ATHENA_WORKGROUP,
+    }
+    if ATHENA_OUTPUT_LOCATION:
+        start_kwargs["ResultConfiguration"] = {"OutputLocation": ATHENA_OUTPUT_LOCATION}
+
+    start = athena_client.start_query_execution(**start_kwargs)
     query_execution_id = start["QueryExecutionId"]
 
     execution = _await_athena(query_execution_id)

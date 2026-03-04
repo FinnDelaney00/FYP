@@ -96,17 +96,24 @@ function parseDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function extractDateLabel(item, index) {
+function extractTimestamp(item) {
   if (item && typeof item === "object") {
     for (const field of DATE_FIELDS) {
       const parsed = parseDate(item[field]);
       if (parsed) {
-        return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        return parsed;
       }
     }
   }
 
-  return `#${index + 1}`;
+  return null;
+}
+
+function formatDateLabel(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return "--";
+  }
+  return value.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function formatCurrency(value) {
@@ -132,13 +139,95 @@ function buildSeries(items) {
   }
 
   const points = items
-    .map((item, index) => ({
-      label: extractDateLabel(item, index),
-      value: extractAmount(item)
-    }))
-    .filter((point) => Number.isFinite(point.value));
+    .map((item, index) => {
+      const value = extractAmount(item);
+      if (!Number.isFinite(value)) {
+        return null;
+      }
 
-  return points.slice(-MAX_CHART_POINTS);
+      const timestamp = extractTimestamp(item);
+      return {
+        timestamp,
+        timestampMs: timestamp ? timestamp.getTime() : Number.NaN,
+        value,
+        inputOrder: index
+      };
+    })
+    .filter(Boolean);
+
+  if (!points.length) {
+    return [];
+  }
+
+  const timestampedPoints = points.filter((point) => Number.isFinite(point.timestampMs));
+  const sortablePoints = timestampedPoints.length ? timestampedPoints : points;
+  sortablePoints.sort((left, right) => {
+    if (Number.isFinite(left.timestampMs) && Number.isFinite(right.timestampMs)) {
+      return left.timestampMs - right.timestampMs;
+    }
+    return left.inputOrder - right.inputOrder;
+  });
+
+  return sortablePoints.slice(-MAX_CHART_POINTS).map((point, index) => ({
+    timestamp: point.timestamp,
+    value: point.value,
+    label: point.timestamp ? formatDateLabel(point.timestamp) : `#${index + 1}`
+  }));
+}
+
+function buildSmoothPath(points) {
+  if (!Array.isArray(points) || points.length === 0) {
+    return "";
+  }
+
+  if (points.length === 1) {
+    return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  }
+
+  const tension = 0.18;
+  let path = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i - 1] || points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] || p2;
+
+    const c1x = p1.x + ((p2.x - p0.x) * tension) / 6;
+    const c1y = p1.y + ((p2.y - p0.y) * tension) / 6;
+    const c2x = p2.x - ((p3.x - p1.x) * tension) / 6;
+    const c2y = p2.y - ((p3.y - p1.y) * tension) / 6;
+
+    path += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+
+  return path;
+}
+
+function buildAreaPath(points, baselineY, linePath) {
+  if (!Array.isArray(points) || points.length === 0) {
+    return "";
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `${linePath} L ${last.x.toFixed(1)} ${baselineY.toFixed(1)} L ${first.x.toFixed(1)} ${baselineY.toFixed(1)} Z`;
+}
+
+function pickAxisLabels(series, slots = 6) {
+  if (!Array.isArray(series) || series.length === 0) {
+    return Array.from({ length: slots }, () => "--");
+  }
+
+  if (series.length === 1) {
+    return Array.from({ length: slots }, () => series[0].label || "--");
+  }
+
+  return Array.from({ length: slots }, (_, index) => {
+    const ratio = index / (slots - 1);
+    const pointIndex = Math.round(ratio * (series.length - 1));
+    return series[pointIndex]?.label || "--";
+  });
 }
 
 function renderEmptyChart(chartElement, message) {
@@ -156,53 +245,49 @@ function renderChart(chartElement, items) {
     return;
   }
 
-  const width = 680;
+  const width = 520;
   const height = 220;
-  const padX = 26;
-  const padY = 16;
-  const plotWidth = width - padX * 2;
-  const plotHeight = height - padY * 2;
+  const paddingX = 20;
+  const paddingY = 15;
 
   const values = series.map((point) => point.value);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
-  const paddedMin = minValue > 0 ? minValue * 0.92 : minValue * 1.08;
-  const paddedMax = maxValue < 0 ? maxValue * 0.92 : maxValue * 1.08;
-  const range = Math.max(Math.abs(paddedMax - paddedMin), 1);
-  const baselineY = padY + ((paddedMax - 0) / range) * plotHeight;
+  const spread = maxValue - minValue;
+  const domainPadding = spread > 0 ? spread * 0.2 : Math.max(Math.abs(maxValue) * 0.15, 1);
+  const domainMin = minValue - domainPadding;
+  const domainMax = maxValue + domainPadding;
+  const range = Math.max(1, domainMax - domainMin);
+  const baselineValue = domainMin > 0 ? domainMin : domainMax < 0 ? domainMax : 0;
+  const baselineY =
+    paddingY + ((domainMax - baselineValue) / range) * (height - paddingY * 2);
 
   const points = series.map((point, index) => {
     const x =
       series.length === 1
-        ? padX + plotWidth / 2
-        : padX + (index / (series.length - 1)) * plotWidth;
-    const y = padY + ((paddedMax - point.value) / range) * plotHeight;
+        ? width / 2
+        : paddingX + (index / (series.length - 1)) * (width - paddingX * 2);
+    const y = paddingY + ((domainMax - point.value) / range) * (height - paddingY * 2);
     return { ...point, x, y };
   });
 
-  const linePoints = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
-  const baselineClamped = Math.max(padY, Math.min(height - padY, baselineY));
-  const areaPoints = `${points[0].x.toFixed(1)},${baselineClamped.toFixed(1)} ${linePoints} ${points[
-    points.length - 1
-  ].x.toFixed(1)},${baselineClamped.toFixed(1)}`;
-
+  const linePath = buildSmoothPath(points);
+  const areaPath = buildAreaPath(points, baselineY, linePath);
+  const labels = pickAxisLabels(series);
   const gridLines = [0.2, 0.4, 0.6, 0.8]
     .map((position) => {
-      const y = (padY + plotHeight * position).toFixed(1);
-      return `<line class="live-chart-grid-line" x1="${padX}" y1="${y}" x2="${width - padX}" y2="${y}"></line>`;
+      const y = (paddingY + (height - paddingY * 2) * position).toFixed(1);
+      return `<line class="line-grid-line" x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}"></line>`;
     })
     .join("");
 
   const pointDots = points
-    .map(
-      (point) =>
-        `<circle class="live-chart-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4"></circle>`
-    )
+    .map((point) => `<circle class="line-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.8"></circle>`)
     .join("");
 
-  const latest = values[values.length - 1];
+  const latest = series[series.length - 1].value;
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const delta = values.length > 1 ? values[values.length - 1] - values[0] : 0;
+  const delta = values.length > 1 ? series[series.length - 1].value - series[0].value : 0;
 
   const wrapper = document.createElement("div");
   wrapper.className = "live-chart-wrap";
@@ -221,22 +306,16 @@ function renderChart(chartElement, items) {
         <strong class="value live-stat-delta"></strong>
       </div>
     </div>
-    <svg class="live-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="live-area-gradient" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="rgba(37, 99, 235, 0.34)"></stop>
-          <stop offset="100%" stop-color="rgba(14, 165, 233, 0.03)"></stop>
-        </linearGradient>
-      </defs>
-      ${gridLines}
-      <polygon class="live-chart-area" points="${areaPoints}"></polygon>
-      <polyline class="live-chart-line" points="${linePoints}"></polyline>
-      ${pointDots}
-    </svg>
-    <div class="live-chart-axis">
-      <span class="live-axis-start"></span>
-      <span class="live-axis-mid"></span>
-      <span class="live-axis-end"></span>
+    <div class="line-chart-wrap">
+      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="Latest trusted events line chart">
+        ${gridLines}
+        <path class="line-fill" d="${areaPath}"></path>
+        <path class="line-stroke" d="${linePath}"></path>
+        ${pointDots}
+      </svg>
+      <div class="x-axis">
+        ${labels.map((label) => `<span>${label}</span>`).join("")}
+      </div>
     </div>
   `;
 
@@ -246,13 +325,8 @@ function renderChart(chartElement, items) {
   const deltaElement = wrapper.querySelector(".live-stat-delta");
   const deltaWrap = wrapper.querySelector(".live-stat-delta-wrap");
   deltaElement.textContent = formatSignedCurrency(delta);
-  deltaWrap.classList.toggle("is-up", delta >= 0);
-  deltaWrap.classList.toggle("is-down", delta < 0);
-
-  const midPoint = points[Math.floor((points.length - 1) / 2)];
-  wrapper.querySelector(".live-axis-start").textContent = points[0].label;
-  wrapper.querySelector(".live-axis-mid").textContent = midPoint.label;
-  wrapper.querySelector(".live-axis-end").textContent = points[points.length - 1].label;
+  deltaWrap.classList.toggle("is-up", values.length > 1 && delta > 0);
+  deltaWrap.classList.toggle("is-down", values.length > 1 && delta < 0);
 
   chartElement.innerHTML = "";
   chartElement.append(wrapper);
@@ -278,7 +352,8 @@ export function startLiveUpdates({
 
   const refresh = async () => {
     try {
-      const response = await fetch(`${DEFAULT_API_BASE_URL}/latest?limit=${limit}`, {
+      const response = await fetch(`${DEFAULT_API_BASE_URL}/latest?limit=${limit}&_ts=${Date.now()}`, {
+        cache: "no-store",
         headers: {
           ...buildAuthHeaders(getAuthToken)
         }
