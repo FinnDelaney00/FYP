@@ -1,3 +1,8 @@
+/**
+ * File purpose:
+ * Fetches dashboard, forecast, and query data from the backend API and renders
+ * metrics, charts, forecast panels, and query result tables in the UI.
+ */
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {

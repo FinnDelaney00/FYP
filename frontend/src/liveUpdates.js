@@ -1,3 +1,8 @@
+/**
+ * File purpose:
+ * Polls the backend latest-events endpoint, normalizes incoming finance records,
+ * and renders the live feed chart plus related status/meta display elements.
+ */
 const DEFAULT_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const DEFAULT_POLL_INTERVAL_MS = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 3000);
 const MAX_CHART_POINTS = 24;

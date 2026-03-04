@@ -1,3 +1,8 @@
+/*
+  File purpose:
+  Provides the visual system for the frontend display, including global theme variables,
+  layout, component styles, chart visuals, and responsive behavior for login and dashboard views.
+*/
 :root {
   --bg-deep: #04122b;
   --bg-mid: #0b2447;

@@ -1,3 +1,8 @@
+/**
+ * File purpose:
+ * Bootstraps frontend display behavior: authentication flow, view/page navigation,
+ * session restoration, and startup/cleanup of live data and insights rendering modules.
+ */
 import { startLiveUpdates } from "./liveUpdates";
 import { initInsightsData } from "./insightsData";
 
