@@ -278,6 +278,24 @@ output "sns_alerts_topic_arn" {
   value       = aws_sns_topic.alerts.arn
 }
 
+output "shared_iam_role_names" {
+  description = "Shared IAM role names used by this deployment"
+  value       = local.shared_iam_role_names
+}
+
+output "shared_iam_role_arns" {
+  description = "Effective shared IAM role ARNs used by this deployment"
+  value = {
+    dms_secrets_access = local.dms_secrets_access_role_arn
+    dms_kinesis_target = local.dms_kinesis_target_role_arn
+    firehose           = local.firehose_role_arn
+    lambda_transform   = local.lambda_transform_role_arn
+    lambda_ml          = local.lambda_ml_role_arn
+    lambda_live_api    = local.lambda_live_api_role_arn
+    glue_crawler       = local.glue_crawler_role_arn
+  }
+}
+
 # =============================================================================
 # Quick Start Commands
 # =============================================================================

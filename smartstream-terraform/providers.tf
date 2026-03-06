@@ -3,9 +3,10 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = var.project_name
-      Environment = var.env
+      Project     = "smartstream"
+      Environment = var.environment
       ManagedBy   = "Terraform"
+      Company     = var.enable_tenant_prefix ? var.company_name : "legacy"
       Pipeline    = "SmartStream"
     }
   }

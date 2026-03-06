@@ -10,6 +10,96 @@ variable "env" {
   default     = "dev"
 }
 
+variable "company_name" {
+  description = "Company name used for tenant-prefixed deployments"
+  type        = string
+  default     = ""
+}
+
+variable "environment" {
+  description = "Deployment environment used by tenant and tag naming (dev, test, prod)"
+  type        = string
+  default     = "dev"
+}
+
+variable "enable_tenant_prefix" {
+  description = "When true, resource names use tenant prefixing; when false, legacy naming is preserved"
+  type        = bool
+  default     = false
+}
+
+variable "legacy_name_prefix" {
+  description = "Legacy resource name prefix used by the current pipeline deployment"
+  type        = string
+  default     = "smartstream-dev"
+}
+
+variable "name_prefix_override" {
+  description = "Optional explicit override for tenant name prefix"
+  type        = string
+  default     = ""
+}
+
+variable "create_shared_iam" {
+  description = "Create shared IAM resources in this workspace. Must be false for tenant deployments."
+  type        = bool
+  default     = true
+}
+
+variable "legacy_workspace_name" {
+  description = "Workspace designated for legacy/shared IAM resources"
+  type        = string
+  default     = "newaccount"
+}
+
+variable "shared_dms_secrets_role_name" {
+  description = "Optional override for shared DMS secrets access role name"
+  type        = string
+  default     = ""
+}
+
+variable "shared_dms_kinesis_role_name" {
+  description = "Optional override for shared DMS Kinesis target role name"
+  type        = string
+  default     = ""
+}
+
+variable "shared_dms_vpc_role_name" {
+  description = "Optional override for shared DMS VPC role name"
+  type        = string
+  default     = ""
+}
+
+variable "shared_firehose_role_name" {
+  description = "Optional override for shared Firehose role name"
+  type        = string
+  default     = ""
+}
+
+variable "shared_lambda_transform_role_name" {
+  description = "Optional override for shared transform Lambda role name"
+  type        = string
+  default     = ""
+}
+
+variable "shared_lambda_ml_role_name" {
+  description = "Optional override for shared ML Lambda role name"
+  type        = string
+  default     = ""
+}
+
+variable "shared_lambda_live_api_role_name" {
+  description = "Optional override for shared live API Lambda role name"
+  type        = string
+  default     = ""
+}
+
+variable "shared_glue_crawler_role_name" {
+  description = "Optional override for shared Glue crawler role name"
+  type        = string
+  default     = ""
+}
+
 variable "region" {
   description = "AWS region for deployment"
   type        = string

@@ -9,7 +9,7 @@ data "archive_file" "ml_lambda" {
 resource "aws_lambda_function" "ml_inference" {
   filename         = data.archive_file.ml_lambda.output_path
   function_name    = "${local.name_prefix}-ml-inference"
-  role             = aws_iam_role.lambda_ml.arn
+  role             = local.lambda_ml_role_arn
   handler          = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.ml_lambda.output_base64sha256
   runtime          = "python3.11"

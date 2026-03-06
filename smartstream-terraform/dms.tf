@@ -27,7 +27,7 @@ resource "aws_dms_endpoint" "source" {
   database_name = var.db_name
 
   # Use Secrets Manager for credentials
-  secrets_manager_access_role_arn = aws_iam_role.dms_secrets_access.arn
+  secrets_manager_access_role_arn = local.dms_secrets_access_role_arn
   secrets_manager_arn             = aws_secretsmanager_secret.rds_credentials.arn
 
   # SSL configuration
@@ -51,7 +51,7 @@ resource "aws_dms_endpoint" "target_kinesis" {
 
   kinesis_settings {
     stream_arn              = aws_kinesis_stream.cdc_stream.arn
-    service_access_role_arn = aws_iam_role.dms_kinesis_target.arn
+    service_access_role_arn = local.dms_kinesis_target_role_arn
     message_format          = "json-unformatted"
 
     # Include transaction details in messages

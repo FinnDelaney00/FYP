@@ -42,6 +42,8 @@ data "aws_iam_policy_document" "dms_secrets_access" {
       "secretsmanager:GetSecretValue",
       "secretsmanager:DescribeSecret"
     ]
-    resources = [aws_secretsmanager_secret.rds_credentials.arn]
+    resources = [
+      "arn:aws:secretsmanager:${var.region}:${local.account_id}:secret:*-rds-credentials-*"
+    ]
   }
 }

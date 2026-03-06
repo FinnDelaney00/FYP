@@ -132,7 +132,7 @@ resource "aws_cloudwatch_log_metric_filter" "dms_task_errors" {
 
   metric_transformation {
     name      = "DMSTaskErrors"
-    namespace = "${var.project_name}/${var.env}"
+    namespace = "smartstream/${var.environment}"
     value     = "1"
     unit      = "Count"
   }

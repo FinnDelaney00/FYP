@@ -34,7 +34,8 @@ resource "aws_dynamodb_table" "accounts" {
 }
 
 resource "aws_iam_role" "lambda_live_api" {
-  name_prefix = "${local.name_prefix}-lambda-live-api-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-lambda-live-api-"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -50,13 +51,14 @@ resource "aws_iam_role" "lambda_live_api" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-lambda-live-api-role"
+    Name = "${local.legacy_prefix}-lambda-live-api-role"
   })
 }
 
 resource "aws_iam_role_policy" "lambda_live_api_s3" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "s3-read-trusted-"
-  role        = aws_iam_role.lambda_live_api.id
+  role        = aws_iam_role.lambda_live_api[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -67,18 +69,30 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
           "s3:GetBucketLocation",
           "s3:ListBucket"
         ]
-        Resource = "arn:aws:s3:::${local.live_api_data_lake_bucket}"
+        Resource = concat(
+          local.data_lake_bucket_arn_patterns,
+          ["arn:aws:s3:::${local.live_api_data_lake_bucket}"]
+        )
       },
       {
         Effect = "Allow"
         Action = [
           "s3:GetObject"
         ]
-        Resource = [
-          "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_finance_transactions}*",
-          "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_employees}*",
-          "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_predictions}*"
-        ]
+        Resource = concat(
+          flatten([
+            for bucket_arn in local.data_lake_bucket_arn_patterns : [
+              "${bucket_arn}/${var.trusted_prefix_finance_transactions}*",
+              "${bucket_arn}/${var.trusted_prefix_employees}*",
+              "${bucket_arn}/${var.trusted_prefix_predictions}*"
+            ]
+          ]),
+          [
+            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_finance_transactions}*",
+            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_employees}*",
+            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_predictions}*"
+          ]
+        )
       },
       {
         Effect = "Allow"
@@ -87,7 +101,7 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
           "s3:ListBucket",
           "s3:ListBucketMultipartUploads"
         ]
-        Resource = aws_s3_bucket.athena_results.arn
+        Resource = local.athena_results_bucket_arn_patterns
       },
       {
         Effect = "Allow"
@@ -97,7 +111,7 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
           "s3:ListMultipartUploadParts",
           "s3:PutObject"
         ]
-        Resource = "${aws_s3_bucket.athena_results.arn}/results/*"
+        Resource = [for bucket_arn in local.athena_results_bucket_arn_patterns : "${bucket_arn}/results/*"]
       },
       {
         Effect = "Allow"
@@ -127,21 +141,22 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
           "dynamodb:PutItem",
           "dynamodb:UpdateItem"
         ]
-        Resource = aws_dynamodb_table.accounts.arn
+        Resource = "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-accounts"
       }
     ]
   })
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_live_api_basic" {
-  role       = aws_iam_role.lambda_live_api.name
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.lambda_live_api[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 resource "aws_lambda_function" "live_api" {
   filename         = data.archive_file.live_api_lambda.output_path
   function_name    = "${local.name_prefix}-s3-live-api"
-  role             = aws_iam_role.lambda_live_api.arn
+  role             = local.lambda_live_api_role_arn
   handler          = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.live_api_lambda.output_base64sha256
   runtime          = "python3.12"

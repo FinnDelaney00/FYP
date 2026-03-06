@@ -2,6 +2,67 @@
 
 A complete, production-ready AWS data pipeline built with Terraform, featuring Change Data Capture (CDC), real-time streaming, data transformation, cataloging, and ML inference capabilities.
 
+## Deployment Modes (Legacy + Tenant)
+
+### Legacy deployment (default-safe)
+
+- Workspace: `newaccount` (current legacy workspace)
+- Required vars:
+  - `enable_tenant_prefix = false`
+  - `create_shared_iam = true`
+- Naming behavior:
+  - Uses `legacy_name_prefix` (default `smartstream-dev`)
+  - Preserves existing legacy resource names by default
+- IAM behavior:
+  - Shared IAM roles/policies are created and managed only here
+
+### Tenant deployment (multi-company)
+
+- Workspace: normalized company name (for example `acme`)
+- Required vars:
+  - `enable_tenant_prefix = true`
+  - `company_name = "<company>"`
+  - `environment = "dev|test|prod"`
+  - `create_shared_iam = false`
+- Naming behavior:
+  - Uses `${company_name}-${environment}` (or `name_prefix_override`)
+  - S3 buckets use tenant-safe prefix with account suffix for uniqueness
+- IAM behavior:
+  - No IAM roles/policies are created in tenant workspaces
+  - Existing shared IAM is discovered/reused
+
+### Critical safety warning
+
+Applying tenant mode against legacy state/workspace can trigger replacements. Guardrails in Terraform and Jenkins prevent this by enforcing:
+
+- tenant workspace must match normalized company name
+- tenant mode requires `create_shared_iam=false`
+- shared IAM creation is restricted to legacy workspace
+
+### Shared IAM bootstrap flow
+
+1. Select legacy workspace (`newaccount`).
+2. Run legacy apply with `create_shared_iam=true` to create shared IAM once.
+3. For each company, switch to company workspace and deploy tenant mode with `create_shared_iam=false`.
+4. Never create IAM in tenant workspaces.
+
+### Backend/workspace isolation guidance
+
+- Current repo uses local backend with workspace state isolation under `terraform.tfstate.d/`.
+- If moving to S3 backend, use workspace-aware keys. Example pattern:
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket               = "your-tf-state-bucket"
+    key                  = "smartstream/terraform.tfstate"
+    workspace_key_prefix = "smartstream/workspaces"
+    region               = "eu-north-1"
+    encrypt              = true
+  }
+}
+```
+
 ## 🏗️ Architecture Overview
 
 ```

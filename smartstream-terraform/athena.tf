@@ -1,7 +1,7 @@
 # Athena Workgroup for querying data lake
 resource "aws_athena_workgroup" "main" {
   name        = "${local.name_prefix}-workgroup"
-  description = "Athena workgroup for ${var.project_name} ${var.env}"
+  description = "Athena workgroup for smartstream ${var.environment}"
 
   configuration {
     enforce_workgroup_configuration    = true

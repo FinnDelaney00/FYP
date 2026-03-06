@@ -1,10 +1,73 @@
+# -----------------------------------------------------------------------------
+# Shared IAM discovery and effective role locals
+# -----------------------------------------------------------------------------
+
+data "aws_iam_roles" "shared_role_candidates" {
+  for_each = var.create_shared_iam ? {} : {
+    for role_key, role_pattern in local.shared_iam_role_name_patterns :
+    role_key => role_pattern
+    if local.shared_iam_role_name_overrides[role_key] == ""
+  }
+
+  name_regex = each.value
+}
+
+locals {
+  shared_iam_discovery_counts = var.create_shared_iam ? {
+    for role_key in keys(local.shared_iam_role_name_overrides) :
+    role_key => 1
+    } : {
+    for role_key, override_name in local.shared_iam_role_name_overrides :
+    role_key => (
+      override_name != "" ? 1 : length(try(data.aws_iam_roles.shared_role_candidates[role_key].names, []))
+    )
+  }
+
+  shared_iam_role_names = var.create_shared_iam ? {
+    dms_secrets_access = aws_iam_role.dms_secrets_access[0].name
+    dms_kinesis_target = aws_iam_role.dms_kinesis_target[0].name
+    dms_vpc            = aws_iam_role.dms_vpc[0].name
+    firehose           = aws_iam_role.firehose[0].name
+    lambda_transform   = aws_iam_role.lambda_transform[0].name
+    lambda_ml          = aws_iam_role.lambda_ml[0].name
+    lambda_live_api    = aws_iam_role.lambda_live_api[0].name
+    glue_crawler       = aws_iam_role.glue_crawler[0].name
+    } : {
+    for role_key, override_name in local.shared_iam_role_name_overrides :
+    role_key => (
+      override_name != "" ? override_name : try(one(data.aws_iam_roles.shared_role_candidates[role_key].names), "")
+    )
+  }
+}
+
+data "aws_iam_role" "shared" {
+  for_each = var.create_shared_iam ? {} : {
+    for role_key, role_name in local.shared_iam_role_names :
+    role_key => role_name
+    if role_name != ""
+  }
+
+  name = each.value
+}
+
+locals {
+  dms_secrets_access_role_arn = var.create_shared_iam ? aws_iam_role.dms_secrets_access[0].arn : try(data.aws_iam_role.shared["dms_secrets_access"].arn, "")
+  dms_kinesis_target_role_arn = var.create_shared_iam ? aws_iam_role.dms_kinesis_target[0].arn : try(data.aws_iam_role.shared["dms_kinesis_target"].arn, "")
+  dms_vpc_role_name           = var.create_shared_iam ? aws_iam_role.dms_vpc[0].name : try(data.aws_iam_role.shared["dms_vpc"].name, "")
+  firehose_role_arn           = var.create_shared_iam ? aws_iam_role.firehose[0].arn : try(data.aws_iam_role.shared["firehose"].arn, "")
+  lambda_transform_role_arn   = var.create_shared_iam ? aws_iam_role.lambda_transform[0].arn : try(data.aws_iam_role.shared["lambda_transform"].arn, "")
+  lambda_ml_role_arn          = var.create_shared_iam ? aws_iam_role.lambda_ml[0].arn : try(data.aws_iam_role.shared["lambda_ml"].arn, "")
+  lambda_live_api_role_arn    = var.create_shared_iam ? aws_iam_role.lambda_live_api[0].arn : try(data.aws_iam_role.shared["lambda_live_api"].arn, "")
+  glue_crawler_role_arn       = var.create_shared_iam ? aws_iam_role.glue_crawler[0].arn : try(data.aws_iam_role.shared["glue_crawler"].arn, "")
+}
+
 # =============================================================================
 # DMS IAM Roles and Policies
 # =============================================================================
 
-# IAM role for DMS to access Secrets Manager
 resource "aws_iam_role" "dms_secrets_access" {
-  name_prefix = "${local.name_prefix}-dms-secrets-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-dms-secrets-"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -20,20 +83,20 @@ resource "aws_iam_role" "dms_secrets_access" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-dms-secrets-role"
+    Name = "${local.legacy_prefix}-dms-secrets-role"
   })
 }
 
-# Policy for DMS to read RDS credentials from Secrets Manager
 resource "aws_iam_role_policy" "dms_secrets_access" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "secrets-access-"
-  role        = aws_iam_role.dms_secrets_access.id
+  role        = aws_iam_role.dms_secrets_access[0].id
   policy      = data.aws_iam_policy_document.dms_secrets_access.json
 }
 
-# IAM role for DMS to write to Kinesis
 resource "aws_iam_role" "dms_kinesis_target" {
-  name_prefix = "${local.name_prefix}-dms-kinesis-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-dms-kinesis-"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -49,14 +112,14 @@ resource "aws_iam_role" "dms_kinesis_target" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-dms-kinesis-role"
+    Name = "${local.legacy_prefix}-dms-kinesis-role"
   })
 }
 
-# Policy for DMS to write to Kinesis Data Stream
 resource "aws_iam_role_policy" "dms_kinesis_target" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "kinesis-write-"
-  role        = aws_iam_role.dms_kinesis_target.id
+  role        = aws_iam_role.dms_kinesis_target[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -68,22 +131,21 @@ resource "aws_iam_role_policy" "dms_kinesis_target" {
           "kinesis:PutRecords",
           "kinesis:DescribeStream"
         ]
-        Resource = aws_kinesis_stream.cdc_stream.arn
+        Resource = "arn:aws:kinesis:${var.region}:${local.account_id}:stream/*-cdc-stream"
       }
     ]
   })
 }
 
-# Attach VPC management policy to DMS (required for VPC-enabled replication instances)
 resource "aws_iam_role_policy_attachment" "dms_vpc_management" {
-  role       = aws_iam_role.dms_kinesis_target.name
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.dms_kinesis_target[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole"
 }
 
-# Required account-level role for DMS networking operations.
-# DMS expects this exact role name when creating replication subnet groups.
 resource "aws_iam_role" "dms_vpc" {
-  name = "dms-vpc-role"
+  count = var.create_shared_iam ? 1 : 0
+  name  = "dms-vpc-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -100,7 +162,8 @@ resource "aws_iam_role" "dms_vpc" {
 }
 
 resource "aws_iam_role_policy_attachment" "dms_vpc_role_management" {
-  role       = aws_iam_role.dms_vpc.name
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.dms_vpc[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole"
 }
 
@@ -108,9 +171,9 @@ resource "aws_iam_role_policy_attachment" "dms_vpc_role_management" {
 # Kinesis Firehose IAM Roles and Policies
 # =============================================================================
 
-# IAM role for Firehose
 resource "aws_iam_role" "firehose" {
-  name_prefix = "${local.name_prefix}-firehose-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-firehose-"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -126,14 +189,14 @@ resource "aws_iam_role" "firehose" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-firehose-role"
+    Name = "${local.legacy_prefix}-firehose-role"
   })
 }
 
-# Policy for Firehose to read from Kinesis Data Stream
 resource "aws_iam_role_policy" "firehose_kinesis" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "kinesis-read-"
-  role        = aws_iam_role.firehose.id
+  role        = aws_iam_role.firehose[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -146,19 +209,21 @@ resource "aws_iam_role_policy" "firehose_kinesis" {
           "kinesis:GetRecords",
           "kinesis:ListShards"
         ]
-        Resource = aws_kinesis_stream.cdc_stream.arn
+        Resource = "arn:aws:kinesis:${var.region}:${local.account_id}:stream/*-cdc-stream"
       }
     ]
   })
 }
 
 resource "aws_iam_role_policy_attachment" "firehose_kinesis" {
-  role       = aws_iam_role.firehose.name
-  policy_arn = aws_iam_policy.firehose_kinesis.arn
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.firehose[0].name
+  policy_arn = aws_iam_policy.firehose_kinesis[0].arn
 }
 
 resource "aws_iam_policy" "firehose_kinesis" {
-  name_prefix = "${local.name_prefix}-firehose-kinesis-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-firehose-kinesis-"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -171,16 +236,16 @@ resource "aws_iam_policy" "firehose_kinesis" {
           "kinesis:GetRecords",
           "kinesis:ListShards"
         ]
-        Resource = aws_kinesis_stream.cdc_stream.arn
+        Resource = "arn:aws:kinesis:${var.region}:${local.account_id}:stream/*-cdc-stream"
       }
     ]
   })
 }
 
-# Policy for Firehose to write to S3
 resource "aws_iam_role_policy" "firehose_s3" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "s3-write-"
-  role        = aws_iam_role.firehose.id
+  role        = aws_iam_role.firehose[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -195,22 +260,21 @@ resource "aws_iam_role_policy" "firehose_s3" {
           "s3:ListBucketMultipartUploads",
           "s3:PutObject"
         ]
-        Resource = [
-          aws_s3_bucket.data_lake.arn,
-          "${aws_s3_bucket.data_lake.arn}/*"
-        ]
+        Resource = concat(local.data_lake_bucket_arn_patterns, local.data_lake_bucket_object_arn_patterns)
       }
     ]
   })
 }
 
 resource "aws_iam_role_policy_attachment" "firehose_s3" {
-  role       = aws_iam_role.firehose.name
-  policy_arn = aws_iam_policy.firehose_s3.arn
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.firehose[0].name
+  policy_arn = aws_iam_policy.firehose_s3[0].arn
 }
 
 resource "aws_iam_policy" "firehose_s3" {
-  name_prefix = "${local.name_prefix}-firehose-s3-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-firehose-s3-"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -225,19 +289,16 @@ resource "aws_iam_policy" "firehose_s3" {
           "s3:ListBucketMultipartUploads",
           "s3:PutObject"
         ]
-        Resource = [
-          aws_s3_bucket.data_lake.arn,
-          "${aws_s3_bucket.data_lake.arn}/*"
-        ]
+        Resource = concat(local.data_lake_bucket_arn_patterns, local.data_lake_bucket_object_arn_patterns)
       }
     ]
   })
 }
 
-# Policy for Firehose CloudWatch Logs
 resource "aws_iam_role_policy" "firehose_cloudwatch" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "cloudwatch-"
-  role        = aws_iam_role.firehose.id
+  role        = aws_iam_role.firehose[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -247,7 +308,7 @@ resource "aws_iam_role_policy" "firehose_cloudwatch" {
         Action = [
           "logs:PutLogEvents"
         ]
-        Resource = "${aws_cloudwatch_log_group.firehose.arn}:*"
+        Resource = "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws/kinesisfirehose/*:log-stream:*"
       }
     ]
   })
@@ -257,9 +318,9 @@ resource "aws_iam_role_policy" "firehose_cloudwatch" {
 # Lambda Transform IAM Roles and Policies
 # =============================================================================
 
-# IAM role for Transform Lambda
 resource "aws_iam_role" "lambda_transform" {
-  name_prefix = "${local.name_prefix}-lambda-transform-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-lambda-transform-"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -275,14 +336,14 @@ resource "aws_iam_role" "lambda_transform" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-lambda-transform-role"
+    Name = "${local.legacy_prefix}-lambda-transform-role"
   })
 }
 
-# Policy for Transform Lambda to read from raw and write to trusted
 resource "aws_iam_role_policy" "lambda_transform_s3" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "s3-access-"
-  role        = aws_iam_role.lambda_transform.id
+  role        = aws_iam_role.lambda_transform[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -292,45 +353,39 @@ resource "aws_iam_role_policy" "lambda_transform_s3" {
         Action = [
           "s3:GetObject"
         ]
-        Resource = "${aws_s3_bucket.data_lake.arn}/${local.s3_raw_prefix}*"
+        Resource = [for bucket_arn in local.data_lake_bucket_arn_patterns : "${bucket_arn}/${local.s3_raw_prefix}*"]
       },
       {
         Effect = "Allow"
         Action = [
           "s3:PutObject"
         ]
-        Resource = "${aws_s3_bucket.data_lake.arn}/${local.s3_trusted_prefix}*"
+        Resource = [for bucket_arn in local.data_lake_bucket_arn_patterns : "${bucket_arn}/${local.s3_trusted_prefix}*"]
       },
       {
         Effect = "Allow"
         Action = [
           "s3:ListBucket"
         ]
-        Resource = aws_s3_bucket.data_lake.arn
+        Resource = local.data_lake_bucket_arn_patterns
       }
     ]
   })
 }
 
-# Attach basic Lambda execution role for CloudWatch Logs
 resource "aws_iam_role_policy_attachment" "lambda_transform_basic" {
-  role       = aws_iam_role.lambda_transform.name
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.lambda_transform[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
-
-# Optional: VPC execution role (if Lambda is in VPC)
-# resource "aws_iam_role_policy_attachment" "lambda_transform_vpc" {
-#   role       = aws_iam_role.lambda_transform.name
-#   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
-# }
 
 # =============================================================================
 # Lambda ML IAM Roles and Policies
 # =============================================================================
 
-# IAM role for ML Lambda
 resource "aws_iam_role" "lambda_ml" {
-  name_prefix = "${local.name_prefix}-lambda-ml-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-lambda-ml-"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -346,14 +401,14 @@ resource "aws_iam_role" "lambda_ml" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-lambda-ml-role"
+    Name = "${local.legacy_prefix}-lambda-ml-role"
   })
 }
 
-# Policy for ML Lambda to read from trusted and write to analytics
 resource "aws_iam_role_policy" "lambda_ml_s3" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "s3-access-"
-  role        = aws_iam_role.lambda_ml.id
+  role        = aws_iam_role.lambda_ml[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -364,9 +419,7 @@ resource "aws_iam_role_policy" "lambda_ml_s3" {
         Action = [
           "s3:ListBucket"
         ]
-        Resource = [
-          aws_s3_bucket.data_lake.arn
-        ]
+        Resource = local.data_lake_bucket_arn_patterns
         Condition = {
           StringLike = {
             "s3:prefix" = [
@@ -382,9 +435,7 @@ resource "aws_iam_role_policy" "lambda_ml_s3" {
         Action = [
           "s3:GetObject"
         ]
-        Resource = [
-          "${aws_s3_bucket.data_lake.arn}/${local.s3_trusted_prefix}*"
-        ]
+        Resource = [for bucket_arn in local.data_lake_bucket_arn_patterns : "${bucket_arn}/${local.s3_trusted_prefix}*"]
       },
       {
         Sid    = "WritePredictionObjects"
@@ -392,17 +443,15 @@ resource "aws_iam_role_policy" "lambda_ml_s3" {
         Action = [
           "s3:PutObject"
         ]
-        Resource = [
-          "${aws_s3_bucket.data_lake.arn}/${local.s3_trusted_analytics_prefix}predictions/*"
-        ]
+        Resource = [for bucket_arn in local.data_lake_bucket_arn_patterns : "${bucket_arn}/${local.s3_trusted_analytics_prefix}predictions/*"]
       }
     ]
   })
 }
 
-# Attach basic Lambda execution role for CloudWatch Logs
 resource "aws_iam_role_policy_attachment" "lambda_ml_basic" {
-  role       = aws_iam_role.lambda_ml.name
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.lambda_ml[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
@@ -410,9 +459,9 @@ resource "aws_iam_role_policy_attachment" "lambda_ml_basic" {
 # Glue Crawler IAM Roles and Policies
 # =============================================================================
 
-# IAM role for Glue Crawler
 resource "aws_iam_role" "glue_crawler" {
-  name_prefix = "${local.name_prefix}-glue-crawler-"
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-glue-crawler-"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -428,20 +477,20 @@ resource "aws_iam_role" "glue_crawler" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-glue-crawler-role"
+    Name = "${local.legacy_prefix}-glue-crawler-role"
   })
 }
 
-# Attach AWS managed Glue service role
 resource "aws_iam_role_policy_attachment" "glue_service" {
-  role       = aws_iam_role.glue_crawler.name
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.glue_crawler[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
 }
 
-# Policy for Glue Crawler to read S3 data lake
 resource "aws_iam_role_policy" "glue_crawler_s3" {
+  count       = var.create_shared_iam ? 1 : 0
   name_prefix = "s3-read-"
-  role        = aws_iam_role.glue_crawler.id
+  role        = aws_iam_role.glue_crawler[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -452,16 +501,8 @@ resource "aws_iam_role_policy" "glue_crawler_s3" {
           "s3:GetObject",
           "s3:ListBucket"
         ]
-        Resource = [
-          aws_s3_bucket.data_lake.arn,
-          "${aws_s3_bucket.data_lake.arn}/*"
-        ]
+        Resource = concat(local.data_lake_bucket_arn_patterns, local.data_lake_bucket_object_arn_patterns)
       }
     ]
   })
 }
-
-# =============================================================================
-# Athena IAM (uses existing S3 bucket policies)
-# Athena queries run with user credentials, so no separate role needed
-# =============================================================================

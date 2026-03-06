@@ -1,4 +1,4 @@
-﻿mock_provider "aws" {
+mock_provider "aws" {
   mock_data "aws_caller_identity" {
     defaults = {
       account_id = "123456789012"
@@ -20,6 +20,14 @@
       json = <<JSON
 {"Version":"2012-10-17","Statement":[]}
 JSON
+    }
+  }
+
+  mock_data "aws_iam_role" {
+    defaults = {
+      arn  = "arn:aws:iam::123456789012:role/mock-shared-role"
+      id   = "mock-shared-role"
+      name = "mock-shared-role"
     }
   }
 }
@@ -113,7 +121,7 @@ run "override_pipeline_wiring" {
   command = plan
 
   variables {
-    db_password                          = "UnitTestPassword123!"
+    db_password                         = "UnitTestPassword123!"
     finance_schema_name                 = "ledger"
     finance_table_list                  = ["transactions", "accounts", "balances"]
     data_lake_bucket_name               = "external-live-api-bucket"
@@ -166,5 +174,45 @@ run "override_pipeline_wiring" {
   assert {
     condition     = length([for r in jsondecode(aws_dms_replication_task.finance_cdc_task.table_mappings).rules : r if r["rule-action"] == "include"]) == 3
     error_message = "Finance DMS include rule count should match overridden finance_table_list."
+  }
+}
+
+run "tenant_mode_shared_iam_reuse" {
+  command = plan
+
+  variables {
+    db_password                       = "UnitTestPassword123!"
+    enable_tenant_prefix              = true
+    company_name                      = "newaccount"
+    environment                       = "dev"
+    create_shared_iam                 = false
+    shared_dms_secrets_role_name      = "shared-dms-secrets-role"
+    shared_dms_kinesis_role_name      = "shared-dms-kinesis-role"
+    shared_dms_vpc_role_name          = "dms-vpc-role"
+    shared_firehose_role_name         = "shared-firehose-role"
+    shared_lambda_transform_role_name = "shared-lambda-transform-role"
+    shared_lambda_ml_role_name        = "shared-lambda-ml-role"
+    shared_lambda_live_api_role_name  = "shared-lambda-live-api-role"
+    shared_glue_crawler_role_name     = "shared-glue-crawler-role"
+  }
+
+  assert {
+    condition     = local.name_prefix == "newaccount-dev"
+    error_message = "Tenant mode must derive the resource prefix from company_name and environment."
+  }
+
+  assert {
+    condition     = aws_s3_bucket.data_lake.bucket == "newaccount-dev-123456789012-datalake"
+    error_message = "Tenant data lake bucket must use tenant bucket-prefix naming."
+  }
+
+  assert {
+    condition     = local.lambda_transform_role_arn != "" && local.lambda_ml_role_arn != "" && local.lambda_live_api_role_arn != ""
+    error_message = "Tenant mode must resolve shared IAM role ARNs instead of creating tenant IAM roles."
+  }
+
+  assert {
+    condition     = local.common_tags["Company"] == "newaccount"
+    error_message = "Tenant resources must include Company tag using company_name."
   }
 }

@@ -9,7 +9,7 @@ data "archive_file" "transform_lambda" {
 resource "aws_lambda_function" "transform" {
   filename         = data.archive_file.transform_lambda.output_path
   function_name    = "${local.name_prefix}-data-transform"
-  role             = aws_iam_role.lambda_transform.arn
+  role             = local.lambda_transform_role_arn
   handler          = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.transform_lambda.output_base64sha256
   runtime          = "python3.11"

@@ -1,7 +1,7 @@
 # Glue Data Catalog Database
 resource "aws_glue_catalog_database" "main" {
   name        = local.glue_database_name
-  description = "Data catalog for ${var.project_name} ${var.env} environment"
+  description = "Data catalog for smartstream ${var.environment} environment"
 
   tags = merge(local.common_tags, {
     Name = local.glue_database_name
@@ -11,7 +11,7 @@ resource "aws_glue_catalog_database" "main" {
 # Glue Crawler for Trusted Zone
 resource "aws_glue_crawler" "trusted" {
   name          = "${local.name_prefix}-trusted-crawler"
-  role          = aws_iam_role.glue_crawler.arn
+  role          = local.glue_crawler_role_arn
   database_name = aws_glue_catalog_database.main.name
 
   schedule = var.glue_crawler_schedule
@@ -46,7 +46,7 @@ resource "aws_glue_crawler" "trusted" {
 # Glue Crawler for Trusted-Analytics Zone
 resource "aws_glue_crawler" "analytics" {
   name          = "${local.name_prefix}-analytics-crawler"
-  role          = aws_iam_role.glue_crawler.arn
+  role          = local.glue_crawler_role_arn
   database_name = aws_glue_catalog_database.main.name
 
   schedule = var.glue_crawler_schedule

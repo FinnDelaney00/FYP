@@ -6,12 +6,12 @@ resource "aws_kinesis_firehose_delivery_stream" "s3_delivery" {
   # Source: Kinesis Data Stream
   kinesis_source_configuration {
     kinesis_stream_arn = aws_kinesis_stream.cdc_stream.arn
-    role_arn           = aws_iam_role.firehose.arn
+    role_arn           = local.firehose_role_arn
   }
 
   # Destination: S3 (raw zone)
   extended_s3_configuration {
-    role_arn            = aws_iam_role.firehose.arn
+    role_arn            = local.firehose_role_arn
     bucket_arn          = aws_s3_bucket.data_lake.arn
     prefix              = "raw/!{timestamp:yyyy/MM/dd/HH}/"
     error_output_prefix = "raw-errors/!{firehose:error-output-type}/!{timestamp:yyyy/MM/dd/HH}/"
@@ -40,7 +40,7 @@ resource "aws_kinesis_firehose_delivery_stream" "s3_delivery" {
     s3_backup_mode = "Enabled"
 
     s3_backup_configuration {
-      role_arn   = aws_iam_role.firehose.arn
+      role_arn   = local.firehose_role_arn
       bucket_arn = aws_s3_bucket.data_lake.arn
       prefix     = "backup/firehose/"
 
