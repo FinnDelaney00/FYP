@@ -117,12 +117,14 @@ class LiveApiLambdaTests(unittest.TestCase):
                 "TRUSTED_PREFIX": "trusted/finance/transactions/",
                 "EMPLOYEES_PREFIX": "trusted/employees/",
                 "PREDICTIONS_PREFIX": "trusted-analytics/predictions/",
+                "ANOMALIES_PREFIX": "trusted-analytics/anomalies/",
                 "MAX_ITEMS_DEFAULT": "200",
                 "QUERY_MAX_ROWS": "100",
                 "ALLOWED_ORIGIN": "https://example.com",
                 "ATHENA_WORKGROUP": "wg-test",
                 "ATHENA_DATABASE": "db_test",
                 "ACCOUNTS_TABLE": "accounts",
+                "ANOMALY_REVIEWS_TABLE": "anomaly_reviews",
                 "AUTH_TOKEN_SECRET": "unit-test-secret",
                 "AUTH_TOKEN_TTL_SECONDS": "3600",
             },
@@ -137,6 +139,7 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.fake_athena.fail_reason = None
         self.fake_athena.stopped_queries.clear()
         self.fake_dynamodb.tables["accounts"] = FakeDynamoTable()
+        self.fake_dynamodb.tables["anomaly_reviews"] = FakeDynamoTable()
 
     def _auth_headers(self, email="test@example.com", display_name="Test User"):
         token = self.module._issue_token(email, display_name)
@@ -353,6 +356,112 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(body["row_count"], 1)
         self.assertEqual(body["columns"], ["department", "count"])
         self.assertIn("LIMIT", self.fake_athena.started_queries[0]["query"].upper())
+
+    def test_anomalies_route_returns_items_and_summary(self):
+        anomaly_key = "trusted-analytics/anomalies/2026/03/09/anomalies.json"
+        self.fake_s3.pages = [
+            {
+                "Contents": [
+                    {"Key": anomaly_key, "LastModified": datetime(2026, 3, 9, 10, 0, tzinfo=timezone.utc)},
+                ]
+            }
+        ]
+        self.fake_s3.objects = {
+            anomaly_key: json.dumps(
+                {
+                    "generated_at": "2026-03-09T10:00:00Z",
+                    "anomalies": [
+                        {
+                            "anomaly_id": "a-1",
+                            "entity_type": "transaction",
+                            "record_ids": ["t-1"],
+                            "anomaly_type": "large_transaction",
+                            "severity": "high",
+                            "confidence": 0.94,
+                            "title": "Large transaction",
+                            "description": "Amount exceeds baseline.",
+                            "reasons": ["Large deviation from baseline"],
+                            "status": "new",
+                            "suggested_action": "review",
+                            "metrics": {"actual_value": 1500, "expected_value": 200},
+                            "detected_at": "2026-03-09T09:59:00Z",
+                            "source_table": "transactions",
+                            "audit_trail": [],
+                        }
+                    ],
+                }
+            )
+        }
+
+        response = self.module.lambda_handler(
+            {"requestContext": {"http": {"method": "GET"}}, "rawPath": "/anomalies", "headers": self._auth_headers()},
+            _context=None,
+        )
+        body = json.loads(response["body"])
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(len(body["items"]), 1)
+        self.assertEqual(body["summary"]["high_priority_count"], 1)
+
+    def test_anomaly_action_updates_review_state(self):
+        anomaly_key = "trusted-analytics/anomalies/2026/03/09/anomalies.json"
+        self.fake_s3.pages = [
+            {
+                "Contents": [
+                    {"Key": anomaly_key, "LastModified": datetime(2026, 3, 9, 10, 0, tzinfo=timezone.utc)},
+                ]
+            }
+        ]
+        self.fake_s3.objects = {
+            anomaly_key: json.dumps(
+                {
+                    "generated_at": "2026-03-09T10:00:00Z",
+                    "anomalies": [
+                        {
+                            "anomaly_id": "a-2",
+                            "entity_type": "employee",
+                            "record_ids": ["e-7"],
+                            "anomaly_type": "salary_outlier",
+                            "severity": "medium",
+                            "confidence": 0.82,
+                            "title": "Salary outlier",
+                            "description": "Salary is outside expected range.",
+                            "reasons": ["z-score exceeded threshold"],
+                            "status": "new",
+                            "suggested_action": "review",
+                            "metrics": {"actual_value": 180000, "expected_value": 90000},
+                            "detected_at": "2026-03-09T09:59:00Z",
+                            "source_table": "employees",
+                            "audit_trail": [],
+                        }
+                    ],
+                }
+            )
+        }
+
+        action_response = self.module.lambda_handler(
+            {
+                "requestContext": {"http": {"method": "POST"}},
+                "rawPath": "/anomalies/a-2/actions",
+                "headers": self._auth_headers(email="reviewer@example.com", display_name="Reviewer"),
+                "body": json.dumps({"action": "mark_confirmed", "note": "Checked with HR."}),
+            },
+            _context=None,
+        )
+        action_body = json.loads(action_response["body"])
+
+        self.assertEqual(action_response["statusCode"], 200)
+        self.assertEqual(action_body["item"]["status"], "confirmed")
+        self.assertGreaterEqual(len(action_body["item"]["audit_trail"]), 1)
+
+        detail_response = self.module.lambda_handler(
+            {"requestContext": {"http": {"method": "GET"}}, "rawPath": "/anomalies/a-2", "headers": self._auth_headers()},
+            _context=None,
+        )
+        detail_body = json.loads(detail_response["body"])
+
+        self.assertEqual(detail_response["statusCode"], 200)
+        self.assertEqual(detail_body["item"]["status"], "confirmed")
 
     def test_query_route_rejects_non_read_only_sql(self):
         response = self.module.lambda_handler(

@@ -186,6 +186,21 @@ output "lambda_live_api_arn" {
   value       = aws_lambda_function.live_api.arn
 }
 
+output "lambda_anomaly_function_name" {
+  description = "Anomaly detection Lambda function name"
+  value       = aws_lambda_function.anomaly.function_name
+}
+
+output "lambda_anomaly_function_arn" {
+  description = "Anomaly detection Lambda function ARN"
+  value       = aws_lambda_function.anomaly.arn
+}
+
+output "anomaly_schedule_rule_name" {
+  description = "EventBridge schedule rule name for anomaly detection"
+  value       = aws_cloudwatch_event_rule.anomaly_schedule.name
+}
+
 output "live_api_base_url" {
   description = "HTTP API base URL for frontend live updates"
   value       = trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")
@@ -204,6 +219,11 @@ output "live_api_dashboard_endpoint" {
 output "live_api_forecasts_endpoint" {
   description = "Live API forecasts endpoint URL"
   value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/forecasts"
+}
+
+output "live_api_anomalies_endpoint" {
+  description = "Live API anomalies endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/anomalies"
 }
 
 output "live_api_query_endpoint" {
@@ -229,6 +249,11 @@ output "live_api_auth_me_endpoint" {
 output "accounts_table_name" {
   description = "DynamoDB table storing frontend user accounts"
   value       = aws_dynamodb_table.accounts.name
+}
+
+output "anomaly_reviews_table_name" {
+  description = "DynamoDB table storing anomaly review actions and audit trail"
+  value       = aws_dynamodb_table.anomaly_reviews.name
 }
 
 # =============================================================================
@@ -292,6 +317,7 @@ output "shared_iam_role_arns" {
     lambda_transform   = local.lambda_transform_role_arn
     lambda_ml          = local.lambda_ml_role_arn
     lambda_live_api    = local.lambda_live_api_role_arn
+    lambda_anomaly     = local.lambda_anomaly_role_arn
     glue_crawler       = local.glue_crawler_role_arn
   }
 }
@@ -316,6 +342,8 @@ output "quick_start_commands" {
     run_glue_crawler_analytics = "aws glue start-crawler --name ${aws_glue_crawler.analytics.name}"
 
     invoke_ml_lambda = "aws lambda invoke --function-name ${aws_lambda_function.ml_inference.function_name} /tmp/response.json"
+
+    invoke_anomaly_lambda = "aws lambda invoke --function-name ${aws_lambda_function.anomaly.function_name} /tmp/anomaly_response.json"
 
     live_api_sample_request = "curl \"${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/latest?limit=50\""
 

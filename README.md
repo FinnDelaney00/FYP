@@ -21,6 +21,8 @@ PostgreSQL (RDS)
   -> S3 trusted/{employees|finance}/...
   -> ML Inference Lambda (scheduled)
   -> S3 trusted-analytics/predictions/
+  -> Anomaly Detection Lambda (scheduled)
+  -> S3 trusted-analytics/anomalies/
   -> Live API Lambda + API Gateway
   -> Frontend dashboard (Vite app, deployable to S3)
 ```
@@ -73,6 +75,21 @@ File: `smartstream-terraform/lambdas/ml/lambda_function.py`
 - Writes output JSON to:
   - `trusted-analytics/predictions/YYYY/MM/DD/predictions_<timestamp>.json`
 
+### Anomaly Detection Lambda
+
+File: `smartstream-terraform/lambdas/anomaly/lambda_function.py`
+
+- Runs on EventBridge schedule (`anomaly_schedule_expression`, default `rate(2 hours)`)
+- Reads trusted employee and finance transaction data
+- Detects:
+  - salary outliers
+  - duplicate hires / likely duplicate employees
+  - duplicate transactions
+  - unusually large transactions
+  - unusually small suspicious transactions
+- Writes anomaly JSON to:
+  - `trusted-analytics/anomalies/YYYY/MM/DD/anomalies_<timestamp>.json`
+
 ### Live API Lambda
 
 File: `smartstream-terraform/lambdas/live_api/lambda_function.py`
@@ -84,8 +101,11 @@ File: `smartstream-terraform/lambdas/live_api/lambda_function.py`
   - `GET /latest`
   - `GET /dashboard`
   - `GET /forecasts`
+  - `GET /anomalies`
+  - `GET /anomalies/{id}`
+  - `POST /anomalies/{id}/actions`
   - `POST /query`
-- Uses DynamoDB for user accounts
+- Uses DynamoDB for user accounts and anomaly review/audit state
 - Uses Athena for read-only SQL queries (`SELECT`/`WITH` only)
 - Requires bearer token auth on non-auth routes
 

@@ -94,6 +94,12 @@ variable "shared_lambda_live_api_role_name" {
   default     = ""
 }
 
+variable "shared_lambda_anomaly_role_name" {
+  description = "Optional override for shared anomaly Lambda role name"
+  type        = string
+  default     = ""
+}
+
 variable "shared_glue_crawler_role_name" {
   description = "Optional override for shared Glue crawler role name"
   type        = string
@@ -180,6 +186,12 @@ variable "ml_schedule_expression" {
   default     = "rate(1 hour)" # Run ML inference hourly
 }
 
+variable "anomaly_schedule_expression" {
+  description = "EventBridge schedule expression for anomaly detection"
+  type        = string
+  default     = "rate(2 hours)" # Run anomaly detection every 2 hours
+}
+
 variable "ml_max_input_files" {
   description = "Maximum number of recent trusted files to read per dataset (employees/finance)"
   type        = number
@@ -199,6 +211,61 @@ variable "ml_forecast_days" {
   validation {
     condition     = var.ml_forecast_days >= 30 && var.ml_forecast_days <= 90
     error_message = "ml_forecast_days must be between 30 and 90."
+  }
+}
+
+variable "anomaly_max_input_files" {
+  description = "Maximum number of recent trusted files the anomaly Lambda reads per dataset"
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.anomaly_max_input_files >= 1
+    error_message = "anomaly_max_input_files must be at least 1."
+  }
+}
+
+variable "salary_outlier_zscore_threshold" {
+  description = "Z-score threshold used by salary outlier detection"
+  type        = number
+  default     = 2.5
+
+  validation {
+    condition     = var.salary_outlier_zscore_threshold >= 1.0 && var.salary_outlier_zscore_threshold <= 6.0
+    error_message = "salary_outlier_zscore_threshold must be between 1.0 and 6.0."
+  }
+}
+
+variable "duplicate_transaction_window_minutes" {
+  description = "Time window in minutes for duplicate transaction detection"
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.duplicate_transaction_window_minutes >= 1 && var.duplicate_transaction_window_minutes <= 180
+    error_message = "duplicate_transaction_window_minutes must be between 1 and 180."
+  }
+}
+
+variable "large_transaction_multiplier" {
+  description = "Multiplier over baseline median used to detect unusually large transactions"
+  type        = number
+  default     = 3.0
+
+  validation {
+    condition     = var.large_transaction_multiplier >= 1.1 && var.large_transaction_multiplier <= 20
+    error_message = "large_transaction_multiplier must be between 1.1 and 20."
+  }
+}
+
+variable "small_transaction_floor_ratio" {
+  description = "Ratio under baseline median used to detect suspiciously small transactions"
+  type        = number
+  default     = 0.25
+
+  validation {
+    condition     = var.small_transaction_floor_ratio > 0 && var.small_transaction_floor_ratio < 1
+    error_message = "small_transaction_floor_ratio must be between 0 and 1."
   }
 }
 
@@ -236,6 +303,12 @@ variable "trusted_prefix_predictions" {
   description = "Trusted analytics prefix for ML prediction outputs consumed by the live API"
   type        = string
   default     = "trusted-analytics/predictions/"
+}
+
+variable "trusted_prefix_anomalies" {
+  description = "Trusted analytics prefix for anomaly outputs consumed by the live API"
+  type        = string
+  default     = "trusted-analytics/anomalies/"
 }
 
 variable "allowed_origin" {

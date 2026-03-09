@@ -384,46 +384,156 @@
 
           <section class="page" data-page="anomalies">
             <div class="metrics-grid anomalies-summary">
-              <article class="metric-card metric-danger"><h3>High Priority</h3><strong>2</strong><p>Immediate review needed</p></article>
-              <article class="metric-card metric-warn"><h3>Medium Priority</h3><strong>2</strong><p>Monitor closely</p></article>
-              <article class="metric-card metric-info"><h3>Low Priority</h3><strong>1</strong><p>Track over time</p></article>
+              <article class="metric-card metric-danger">
+                <h3>High Priority</h3>
+                <strong id="anomaly-high-count">--</strong>
+                <p>Immediate review needed</p>
+              </article>
+              <article class="metric-card metric-warn">
+                <h3>Medium Priority</h3>
+                <strong id="anomaly-medium-count">--</strong>
+                <p>Monitor closely</p>
+              </article>
+              <article class="metric-card metric-info">
+                <h3>Low Priority</h3>
+                <strong id="anomaly-low-count">--</strong>
+                <p>Track over time</p>
+              </article>
+              <article class="metric-card metric-teal">
+                <h3>Reviewed</h3>
+                <strong id="anomaly-reviewed-count">--</strong>
+                <p>Items with review completed</p>
+              </article>
+              <article class="metric-card metric-blue">
+                <h3>Confirmed</h3>
+                <strong id="anomaly-confirmed-count">--</strong>
+                <p>Confirmed anomaly records</p>
+              </article>
             </div>
 
             <article class="panel">
               <header>
-                <h3>Recent Anomalies</h3>
-                <p>Automated detection feed</p>
+                <h3>Filter Anomalies</h3>
+                <p>Narrow the alert feed by type, risk level, and review status.</p>
               </header>
-              <div class="anomaly-list">
-                <div class="anomaly-item high">
-                  <div>
-                    <h4>Unusual Expense Spike</h4>
-                    <p>Marketing expenses increased by 145% versus rolling average.</p>
-                  </div>
-                  <span>Investigating</span>
-                </div>
-                <div class="anomaly-item medium">
-                  <div>
-                    <h4>Productivity Drop</h4>
-                    <p>Engineering productivity decreased by 18% during the previous week.</p>
-                  </div>
-                  <span>New</span>
-                </div>
-                <div class="anomaly-item high">
-                  <div>
-                    <h4>Turnover Risk</h4>
-                    <p>Increased resignation requests in sales across the latest sprint.</p>
-                  </div>
-                  <span>Investigating</span>
-                </div>
-                <div class="anomaly-item low">
-                  <div>
-                    <h4>Revenue Pattern Change</h4>
-                    <p>Revenue seasonality deviates from expected historical profile.</p>
-                  </div>
-                  <span>Resolved</span>
-                </div>
+              <form id="anomaly-filters-form" class="inline-form anomaly-filters" onsubmit="return false;">
+                <label for="anomaly-filter-type">Anomaly type
+                  <select id="anomaly-filter-type">
+                    <option value="">All types</option>
+                    <option value="salary_outlier">Salary outlier</option>
+                    <option value="duplicate_hire">Duplicate hire</option>
+                    <option value="duplicate_transaction">Duplicate transaction</option>
+                    <option value="large_transaction">Large transaction</option>
+                    <option value="small_transaction">Small suspicious transaction</option>
+                  </select>
+                </label>
+                <label for="anomaly-filter-severity">Severity
+                  <select id="anomaly-filter-severity">
+                    <option value="">All severities</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </label>
+                <label for="anomaly-filter-status">Status
+                  <select id="anomaly-filter-status">
+                    <option value="">All statuses</option>
+                    <option value="new">New</option>
+                    <option value="investigating">Investigating</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="false_positive">False positive</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </label>
+                <label for="anomaly-filter-entity">Entity type
+                  <select id="anomaly-filter-entity">
+                    <option value="">All entities</option>
+                    <option value="employee">Employee</option>
+                    <option value="transaction">Transaction</option>
+                  </select>
+                </label>
+                <label for="anomaly-filter-date-from">Date from
+                  <input id="anomaly-filter-date-from" type="date" />
+                </label>
+                <label for="anomaly-filter-date-to">Date to
+                  <input id="anomaly-filter-date-to" type="date" />
+                </label>
+                <button id="anomaly-filter-reset" class="action" type="button">Reset Filters</button>
+              </form>
+              <p id="anomaly-filters-status" class="muted-note">Loading latest anomaly feed...</p>
+            </article>
+
+            <article class="panel">
+              <header>
+                <h3>Anomaly Feed</h3>
+                <p id="anomaly-list-meta">Waiting for anomaly data.</p>
+              </header>
+              <div id="anomaly-list" class="anomaly-list">
+                <div class="anomaly-empty">No anomaly records loaded yet.</div>
               </div>
+            </article>
+
+            <article id="anomaly-detail-panel" class="panel anomaly-detail-panel is-hidden">
+              <header class="panel-header-inline">
+                <div>
+                  <h3 id="anomaly-detail-title">Select an anomaly</h3>
+                  <p id="anomaly-detail-subtitle">Choose an item from the feed to investigate details.</p>
+                </div>
+                <button id="anomaly-detail-close" class="action anomaly-close-btn" type="button">Close</button>
+              </header>
+
+              <div id="anomaly-detail-meta" class="anomaly-chip-row"></div>
+              <p id="anomaly-detail-description" class="anomaly-detail-description">No anomaly selected.</p>
+
+              <div class="panel-divider"></div>
+
+              <div class="anomaly-detail-grid">
+                <section>
+                  <h4>Expected vs Actual</h4>
+                  <div id="anomaly-detail-metrics" class="anomaly-metrics-grid"></div>
+                </section>
+                <section>
+                  <h4>Reasons Flagged</h4>
+                  <ul id="anomaly-detail-reasons" class="anomaly-reason-list"></ul>
+                </section>
+              </div>
+
+              <section class="anomaly-detail-section">
+                <h4>Suspicious Record Data</h4>
+                <pre id="anomaly-detail-record" class="anomaly-code-block">Select an anomaly to inspect source fields.</pre>
+              </section>
+
+              <section class="anomaly-detail-section">
+                <h4>Matched Duplicate Records</h4>
+                <pre id="anomaly-detail-duplicates" class="anomaly-code-block">No duplicate record set attached.</pre>
+              </section>
+
+              <section class="anomaly-detail-section">
+                <h4>Suggested Next Action</h4>
+                <p id="anomaly-detail-suggested-action" class="dashboard-summary">Review recommendation will appear here.</p>
+              </section>
+
+              <section class="anomaly-detail-section">
+                <h4>Review Notes</h4>
+                <textarea id="anomaly-action-note" rows="3" placeholder="Add investigation notes (optional)..."></textarea>
+                <div class="anomaly-action-grid">
+                  <button class="action" type="button" data-anomaly-action="mark_reviewed">Mark Reviewed</button>
+                  <button class="action" type="button" data-anomaly-action="mark_false_positive">False Positive</button>
+                  <button class="action" type="button" data-anomaly-action="mark_confirmed">Confirm</button>
+                  <button class="action" type="button" data-anomaly-action="propose_edit">Propose Edit</button>
+                  <button class="action" type="button" data-anomaly-action="quarantine_record">Quarantine</button>
+                  <button class="action" type="button" data-anomaly-action="exclude_from_analytics">Exclude</button>
+                  <button class="action" type="button" data-anomaly-action="soft_drop_record">Propose Soft-Drop</button>
+                </div>
+              </section>
+
+              <section class="anomaly-detail-section">
+                <h4>Audit Trail</h4>
+                <div id="anomaly-detail-audit" class="anomaly-audit-list">
+                  <div class="anomaly-empty">No review activity recorded.</div>
+                </div>
+              </section>
             </article>
           </section>
 

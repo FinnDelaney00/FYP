@@ -74,6 +74,23 @@ resource "aws_cloudwatch_dashboard" "main" {
         }
       },
       {
+        type = "metric"
+        properties = {
+          metrics = [
+            ["AWS/Lambda", "Invocations", { stat = "Sum", label = "Anomaly Invocations" }],
+            [".", "Errors", { stat = "Sum", label = "Anomaly Errors" }]
+          ]
+          period = 300
+          region = var.region
+          title  = "Lambda Anomaly Function"
+          yAxis = {
+            left = {
+              label = "Count"
+            }
+          }
+        }
+      },
+      {
         type = "log"
         properties = {
           query  = "SOURCE '/aws/lambda/${aws_lambda_function.transform.function_name}' | fields @timestamp, @message | filter @message like /ERROR/ | sort @timestamp desc | limit 20"
@@ -105,7 +122,8 @@ resource "aws_cloudwatch_composite_alarm" "pipeline_health" {
     "ALARM(${aws_cloudwatch_metric_alarm.kinesis_write_throttle.alarm_name})",
     "ALARM(${aws_cloudwatch_metric_alarm.firehose_delivery_failed.alarm_name})",
     "ALARM(${aws_cloudwatch_metric_alarm.transform_lambda_errors.alarm_name})",
-    "ALARM(${aws_cloudwatch_metric_alarm.ml_lambda_errors.alarm_name})"
+    "ALARM(${aws_cloudwatch_metric_alarm.ml_lambda_errors.alarm_name})",
+    "ALARM(${aws_cloudwatch_metric_alarm.anomaly_lambda_errors.alarm_name})"
   ])
 
   tags = local.common_tags

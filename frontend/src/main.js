@@ -5,6 +5,7 @@
  */
 import { startLiveUpdates } from "./liveUpdates";
 import { initInsightsData } from "./insightsData";
+import { initAnomaliesData } from "./anomaliesData";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const AUTH_TOKEN_KEY = "smartstream_auth_token";
@@ -35,6 +36,7 @@ const emailInput = document.getElementById("email");
 let isSignupMode = false;
 let stopLiveUpdates = null;
 let stopInsights = null;
+let stopAnomalies = null;
 
 const pageMeta = {
   dashboard: {
@@ -118,6 +120,10 @@ function stopWorkspaceData() {
     stopInsights();
     stopInsights = null;
   }
+  if (typeof stopAnomalies === "function") {
+    stopAnomalies();
+    stopAnomalies = null;
+  }
 }
 
 function startWorkspaceData() {
@@ -130,6 +136,9 @@ function startWorkspaceData() {
     getAuthToken: getStoredToken
   });
   stopInsights = initInsightsData({
+    getAuthToken: getStoredToken
+  });
+  stopAnomalies = initAnomaliesData({
     getAuthToken: getStoredToken
   });
 }

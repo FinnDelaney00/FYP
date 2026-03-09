@@ -31,6 +31,7 @@ locals {
     lambda_transform   = aws_iam_role.lambda_transform[0].name
     lambda_ml          = aws_iam_role.lambda_ml[0].name
     lambda_live_api    = aws_iam_role.lambda_live_api[0].name
+    lambda_anomaly     = aws_iam_role.lambda_anomaly[0].name
     glue_crawler       = aws_iam_role.glue_crawler[0].name
     } : {
     for role_key, override_name in local.shared_iam_role_name_overrides :
@@ -58,6 +59,7 @@ locals {
   lambda_transform_role_arn   = var.create_shared_iam ? aws_iam_role.lambda_transform[0].arn : try(data.aws_iam_role.shared["lambda_transform"].arn, "")
   lambda_ml_role_arn          = var.create_shared_iam ? aws_iam_role.lambda_ml[0].arn : try(data.aws_iam_role.shared["lambda_ml"].arn, "")
   lambda_live_api_role_arn    = var.create_shared_iam ? aws_iam_role.lambda_live_api[0].arn : try(data.aws_iam_role.shared["lambda_live_api"].arn, "")
+  lambda_anomaly_role_arn     = var.create_shared_iam ? aws_iam_role.lambda_anomaly[0].arn : try(data.aws_iam_role.shared["lambda_anomaly"].arn, "")
   glue_crawler_role_arn       = var.create_shared_iam ? aws_iam_role.glue_crawler[0].arn : try(data.aws_iam_role.shared["glue_crawler"].arn, "")
 }
 
@@ -452,6 +454,82 @@ resource "aws_iam_role_policy" "lambda_ml_s3" {
 resource "aws_iam_role_policy_attachment" "lambda_ml_basic" {
   count      = var.create_shared_iam ? 1 : 0
   role       = aws_iam_role.lambda_ml[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# =============================================================================
+# Lambda Anomaly IAM Roles and Policies
+# =============================================================================
+
+resource "aws_iam_role" "lambda_anomaly" {
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "${local.legacy_prefix}-lambda-anomaly-"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+
+  tags = merge(local.common_tags, {
+    Name = "${local.legacy_prefix}-lambda-anomaly-role"
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_anomaly_s3" {
+  count       = var.create_shared_iam ? 1 : 0
+  name_prefix = "s3-access-"
+  role        = aws_iam_role.lambda_anomaly[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ListTrustedAndAnomalyPrefixes"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = local.data_lake_bucket_arn_patterns
+        Condition = {
+          StringLike = {
+            "s3:prefix" = [
+              "${local.s3_trusted_prefix}*",
+              "${var.trusted_prefix_anomalies}*"
+            ]
+          }
+        }
+      },
+      {
+        Sid    = "ReadTrustedObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject"
+        ]
+        Resource = [for bucket_arn in local.data_lake_bucket_arn_patterns : "${bucket_arn}/${local.s3_trusted_prefix}*"]
+      },
+      {
+        Sid    = "WriteAnomalyObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject"
+        ]
+        Resource = [for bucket_arn in local.data_lake_bucket_arn_patterns : "${bucket_arn}/${var.trusted_prefix_anomalies}*"]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_anomaly_basic" {
+  count      = var.create_shared_iam ? 1 : 0
+  role       = aws_iam_role.lambda_anomaly[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 

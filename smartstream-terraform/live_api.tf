@@ -33,6 +33,26 @@ resource "aws_dynamodb_table" "accounts" {
   })
 }
 
+resource "aws_dynamodb_table" "anomaly_reviews" {
+  name         = "${local.name_prefix}-anomaly-reviews"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "anomaly_id"
+
+  attribute {
+    name = "anomaly_id"
+    type = "S"
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = merge(local.common_tags, {
+    Name    = "${local.name_prefix}-anomaly-reviews"
+    Purpose = "AnomalyReviewState"
+  })
+}
+
 resource "aws_iam_role" "lambda_live_api" {
   count       = var.create_shared_iam ? 1 : 0
   name_prefix = "${local.legacy_prefix}-lambda-live-api-"
@@ -84,13 +104,15 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
             for bucket_arn in local.data_lake_bucket_arn_patterns : [
               "${bucket_arn}/${local.s3_trusted_prefix}*",
               "${bucket_arn}/${local.s3_trusted_analytics_prefix}*",
-              "${bucket_arn}/${var.trusted_prefix_predictions}*"
+              "${bucket_arn}/${var.trusted_prefix_predictions}*",
+              "${bucket_arn}/${var.trusted_prefix_anomalies}*"
             ]
           ]),
           [
             "arn:aws:s3:::${local.live_api_data_lake_bucket}/${local.s3_trusted_prefix}*",
             "arn:aws:s3:::${local.live_api_data_lake_bucket}/${local.s3_trusted_analytics_prefix}*",
-            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_predictions}*"
+            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_predictions}*",
+            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_anomalies}*"
           ]
         )
       },
@@ -141,7 +163,10 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
           "dynamodb:PutItem",
           "dynamodb:UpdateItem"
         ]
-        Resource = "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-accounts"
+        Resource = [
+          "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-accounts",
+          "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-anomaly-reviews"
+        ]
       }
     ]
   })
@@ -169,6 +194,7 @@ resource "aws_lambda_function" "live_api" {
       TRUSTED_PREFIX         = var.trusted_prefix_finance_transactions
       EMPLOYEES_PREFIX       = var.trusted_prefix_employees
       PREDICTIONS_PREFIX     = var.trusted_prefix_predictions
+      ANOMALIES_PREFIX       = var.trusted_prefix_anomalies
       MAX_ITEMS_DEFAULT      = tostring(var.max_items)
       QUERY_MAX_ROWS         = tostring(var.query_max_rows)
       ALLOWED_ORIGIN         = var.allowed_origin
@@ -177,6 +203,7 @@ resource "aws_lambda_function" "live_api" {
       ATHENA_DATABASE        = aws_glue_catalog_database.main.name
       ATHENA_OUTPUT_LOCATION = "s3://${aws_s3_bucket.athena_results.id}/results/"
       ACCOUNTS_TABLE         = aws_dynamodb_table.accounts.name
+      ANOMALY_REVIEWS_TABLE  = aws_dynamodb_table.anomaly_reviews.name
       AUTH_TOKEN_SECRET      = random_password.auth_token_secret.result
       AUTH_TOKEN_TTL_SECONDS = tostring(var.auth_token_ttl_seconds)
     }
@@ -236,6 +263,24 @@ resource "aws_apigatewayv2_route" "live_api_dashboard" {
 resource "aws_apigatewayv2_route" "live_api_forecasts" {
   api_id    = aws_apigatewayv2_api.live_api.id
   route_key = "GET /forecasts"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_anomalies" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "GET /anomalies"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_anomaly_detail" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "GET /anomalies/{id}"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_anomaly_action" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "POST /anomalies/{id}/actions"
   target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
 }
 

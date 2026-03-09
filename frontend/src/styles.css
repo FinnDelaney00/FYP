@@ -1068,42 +1068,48 @@ textarea {
 
 .anomaly-list {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.75rem;
 }
 
 .anomaly-item {
-  border-radius: 12px;
-  padding: 0.75rem;
+  border-radius: 14px;
+  padding: 0.95rem;
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  border: 1px solid;
+  align-items: flex-start;
+  gap: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 249, 252, 0.95));
 }
 
 .anomaly-item h4 {
-  font-size: 0.95rem;
-  margin-bottom: 0.25rem;
+  font-size: 1rem;
+  margin-bottom: 0.3rem;
+  color: #102349;
 }
 
 .anomaly-item p {
-  color: #486184;
-  font-size: 0.83rem;
+  color: #4f627f;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
-.anomaly-item span {
+.anomaly-badge {
   border-radius: 999px;
-  padding: 0.35rem 0.65rem;
-  align-self: center;
-  font-size: 0.76rem;
-  font-weight: 700;
+  padding: 0.3rem 0.62rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .anomaly-item.high {
   border-color: rgba(220, 38, 38, 0.3);
-  background: rgba(254, 242, 242, 0.9);
+  background: rgba(254, 242, 242, 0.95);
 }
 
-.anomaly-item.high span {
+.anomaly-item.high .anomaly-badge[data-kind="severity"] {
   background: rgba(220, 38, 38, 0.15);
   color: #991b1b;
 }
@@ -1113,7 +1119,7 @@ textarea {
   background: rgba(255, 251, 235, 0.9);
 }
 
-.anomaly-item.medium span {
+.anomaly-item.medium .anomaly-badge[data-kind="severity"] {
   background: rgba(245, 158, 11, 0.2);
   color: #92400e;
 }
@@ -1123,9 +1129,215 @@ textarea {
   background: rgba(239, 246, 255, 0.9);
 }
 
-.anomaly-item.low span {
+.anomaly-item.low .anomaly-badge[data-kind="severity"] {
   background: rgba(30, 64, 175, 0.13);
   color: #1e3a8a;
+}
+
+.anomaly-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.anomaly-item-meta {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.anomaly-item-meta .anomaly-badge[data-kind="status"] {
+  background: rgba(15, 23, 42, 0.08);
+  color: #334155;
+}
+
+.anomaly-item-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.anomaly-item-actions button {
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  background: #fff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.anomaly-item-actions button:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.anomaly-open-link {
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0;
+}
+
+.anomaly-empty {
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  padding: 0.9rem;
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
+.anomaly-filters {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  align-items: end;
+}
+
+.inline-form input[type="date"] {
+  border: 1px solid #c8d8ee;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: #fff;
+  color: #172f58;
+}
+
+.anomaly-detail-panel {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.anomaly-detail-panel.is-hidden {
+  display: none;
+}
+
+.anomaly-close-btn {
+  background: linear-gradient(135deg, #334155, #1e293b);
+}
+
+.anomaly-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.anomaly-detail-description {
+  color: #5a6d8a;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.anomaly-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.8rem;
+}
+
+.anomaly-detail-grid h4,
+.anomaly-detail-section h4 {
+  margin: 0 0 0.5rem;
+  color: #102349;
+  font-size: 0.9rem;
+}
+
+.anomaly-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.55rem;
+}
+
+.anomaly-metric-box {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  padding: 0.65rem;
+  background: rgba(248, 250, 252, 0.85);
+}
+
+.anomaly-metric-box span {
+  display: block;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.anomaly-metric-box strong {
+  color: #102349;
+  font-size: 0.92rem;
+}
+
+.anomaly-reason-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.3rem;
+  color: #4f627f;
+  font-size: 0.84rem;
+}
+
+.anomaly-detail-section {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.anomaly-code-block {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.95);
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.anomaly-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.55rem;
+}
+
+.anomaly-action-grid .action {
+  padding: 0.6rem 0.7rem;
+  font-size: 0.76rem;
+}
+
+.anomaly-detail-section textarea {
+  min-height: 92px;
+  margin-bottom: 0;
+}
+
+.anomaly-audit-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.anomaly-audit-item {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 11px;
+  padding: 0.7rem;
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.anomaly-audit-item strong {
+  color: #102349;
+  font-size: 0.82rem;
+}
+
+.anomaly-audit-item p {
+  margin-top: 0.25rem;
+  color: #5f7495;
+  font-size: 0.8rem;
 }
 
 .forecasts-shell {

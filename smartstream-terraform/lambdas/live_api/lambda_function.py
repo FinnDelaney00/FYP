@@ -7,10 +7,11 @@ import os
 import re
 import secrets
 import time
+from urllib.parse import unquote
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import boto3
 
@@ -22,6 +23,7 @@ DATA_LAKE_BUCKET = os.environ["DATA_LAKE_BUCKET"]
 TRUSTED_PREFIX = os.environ.get("TRUSTED_PREFIX", "trusted/finance/transactions/")
 EMPLOYEES_PREFIX = os.environ.get("EMPLOYEES_PREFIX", "trusted/employees/")
 PREDICTIONS_PREFIX = os.environ.get("PREDICTIONS_PREFIX", "trusted-analytics/predictions/")
+ANOMALIES_PREFIX = os.environ.get("ANOMALIES_PREFIX", "trusted-analytics/anomalies/")
 MAX_ITEMS_DEFAULT = int(os.environ.get("MAX_ITEMS_DEFAULT", "200"))
 QUERY_MAX_ROWS = int(os.environ.get("QUERY_MAX_ROWS", str(MAX_ITEMS_DEFAULT)))
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
@@ -31,10 +33,12 @@ ATHENA_OUTPUT_LOCATION = os.environ.get("ATHENA_OUTPUT_LOCATION", "").strip()
 ATHENA_QUERY_TIMEOUT_SECONDS = int(os.environ.get("ATHENA_QUERY_TIMEOUT_SECONDS", "20"))
 ATHENA_POLL_INTERVAL_SECONDS = float(os.environ.get("ATHENA_POLL_INTERVAL_SECONDS", "0.5"))
 ACCOUNTS_TABLE_NAME = os.environ.get("ACCOUNTS_TABLE", "smartstream-accounts")
+ANOMALY_REVIEWS_TABLE_NAME = os.environ.get("ANOMALY_REVIEWS_TABLE", "smartstream-anomaly-reviews")
 AUTH_TOKEN_SECRET = os.environ.get("AUTH_TOKEN_SECRET", "dev-secret-change-me")
 AUTH_TOKEN_TTL_SECONDS = int(os.environ.get("AUTH_TOKEN_TTL_SECONDS", "604800"))
 
 accounts_table = dynamodb.Table(ACCOUNTS_TABLE_NAME)
+anomaly_reviews_table = dynamodb.Table(ANOMALY_REVIEWS_TABLE_NAME)
 
 EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
@@ -59,6 +63,26 @@ FORBIDDEN_SQL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 HAS_LIMIT_PATTERN = re.compile(r"\blimit\s+\d+\b", re.IGNORECASE)
+ANOMALY_STATUS_VALUES = {
+    "new",
+    "investigating",
+    "reviewed",
+    "confirmed",
+    "false_positive",
+    "resolved",
+}
+ANOMALY_REVIEW_ACTIONS = {
+    "mark_reviewed": {"status": "reviewed", "verb": "Marked as reviewed"},
+    "mark_false_positive": {"status": "false_positive", "verb": "Marked as false positive"},
+    "mark_confirmed": {"status": "confirmed", "verb": "Marked as confirmed"},
+    "mark_investigating": {"status": "investigating", "verb": "Marked as investigating"},
+    "mark_resolved": {"status": "resolved", "verb": "Marked as resolved"},
+    "propose_edit": {"status": "investigating", "verb": "Proposed data edit"},
+    "quarantine_record": {"status": "investigating", "verb": "Proposed quarantine"},
+    "exclude_from_analytics": {"status": "reviewed", "verb": "Excluded from analytics"},
+    "soft_drop_record": {"status": "investigating", "verb": "Proposed soft drop"},
+    "drop_record": {"status": "investigating", "verb": "Proposed soft drop"},
+}
 
 
 def _cors_headers() -> Dict[str, str]:
@@ -669,6 +693,300 @@ def _forecast_payload() -> Dict[str, Any]:
     }
 
 
+def _normalize_anomaly_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    anomaly_id = str(item.get("anomaly_id") or "").strip()
+    if not anomaly_id:
+        return None
+
+    normalized = dict(item)
+    normalized["anomaly_id"] = anomaly_id
+    normalized["record_ids"] = [str(value) for value in (item.get("record_ids") or []) if str(value).strip()]
+    normalized["reasons"] = [str(value) for value in (item.get("reasons") or []) if str(value).strip()]
+    normalized["audit_trail"] = list(item.get("audit_trail") or [])
+    normalized["status"] = str(item.get("status") or "new")
+    normalized["severity"] = str(item.get("severity") or "low")
+    normalized["anomaly_type"] = str(item.get("anomaly_type") or "unknown")
+    normalized["entity_type"] = str(item.get("entity_type") or "unknown")
+    normalized["detected_at"] = str(item.get("detected_at") or "")
+    if "metrics" not in normalized or not isinstance(normalized["metrics"], dict):
+        normalized["metrics"] = {}
+    return normalized
+
+
+def _load_latest_anomalies() -> Dict[str, Any]:
+    latest = _get_latest_object(ANOMALIES_PREFIX)
+    if latest is None:
+        return {
+            "found": False,
+            "generated_at": None,
+            "key": None,
+            "last_modified": None,
+            "items": [],
+            "summary": {},
+        }
+
+    key = latest["Key"]
+    try:
+        payload = _read_object_text(key)
+        parsed = json.loads(payload)
+        if not isinstance(parsed, dict):
+            raise ValueError("Anomaly payload must be a JSON object.")
+        items = [_normalize_anomaly_item(item) for item in (parsed.get("anomalies") or [])]
+        normalized_items = [item for item in items if item is not None]
+        return {
+            "found": True,
+            "generated_at": parsed.get("generated_at"),
+            "key": key,
+            "last_modified": latest["LastModified"].isoformat(),
+            "items": normalized_items,
+            "summary": parsed.get("summary") or {},
+        }
+    except Exception as exc:
+        return {
+            "found": True,
+            "generated_at": None,
+            "key": key,
+            "last_modified": latest["LastModified"].isoformat(),
+            "items": [],
+            "summary": {},
+            "error": str(exc),
+        }
+
+
+def _get_review_item(anomaly_id: str) -> Dict[str, Any]:
+    response = anomaly_reviews_table.get_item(Key={"anomaly_id": anomaly_id})
+    item = response.get("Item")
+    return item if isinstance(item, dict) else {}
+
+
+def _merge_anomaly_with_review(anomaly: Dict[str, Any], review_item: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(anomaly)
+    if not review_item:
+        return merged
+
+    status = str(review_item.get("status") or merged.get("status") or "new")
+    merged["status"] = status
+    merged["audit_trail"] = list(review_item.get("audit_trail") or merged.get("audit_trail") or [])
+    merged["review"] = {
+        "last_action": review_item.get("last_action"),
+        "updated_at": review_item.get("updated_at"),
+        "updated_by": review_item.get("updated_by"),
+        "notes": list(review_item.get("notes") or []),
+    }
+    return merged
+
+
+def _load_anomalies_with_reviews() -> Dict[str, Any]:
+    source = _load_latest_anomalies()
+    merged_items: List[Dict[str, Any]] = []
+    for anomaly in source.get("items", []):
+        anomaly_id = str(anomaly.get("anomaly_id") or "")
+        if not anomaly_id:
+            continue
+        review_item = _get_review_item(anomaly_id)
+        merged_items.append(_merge_anomaly_with_review(anomaly, review_item))
+
+    source["items"] = sorted(
+        merged_items,
+        key=lambda item: _parse_datetime(item.get("detected_at")) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    return source
+
+
+def _query_set(query: Dict[str, Any], name: str) -> set[str]:
+    raw = query.get(name)
+    if raw is None:
+        return set()
+    values = [part.strip().lower() for part in str(raw).split(",")]
+    return {value for value in values if value}
+
+
+def _query_date(query: Dict[str, Any], name: str) -> Optional[datetime]:
+    raw = query.get(name)
+    if raw is None:
+        return None
+    return _parse_datetime(raw)
+
+
+def _filter_anomalies(items: Iterable[Dict[str, Any]], query: Dict[str, Any]) -> List[Dict[str, Any]]:
+    anomaly_types = _query_set(query, "anomaly_type")
+    severities = _query_set(query, "severity")
+    statuses = _query_set(query, "status")
+    entity_types = _query_set(query, "entity_type")
+    date_from = _query_date(query, "date_from")
+    date_to = _query_date(query, "date_to")
+
+    filtered: List[Dict[str, Any]] = []
+    for item in items:
+        anomaly_type = str(item.get("anomaly_type") or "").lower()
+        severity = str(item.get("severity") or "").lower()
+        status = str(item.get("status") or "").lower()
+        entity_type = str(item.get("entity_type") or "").lower()
+        detected_at = _parse_datetime(item.get("detected_at"))
+
+        if anomaly_types and anomaly_type not in anomaly_types:
+            continue
+        if severities and severity not in severities:
+            continue
+        if statuses and status not in statuses:
+            continue
+        if entity_types and entity_type not in entity_types:
+            continue
+        if date_from and detected_at and detected_at < date_from:
+            continue
+        if date_to and detected_at and detected_at > date_to:
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def _anomaly_summary(items: Sequence[Dict[str, Any]]) -> Dict[str, int]:
+    status_values = [str(item.get("status") or "new").lower() for item in items]
+    reviewed_statuses = {"reviewed", "confirmed", "false_positive", "resolved"}
+    return {
+        "high_priority_count": sum(1 for item in items if str(item.get("severity") or "").lower() == "high"),
+        "medium_priority_count": sum(1 for item in items if str(item.get("severity") or "").lower() == "medium"),
+        "low_priority_count": sum(1 for item in items if str(item.get("severity") or "").lower() == "low"),
+        "reviewed_count": sum(1 for status in status_values if status in reviewed_statuses),
+        "confirmed_count": sum(1 for status in status_values if status == "confirmed"),
+    }
+
+
+def _anomaly_path_parts(path: str) -> Tuple[Optional[str], bool]:
+    if path.startswith("/anomalies/") and path.endswith("/actions"):
+        anomaly_id = path[len("/anomalies/") : -len("/actions")].strip("/")
+        return (unquote(anomaly_id), True) if anomaly_id else (None, True)
+    if path.startswith("/anomalies/"):
+        anomaly_id = path[len("/anomalies/") :].strip("/")
+        return (unquote(anomaly_id), False) if anomaly_id else (None, False)
+    return None, False
+
+
+def _build_anomaly_list_payload(event: Dict[str, Any]) -> Dict[str, Any]:
+    limit = _parse_limit(event)
+    query = event.get("queryStringParameters") or {}
+    source = _load_anomalies_with_reviews()
+    filtered = _filter_anomalies(source.get("items", []), query)
+
+    return {
+        "items": filtered[:limit],
+        "summary": _anomaly_summary(filtered),
+        "generated_at": source.get("generated_at"),
+        "s3_key": source.get("key"),
+        "last_modified": source.get("last_modified"),
+        "error": source.get("error"),
+    }
+
+
+def _find_anomaly_by_id(anomaly_id: str) -> Optional[Dict[str, Any]]:
+    source = _load_anomalies_with_reviews()
+    for item in source.get("items", []):
+        if str(item.get("anomaly_id")) == anomaly_id:
+            return item
+    return None
+
+
+def _build_anomaly_detail_payload(anomaly_id: str) -> Optional[Dict[str, Any]]:
+    anomaly = _find_anomaly_by_id(anomaly_id)
+    if anomaly is None:
+        return None
+    return {"item": anomaly}
+
+
+def _normalize_review_action(action: str) -> str:
+    normalized = action.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized == "mark_as_reviewed":
+        return "mark_reviewed"
+    if normalized == "mark_as_false_positive":
+        return "mark_false_positive"
+    if normalized == "mark_as_confirmed":
+        return "mark_confirmed"
+    if normalized == "quarantine":
+        return "quarantine_record"
+    if normalized in {"soft_drop", "drop", "drop_from_analytics"}:
+        return "soft_drop_record"
+    return normalized
+
+
+def _validated_status(status: str) -> str:
+    normalized = status.strip().lower()
+    if normalized not in ANOMALY_STATUS_VALUES:
+        raise ValueError(f"Invalid anomaly status: {status}")
+    return normalized
+
+
+def _update_anomaly_review(event: Dict[str, Any], claims: Dict[str, Any], anomaly_id: str) -> Dict[str, Any]:
+    body = _parse_json_body(event)
+    action = _normalize_review_action(str(body.get("action") or "mark_reviewed"))
+    action_definition = ANOMALY_REVIEW_ACTIONS.get(action)
+    if action_definition is None:
+        raise ValueError("Unsupported review action.")
+
+    actor_email = str(claims.get("sub") or "unknown")
+    actor_name = str(claims.get("name") or "")
+    actor = actor_name if actor_name else actor_email
+    now_iso = datetime.now(timezone.utc).isoformat()
+    note_text = str(body.get("note") or "").strip()
+
+    status_override = str(body.get("status") or "").strip()
+    status = action_definition["status"]
+    if status_override:
+        status = _validated_status(status_override)
+
+    review_item = _get_review_item(anomaly_id) or {"anomaly_id": anomaly_id, "audit_trail": [], "notes": []}
+    audit_trail = list(review_item.get("audit_trail") or [])
+    notes = list(review_item.get("notes") or [])
+
+    audit_entry = {
+        "at": now_iso,
+        "actor": actor,
+        "action": action,
+        "status": status,
+        "message": action_definition["verb"],
+    }
+    if note_text:
+        audit_entry["note"] = note_text
+        notes.append({"at": now_iso, "author": actor, "note": note_text, "action": action})
+
+    audit_trail.append(audit_entry)
+    updated_item = {
+        "anomaly_id": anomaly_id,
+        "status": status,
+        "last_action": action,
+        "updated_at": now_iso,
+        "updated_by": actor,
+        "notes": notes[-50:],
+        "audit_trail": audit_trail[-100:],
+    }
+
+    anomaly_reviews_table.put_item(Item=updated_item)
+
+    anomaly = _find_anomaly_by_id(anomaly_id)
+    if anomaly is None:
+        anomaly = {
+            "anomaly_id": anomaly_id,
+            "entity_type": "unknown",
+            "record_ids": [],
+            "anomaly_type": "unknown",
+            "severity": "low",
+            "confidence": 0.0,
+            "title": "Anomaly record not found in latest batch",
+            "description": "Review action stored, but the anomaly is not present in the current source file.",
+            "reasons": [],
+            "status": status,
+            "suggested_action": "review",
+            "metrics": {},
+            "detected_at": now_iso,
+            "source_table": "unknown",
+            "audit_trail": [],
+        }
+
+    return {"item": _merge_anomaly_with_review(anomaly, updated_item)}
+
+
 def _parse_json_body(event: Dict[str, Any]) -> Dict[str, Any]:
     body = event.get("body")
     if not body:
@@ -1023,12 +1341,30 @@ def lambda_handler(event, _context):
             claims = _require_auth(event)
             return _handle_auth_me(claims)
 
-        _require_auth(event)
+        claims = _require_auth(event)
 
         if path == "/query":
             if method != "POST":
                 return _response(405, {"message": "Method not allowed"})
             return _response(200, _run_query(event))
+
+        if path == "/anomalies":
+            if method != "GET":
+                return _response(405, {"message": "Method not allowed"})
+            return _response(200, _build_anomaly_list_payload(event))
+
+        anomaly_id, is_action_route = _anomaly_path_parts(path)
+        if anomaly_id and is_action_route:
+            if method != "POST":
+                return _response(405, {"message": "Method not allowed"})
+            return _response(200, _update_anomaly_review(event, claims, anomaly_id))
+        if anomaly_id:
+            if method != "GET":
+                return _response(405, {"message": "Method not allowed"})
+            payload = _build_anomaly_detail_payload(anomaly_id)
+            if payload is None:
+                return _response(404, {"message": "Anomaly not found."})
+            return _response(200, payload)
 
         if method != "GET":
             return _response(405, {"message": "Method not allowed"})

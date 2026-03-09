@@ -407,11 +407,21 @@ ml_schedule_expression = "rate(30 minutes)"  # Run every 30 minutes
 ml_schedule_expression = "cron(0 */6 * * ? *)"  # Every 6 hours
 ```
 
+### Changing Anomaly Detection Schedule
+
+```hcl
+# terraform.tfvars
+anomaly_schedule_expression = "rate(2 hours)"  # Default
+# or
+anomaly_schedule_expression = "rate(3 hours)"
+```
+
 ### Adding Custom Lambda Logic
 
 Replace placeholder logic in:
 - `lambdas/transform/lambda_function.py` - Data transformation
 - `lambdas/ml/lambda_function.py` - ML inference
+- `lambdas/anomaly/lambda_function.py` - anomaly detection
 
 After changes:
 ```bash
@@ -436,6 +446,7 @@ smartstream-terraform/
 ├── firehose.tf           # Kinesis Firehose delivery stream
 ├── lambda_transform.tf   # Transform Lambda function
 ├── lambda_ml.tf          # ML inference Lambda function
+├── lambda_anomaly.tf     # Anomaly detection Lambda function
 ├── glue.tf               # Glue Data Catalog and Crawlers
 ├── athena.tf             # Athena workgroup
 ├── iam.tf                # IAM roles and policies (least-privilege)
@@ -443,8 +454,10 @@ smartstream-terraform/
 ├── lambdas/
 │   ├── transform/
 │   │   └── lambda_function.py  # Transform handler
-│   └── ml/
-│       └── lambda_function.py  # ML inference handler
+│   ├── ml/
+│   │   └── lambda_function.py  # ML inference handler
+│   └── anomaly/
+│       └── lambda_function.py  # Anomaly detection handler
 └── README.md             # This file
 ```
 
@@ -561,6 +574,15 @@ Type `yes` when prompted. **Destruction takes approximately 10-15 minutes**.
 6. **Cataloging**: Glue Crawlers discover schema and update Data Catalog
 7. **Analytics**: Athena queries cataloged data using SQL
 8. **ML**: Scheduled Lambda reads `/trusted/`, runs inference, writes to `/trusted-analytics/`
+9. **Anomalies**: Scheduled Lambda at `lambdas/anomaly/lambda_function.py` reads trusted employees/transactions and writes rule-based anomalies to `/trusted-analytics/anomalies/`
+
+## Anomaly Detection Lambda
+
+- **What it does**: detects salary outliers, duplicate hires/employees, duplicate transactions, unusually large transactions, and unusually small suspicious transactions
+- **Where it lives**: `lambdas/anomaly/lambda_function.py`
+- **How often it runs**: EventBridge schedule via `anomaly_schedule_expression` (default `rate(2 hours)`)
+- **How to change schedule**: update `anomaly_schedule_expression` in `terraform.tfvars` (for example `rate(3 hours)`) and apply Terraform
+- **Where output is written**: `s3://<data-lake-bucket>/trusted-analytics/anomalies/YYYY/MM/DD/anomalies_<timestamp>.json`
 
 ## 🎯 Next Steps
 
