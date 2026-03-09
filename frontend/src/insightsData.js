@@ -31,7 +31,19 @@ const DEFAULT_QUERY_TABLE = QUERY_SINGLE_TABLE;
 const QUERY_ROW_SQL_PREVIEW_PREFIX = "Generated SQL: ";
 
 let latestDashboardPayload = null;
+let latestFinanceRowsState = {
+  rows: [],
+  columns: [],
+  refreshedAt: null
+};
 const queryRowsCache = new Map();
+const FINANCE_DATE_FIELDS = ["transaction_date", "event_time", "event_timestamp", "timestamp", "datetime", "date", "created_at", "updated_at"];
+const FINANCE_AMOUNT_FIELDS = ["amount", "transaction_amount", "value", "total", "net_amount"];
+const FINANCE_CATEGORY_FIELDS = ["category", "transaction_type", "type", "entry_type"];
+const FINANCE_VENDOR_FIELDS = ["merchant", "merchant_name", "vendor", "vendor_name", "supplier", "payee", "counterparty", "description"];
+const FINANCE_DEPARTMENT_FIELDS = ["department", "dept", "team", "division"];
+const FINANCE_REVENUE_HINTS = ["revenue", "income", "credit", "sale", "sales", "deposit", "inflow", "received"];
+const FINANCE_EXPENDITURE_HINTS = ["expense", "expenditure", "debit", "cost", "purchase", "withdrawal", "outflow", "payment"];
 
 function formatCurrency(value) {
   if (!Number.isFinite(value)) {
@@ -40,20 +52,296 @@ function formatCurrency(value) {
   return currencyFormatter.format(value);
 }
 
-function formatPercent(value) {
-  if (!Number.isFinite(value)) {
-    return "--";
-  }
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
 function formatDateLabel(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return String(value || "--");
   }
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatCompactCurrency(value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: value >= 100000 ? 1 : 0
+  }).format(value);
+}
+
+function formatBusinessDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Waiting for the latest refresh";
+  }
+
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function formatWholePercent(value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${Math.abs(value).toFixed(1)}%`;
+}
+
+function formatSignedCount(value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  if (value === 0) {
+    return "0";
+  }
+  return `${value > 0 ? "+" : "-"}${Math.abs(value)}`;
+}
+
+function parseNumeric(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const cleaned = value.trim().replaceAll(",", "").replaceAll("$", "");
+    if (!cleaned) {
+      return null;
+    }
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function parseDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const ms = value > 10_000_000_000 ? value : value * 1000;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    const numericValue = Number(trimmed);
+    const ms = trimmed.length >= 13 ? numericValue : numericValue * 1000;
+    const numericDate = new Date(ms);
+    return Number.isNaN(numericDate.getTime()) ? null : numericDate;
+  }
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function extractFirstField(record, fields, fallback = "") {
+  for (const field of fields) {
+    const value = record?.[field];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return fallback;
+}
+
+function extractFinanceDate(record) {
+  for (const field of FINANCE_DATE_FIELDS) {
+    const parsed = parseDate(record?.[field]);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function extractFinanceAmount(record) {
+  for (const field of FINANCE_AMOUNT_FIELDS) {
+    const parsed = parseNumeric(record?.[field]);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  const credit = parseNumeric(record?.credit);
+  const debit = parseNumeric(record?.debit);
+  if (credit !== null || debit !== null) {
+    return (credit || 0) - (debit || 0);
+  }
+
+  return null;
+}
+
+function classifyFinanceFlow(record, amount) {
+  const hintText = [
+    record?.transaction_type,
+    record?.type,
+    record?.category,
+    record?.entry_type,
+    record?.direction
+  ]
+    .filter((value) => value !== undefined && value !== null)
+    .join(" ")
+    .toLowerCase();
+
+  if (FINANCE_REVENUE_HINTS.some((token) => hintText.includes(token))) {
+    return "revenue";
+  }
+  if (FINANCE_EXPENDITURE_HINTS.some((token) => hintText.includes(token))) {
+    return "expenditure";
+  }
+  return amount >= 0 ? "revenue" : "expenditure";
+}
+
+function normalizeFinanceRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((record) => {
+      const signedAmount = extractFinanceAmount(record);
+      if (!Number.isFinite(signedAmount)) {
+        return null;
+      }
+
+      const date = extractFinanceDate(record);
+      return {
+        raw: record,
+        date,
+        dayKey: date ? date.toISOString().slice(0, 10) : "",
+        signedAmount,
+        amount: Math.abs(signedAmount),
+        flow: classifyFinanceFlow(record, signedAmount),
+        category: extractFirstField(record, FINANCE_CATEGORY_FIELDS, "Other"),
+        vendor: extractFirstField(record, FINANCE_VENDOR_FIELDS, "Unlabelled vendor"),
+        department: extractFirstField(record, FINANCE_DEPARTMENT_FIELDS, "")
+      };
+    })
+    .filter(Boolean);
+}
+
+function aggregateTopItems(rows, key, limit = 5) {
+  const totals = new Map();
+
+  rows.forEach((row) => {
+    const label = String(row?.[key] || "").trim();
+    if (!label) {
+      return;
+    }
+    totals.set(label, (totals.get(label) || 0) + (Number(row.amount) || 0));
+  });
+
+  return Array.from(totals.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((left, right) => right.value - left.value)
+    .slice(0, limit);
+}
+
+function buildFinanceAnalytics(rows) {
+  const normalized = normalizeFinanceRows(rows);
+  const expenses = normalized.filter((row) => row.flow === "expenditure");
+  const datedExpenses = expenses.filter((row) => row.date).sort((left, right) => left.date - right.date);
+  const latestDate = datedExpenses[datedExpenses.length - 1]?.date || null;
+  const categoryBreakdown = aggregateTopItems(expenses, "category");
+  const vendorBreakdown = aggregateTopItems(expenses, "vendor");
+  const departmentBreakdown = aggregateTopItems(expenses.filter((row) => row.department), "department");
+
+  const vendorCounts = new Map();
+  expenses.forEach((row) => {
+    const key = row.vendor || row.category || "Other";
+    vendorCounts.set(key, (vendorCounts.get(key) || 0) + 1);
+  });
+
+  let recurringSpend = 0;
+  let oneOffSpend = 0;
+  expenses.forEach((row) => {
+    const key = row.vendor || row.category || "Other";
+    if ((vendorCounts.get(key) || 0) > 1) {
+      recurringSpend += row.amount;
+    } else {
+      oneOffSpend += row.amount;
+    }
+  });
+
+  const amounts = expenses.map((row) => row.amount).filter((value) => Number.isFinite(value));
+  const average = amounts.length ? amounts.reduce((sum, value) => sum + value, 0) / amounts.length : 0;
+  const variance = amounts.length
+    ? amounts.reduce((sum, value) => sum + (value - average) ** 2, 0) / amounts.length
+    : 0;
+  const deviation = Math.sqrt(variance);
+  const anomalyThreshold = average + deviation * 1.8;
+  const unusualExpenses = expenses
+    .filter((row) => row.amount > anomalyThreshold && row.amount > average * 1.35)
+    .sort((left, right) => right.amount - left.amount)
+    .slice(0, 3);
+
+  return {
+    normalized,
+    expenses,
+    latestDate,
+    categoryBreakdown,
+    vendorBreakdown,
+    departmentBreakdown,
+    recurringSpend,
+    oneOffSpend,
+    unusualExpenses
+  };
+}
+
+function getMonthlySpendMetrics(monthlySeries) {
+  const rows = Array.isArray(monthlySeries) ? monthlySeries : [];
+  const latest = rows[rows.length - 1];
+  const previous = rows[rows.length - 2];
+  const currentSpend = Number(latest?.expenditure) || 0;
+  const previousSpend = Number(previous?.expenditure) || 0;
+  const spendChangePercent = previousSpend > 0 ? ((currentSpend - previousSpend) / previousSpend) * 100 : null;
+
+  return {
+    currentSpend,
+    previousSpend,
+    spendChangePercent
+  };
+}
+
+function getEmployeeMetrics(charts, metrics) {
+  const points = Array.isArray(charts?.employee_growth) ? charts.employee_growth : [];
+  const actualPoints = points.filter((point) => !point.is_forecast);
+  const latestActual = actualPoints[actualPoints.length - 1];
+  const previousActual = actualPoints[actualPoints.length - 2];
+  const growthCount = latestActual && previousActual ? (Number(latestActual.value) || 0) - (Number(previousActual.value) || 0) : 0;
+  const totalEmployees = Number(metrics?.total_employees?.value || latestActual?.value || 0);
+
+  return {
+    totalEmployees,
+    growthCount,
+    totalEmployeeDelta: Number(metrics?.total_employees?.delta_percent),
+    projectedGrowthPercent: Number(metrics?.growth_rate?.value_percent)
+  };
+}
+
+function getLargestDepartment(items) {
+  const departments = Array.isArray(items) ? items : [];
+  return departments
+    .map((item) => ({
+      label: item.label || "Unknown",
+      value: Number(item.value) || 0
+    }))
+    .sort((left, right) => right.value - left.value)[0] || null;
 }
 
 function buildAuthHeaders(getAuthToken) {
@@ -491,48 +779,34 @@ function initializeCreateGraphPage() {
   });
 }
 
+function clearLoadingClasses(element) {
+  if (!element) {
+    return;
+  }
+  element.classList.remove("skeleton", "skeleton-value", "skeleton-line");
+}
+
 function setMetric(id, value, subtitle) {
   const valueElement = document.getElementById(`${id}-value`);
   const subtitleElement = document.getElementById(`${id}-subtitle`);
   if (valueElement) {
+    clearLoadingClasses(valueElement);
     valueElement.textContent = value;
   }
   if (subtitleElement) {
+    clearLoadingClasses(subtitleElement);
     subtitleElement.textContent = subtitle;
   }
 }
 
-function renderRevenueExpenseBars(series) {
-  const container = document.getElementById("revenue-expense-bars");
-  if (!container) {
+function setMetricTrend(id, value, tone = "neutral") {
+  const trendElement = document.getElementById(`${id}-trend`);
+  if (!trendElement) {
     return;
   }
 
-  if (!Array.isArray(series) || series.length === 0) {
-    container.innerHTML = '<div class="month-row"><span>--</span><div class="track"><i style="--v:0"></i></div><div class="track alt"><i style="--v:0"></i></div></div>';
-    return;
-  }
-
-  const maxValue = Math.max(
-    1,
-    ...series.map((item) => Math.max(Number(item.revenue) || 0, Number(item.expenditure) || 0))
-  );
-
-  container.innerHTML = series
-    .map((item) => {
-      const revenue = Math.max(0, Number(item.revenue) || 0);
-      const expenditure = Math.max(0, Number(item.expenditure) || 0);
-      const revenuePct = Math.round((revenue / maxValue) * 100);
-      const expenditurePct = Math.round((expenditure / maxValue) * 100);
-      return `
-        <div class="month-row">
-          <span>${item.label || "--"}</span>
-          <div class="track"><i style="--v:${revenuePct}"></i></div>
-          <div class="track alt"><i style="--v:${expenditurePct}"></i></div>
-        </div>
-      `;
-    })
-    .join("");
+  trendElement.textContent = value;
+  trendElement.dataset.tone = tone;
 }
 
 function buildSmoothLinePath(points) {
@@ -700,67 +974,336 @@ function renderDepartmentDistribution(items) {
     .join("");
 }
 
-function renderWeeklyActivity(items) {
-  const container = document.getElementById("weekly-activity-bars");
+function renderBreakdownList(containerId, items, emptyMessage) {
+  const container = document.getElementById(containerId);
   if (!container) {
     return;
   }
 
   if (!Array.isArray(items) || items.length === 0) {
-    container.innerHTML = '<div><i style="--h:0"></i><span>--</span></div>';
+    container.innerHTML = `<div class="breakdown-empty">${emptyMessage}</div>`;
     return;
   }
 
+  const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0) || 1;
   const max = Math.max(1, ...items.map((item) => Number(item.value) || 0));
+
   container.innerHTML = items
     .map((item) => {
-      const value = Math.max(0, Number(item.value) || 0);
-      const height = Math.max(10, Math.round((value / max) * 100));
-      return `<div><i style="--h:${height}"></i><span>${item.label || "--"}</span></div>`;
+      const value = Number(item.value) || 0;
+      const width = Math.max(8, Math.round((value / max) * 100));
+      const share = ((value / total) * 100).toFixed(1);
+      return `
+        <div class="breakdown-row" title="${escapeHtml(item.label)}: ${formatCurrency(value)}">
+          <div class="breakdown-copy">
+            <strong>${escapeHtml(item.label)}</strong>
+            <span>${share}% of tracked spend</span>
+          </div>
+          <div class="breakdown-bar">
+            <i style="--w:${width}"></i>
+          </div>
+          <div class="breakdown-value">${formatCompactCurrency(value)}</div>
+        </div>
+      `;
     })
     .join("");
+}
+
+function renderRecurringBreakdown(recurringSpend, oneOffSpend) {
+  const container = document.getElementById("recurring-breakdown");
+  if (!container) {
+    return;
+  }
+
+  const total = recurringSpend + oneOffSpend;
+  if (!total) {
+    container.innerHTML = "<div class=\"breakdown-empty\">Not enough merchant detail is available yet to separate repeat spend.</div>";
+    return;
+  }
+
+  const recurringShare = (recurringSpend / total) * 100;
+  const oneOffShare = 100 - recurringShare;
+  container.innerHTML = `
+    <div class="split-bar" aria-hidden="true">
+      <i class="split-bar-recurring" style="--w:${recurringShare.toFixed(1)}"></i>
+      <i class="split-bar-oneoff" style="--w:${oneOffShare.toFixed(1)}"></i>
+    </div>
+    <div class="split-summary-grid">
+      <div class="split-summary-card">
+        <span>Recurring spend</span>
+        <strong>${formatCurrency(recurringSpend)}</strong>
+        <p>${recurringShare.toFixed(1)}% of tracked spend</p>
+      </div>
+      <div class="split-summary-card">
+        <span>One-off spend</span>
+        <strong>${formatCurrency(oneOffSpend)}</strong>
+        <p>${oneOffShare.toFixed(1)}% of tracked spend</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderAlerts(items) {
+  const container = document.getElementById("alerts-list");
+  if (!container) {
+    return;
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    container.innerHTML = `
+      <article class="alert-item is-neutral">
+        <div>
+          <h4>No unusual payments stand out right now</h4>
+          <p>Recent spend is moving within the normal range of your tracked transactions.</p>
+        </div>
+        <span>Stable</span>
+      </article>
+    `;
+    return;
+  }
+
+  container.innerHTML = items
+    .map((item) => {
+      const vendor = item.vendor || item.category || "Unlabelled vendor";
+      const when = item.date ? formatDateLabel(item.date) : "Recent";
+      return `
+        <article class="alert-item is-warning">
+          <div>
+            <h4>${escapeHtml(vendor)} needs review</h4>
+            <p>${formatCurrency(item.amount)} posted on ${when}, which is above your recent spending pattern.</p>
+          </div>
+          <span>Review</span>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderKeyInsights(insights) {
+  const container = document.getElementById("key-insights-list");
+  if (!container) {
+    return;
+  }
+
+  if (!Array.isArray(insights) || insights.length === 0) {
+    container.innerHTML = `
+      <article class="insight-item">
+        <h4>Waiting for enough data</h4>
+        <p>The dashboard will surface plain-English highlights as soon as recent spend and headcount data are available.</p>
+      </article>
+    `;
+    return;
+  }
+
+  container.innerHTML = insights
+    .map((insight) => `
+      <article class="insight-item">
+        <h4>${escapeHtml(insight.title)}</h4>
+        <p>${escapeHtml(insight.body)}</p>
+      </article>
+    `)
+    .join("");
+}
+
+function buildKeyInsights({ spendMetrics, employeeMetrics, largestDepartment, financeAnalytics }) {
+  const insights = [];
+
+  if (Number.isFinite(spendMetrics.spendChangePercent)) {
+    insights.push({
+      title: "Spend movement",
+      body: `Company spend is ${formatWholePercent(spendMetrics.spendChangePercent)} versus last month.`
+    });
+  } else if (spendMetrics.currentSpend > 0) {
+    insights.push({
+      title: "Spend this month",
+      body: `Tracked company spend is currently ${formatCurrency(spendMetrics.currentSpend)} this month.`
+    });
+  }
+
+  if (largestDepartment) {
+    insights.push({
+      title: "Largest team",
+      body: `${largestDepartment.label} remains your largest department by headcount.`
+    });
+  }
+
+  if (financeAnalytics.unusualExpenses.length) {
+    insights.push({
+      title: "Costs to review",
+      body: `${financeAnalytics.unusualExpenses.length} payment${financeAnalytics.unusualExpenses.length === 1 ? "" : "s"} stand out from the recent spending pattern.`
+    });
+  } else if (employeeMetrics.growthCount > 0) {
+    insights.push({
+      title: "Hiring pace",
+      body: `Headcount increased by ${employeeMetrics.growthCount} in the latest reported period.`
+    });
+  } else if (Number.isFinite(employeeMetrics.projectedGrowthPercent)) {
+    insights.push({
+      title: "Workforce outlook",
+      body: `The forecast points to ${formatWholePercent(employeeMetrics.projectedGrowthPercent)} employee growth across the current outlook window.`
+    });
+  }
+
+  return insights.slice(0, 3);
 }
 
 function renderDashboard(payload) {
   const metrics = payload.metrics || {};
   const charts = payload.charts || {};
+  const spendMetrics = getMonthlySpendMetrics(charts.revenue_expenses || []);
+  const employeeMetrics = getEmployeeMetrics(charts, metrics);
+  const largestDepartment = getLargestDepartment(charts.department_distribution || []);
+  const financeAnalytics = buildFinanceAnalytics(latestFinanceRowsState.rows);
+  const dataHealth = metrics.data_health || {};
+  const confidenceValue = Number(dataHealth.value_percent);
+  const insights = buildKeyInsights({
+    spendMetrics,
+    employeeMetrics,
+    largestDepartment,
+    financeAnalytics
+  });
 
-  const totalEmployees = metrics.total_employees || {};
-  const totalEmployeesDelta =
-    Number.isFinite(totalEmployees.delta_percent) && totalEmployees.delta_percent !== null
-      ? `${formatPercent(totalEmployees.delta_percent)} vs baseline`
-      : totalEmployees.subtitle || "No trend available";
+  const spendDifference = spendMetrics.currentSpend - spendMetrics.previousSpend;
+  const largestCategory = financeAnalytics.categoryBreakdown[0] || null;
+  const unusualExpenseCount = financeAnalytics.unusualExpenses.length;
+  const dashboardSummary = document.getElementById("dashboard-summary");
+  const lastUpdatedValue = document.getElementById("dashboard-last-updated");
+  const lastUpdatedSubtitle = document.getElementById("dashboard-last-updated-subtitle");
+  const confidenceMetric = document.getElementById("dashboard-confidence-value");
+  const confidenceSubtitle = document.getElementById("dashboard-confidence-subtitle");
+  const employeeGrowthSummary = document.getElementById("employee-growth-summary");
+  const departmentSummary = document.getElementById("department-summary");
+
+  if (dashboardSummary) {
+    dashboardSummary.textContent = spendMetrics.currentSpend > 0
+      ? `${formatCurrency(spendMetrics.currentSpend)} has been tracked this month while headcount sits at ${employeeMetrics.totalEmployees.toLocaleString()}.`
+      : `Headcount sits at ${employeeMetrics.totalEmployees.toLocaleString()} while the dashboard gathers the latest spend detail.`;
+  }
+
+  if (lastUpdatedValue) {
+    lastUpdatedValue.textContent = formatBusinessDateTime(payload.generated_at || latestFinanceRowsState.refreshedAt);
+  }
+  if (lastUpdatedSubtitle) {
+    const latestSyncDetail = payload?.sources?.latest_prediction_last_modified || latestFinanceRowsState.refreshedAt;
+    lastUpdatedSubtitle.textContent = latestSyncDetail
+      ? `Last full dashboard refresh: ${formatBusinessDateTime(latestSyncDetail)}`
+      : "Waiting for the first full refresh.";
+  }
+  if (confidenceMetric) {
+    confidenceMetric.textContent = Number.isFinite(confidenceValue) ? `${Math.abs(confidenceValue).toFixed(0)}%` : "--";
+  }
+  if (confidenceSubtitle) {
+    confidenceSubtitle.textContent = dataHealth.subtitle || "Confidence improves as more finance and employee rows are processed.";
+  }
+
+  setMetric(
+    "metric-total-spend",
+    formatCurrency(spendMetrics.currentSpend),
+    spendMetrics.currentSpend > 0
+      ? "Tracked spend so far this month."
+      : "Waiting for enough finance history to total this month."
+  );
+  setMetricTrend("metric-total-spend", "Current month", spendMetrics.currentSpend > 0 ? "neutral" : "muted");
+
+  setMetric(
+    "metric-spend-change",
+    Number.isFinite(spendMetrics.spendChangePercent) ? formatWholePercent(spendMetrics.spendChangePercent) : "--",
+    Number.isFinite(spendMetrics.spendChangePercent)
+      ? `${formatCurrency(Math.abs(spendDifference))} ${spendDifference >= 0 ? "more" : "less"} than last month.`
+      : "A prior month comparison is not available yet."
+  );
+  setMetricTrend(
+    "metric-spend-change",
+    Number.isFinite(spendMetrics.spendChangePercent)
+      ? spendDifference > 0 ? "Higher spend" : spendDifference < 0 ? "Lower spend" : "Flat month"
+      : "Waiting for history",
+    !Number.isFinite(spendMetrics.spendChangePercent)
+      ? "muted"
+      : spendDifference > 0
+        ? "warning"
+        : spendDifference < 0
+          ? "positive"
+          : "neutral"
+  );
+
   setMetric(
     "metric-total-employees",
-    Number(totalEmployees.value || 0).toLocaleString(),
-    totalEmployeesDelta
+    employeeMetrics.totalEmployees.toLocaleString(),
+    largestDepartment
+      ? `${largestDepartment.label} is currently the largest department.`
+      : "Department data will appear once employee records load."
+  );
+  setMetricTrend(
+    "metric-total-employees",
+    Number.isFinite(employeeMetrics.totalEmployeeDelta)
+      ? `${formatWholePercent(employeeMetrics.totalEmployeeDelta)} vs baseline`
+      : "Latest headcount",
+    Number.isFinite(employeeMetrics.totalEmployeeDelta) && employeeMetrics.totalEmployeeDelta > 0 ? "positive" : "neutral"
   );
 
-  const revenue = metrics.revenue || {};
-  const revenueDelta =
-    Number.isFinite(revenue.delta_percent) && revenue.delta_percent !== null
-      ? `${formatPercent(revenue.delta_percent)} vs previous point`
-      : revenue.subtitle || "No trend available";
-  setMetric("metric-revenue", formatCurrency(Number(revenue.value || 0)), revenueDelta);
-
-  const growth = metrics.growth_rate || {};
   setMetric(
-    "metric-growth-rate",
-    formatPercent(Number(growth.value_percent || 0)),
-    growth.subtitle || "Headcount trend"
+    "metric-employee-growth",
+    formatSignedCount(employeeMetrics.growthCount),
+    employeeMetrics.growthCount === 0
+      ? "No net headcount change in the latest reported period."
+      : `${Math.abs(employeeMetrics.growthCount)} ${employeeMetrics.growthCount > 0 ? "new hires" : "fewer employees"} in the latest reported period.`
+  );
+  setMetricTrend(
+    "metric-employee-growth",
+    Number.isFinite(employeeMetrics.projectedGrowthPercent)
+      ? `Forecast ${formatWholePercent(employeeMetrics.projectedGrowthPercent)}`
+      : "Recent movement",
+    employeeMetrics.growthCount > 0 ? "positive" : employeeMetrics.growthCount < 0 ? "warning" : "neutral"
   );
 
-  const dataHealth = metrics.data_health || {};
   setMetric(
-    "metric-data-health",
-    formatPercent(Number(dataHealth.value_percent || 0)),
-    dataHealth.subtitle || "Pipeline diagnostics"
+    "metric-unusual-expenses",
+    unusualExpenseCount.toLocaleString(),
+    unusualExpenseCount
+      ? `${unusualExpenseCount} transaction${unusualExpenseCount === 1 ? "" : "s"} need review.`
+      : "No unusual transactions are standing out right now."
+  );
+  setMetricTrend(
+    "metric-unusual-expenses",
+    unusualExpenseCount ? "Needs review" : "Normal range",
+    unusualExpenseCount ? "warning" : "positive"
   );
 
-  renderRevenueExpenseBars(charts.revenue_expenses || []);
+  setMetric(
+    "metric-largest-category",
+    largestCategory ? largestCategory.label : "--",
+    largestCategory
+      ? `${formatCurrency(largestCategory.value)} in recent tracked spend.`
+      : "Category labels will appear when transaction tags are available."
+  );
+  setMetricTrend(
+    "metric-largest-category",
+    largestCategory ? `${((largestCategory.value / (financeAnalytics.expenses.reduce((sum, row) => sum + row.amount, 0) || 1)) * 100).toFixed(1)}% share` : "Waiting for tags",
+    largestCategory ? "neutral" : "muted"
+  );
+
+  if (employeeGrowthSummary) {
+    employeeGrowthSummary.textContent = employeeMetrics.growthCount > 0
+      ? `${employeeMetrics.growthCount} more employees than the prior reported point.`
+      : employeeMetrics.growthCount < 0
+        ? `${Math.abs(employeeMetrics.growthCount)} fewer employees than the prior reported point.`
+        : "Headcount has remained steady across the latest reported points.";
+  }
+
+  if (departmentSummary) {
+    departmentSummary.textContent = largestDepartment
+      ? `${largestDepartment.label} accounts for the largest share of current headcount.`
+      : "Department mix will appear once employee records are available.";
+  }
+
   renderEmployeeGrowth(charts.employee_growth || []);
   renderDepartmentDistribution(charts.department_distribution || []);
-  renderWeeklyActivity(charts.weekly_activity || []);
+  renderBreakdownList("category-breakdown", financeAnalytics.categoryBreakdown, "Category tags are not available yet in the recent finance rows.");
+  renderBreakdownList("vendor-breakdown", financeAnalytics.vendorBreakdown, "Vendor names are not available yet in the recent finance rows.");
+  renderRecurringBreakdown(financeAnalytics.recurringSpend, financeAnalytics.oneOffSpend);
+  renderBreakdownList("department-spend-breakdown", financeAnalytics.departmentBreakdown, "No department tags were found in the tracked spend yet.");
+  renderKeyInsights(insights);
+  renderAlerts(financeAnalytics.unusualExpenses);
 }
 
 function renderRevenueForecast(items) {
@@ -914,6 +1457,13 @@ async function refreshForecasts(getAuthToken) {
 
 export function initInsightsData({ getAuthToken = () => "" } = {}) {
   const queryButton = document.getElementById("query-run-btn");
+  const handleFinanceRowsUpdated = (event) => {
+    latestFinanceRowsState = event?.detail || latestFinanceRowsState;
+    if (latestDashboardPayload) {
+      renderDashboard(latestDashboardPayload);
+    }
+  };
+
   if (queryButton) {
     queryButton.addEventListener("click", () => {
       runQuery(getAuthToken);
@@ -932,6 +1482,11 @@ export function initInsightsData({ getAuthToken = () => "" } = {}) {
     await Promise.allSettled([refreshDashboard(getAuthToken), refreshForecasts(getAuthToken)]);
   };
 
+  if (window.__smartstreamFinanceRowsState) {
+    latestFinanceRowsState = window.__smartstreamFinanceRowsState;
+  }
+  window.addEventListener("smartstream:finance-rows-updated", handleFinanceRowsUpdated);
+
   refreshAll();
   const timer = window.setInterval(refreshAll, 20000);
 
@@ -940,5 +1495,6 @@ export function initInsightsData({ getAuthToken = () => "" } = {}) {
 
   return () => {
     window.clearInterval(timer);
+    window.removeEventListener("smartstream:finance-rows-updated", handleFinanceRowsUpdated);
   };
 }

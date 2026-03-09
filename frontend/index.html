@@ -8,7 +8,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Interactive Analytics Dashboard</title>
+    <title>SmartStream Business Dashboard</title>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
@@ -24,13 +24,13 @@
           <span class="brand-mark">AI</span>
           <div>
             <p class="brand-eyebrow">SmartStream Platform</p>
-            <h1>Interactive Analytics Dashboard</h1>
+            <h1>Business Spending Dashboard</h1>
           </div>
         </div>
 
         <form id="login-form" class="login-card" novalidate>
           <h2 id="auth-title">Sign in</h2>
-          <p id="auth-subtitle">Access employee and financial analytics in one workspace.</p>
+            <p id="auth-subtitle">Access clear spending and workforce insights in one workspace.</p>
 
           <div id="signup-name-group" class="signup-only is-hidden">
             <label for="display-name">Display name</label>
@@ -55,16 +55,16 @@
         <div class="sidebar-head">
           <span class="brand-mark">AI</span>
           <div>
-            <h2>Analytics</h2>
-            <p>Company Insights</p>
+            <h2>SmartStream</h2>
+            <p>Business Insights</p>
           </div>
         </div>
 
         <nav class="sidebar-nav">
-          <button class="nav-link is-active" data-page-target="dashboard">Dashboard</button>
-          <button class="nav-link" data-page-target="create-graph">Create Graphs</button>
-          <button class="nav-link" data-page-target="query">Query Data</button>
-          <button class="nav-link" data-page-target="anomalies">Anomalies</button>
+          <button class="nav-link is-active" data-page-target="dashboard">Overview</button>
+          <button class="nav-link" data-page-target="create-graph">Custom Charts</button>
+          <button class="nav-link" data-page-target="query">Explore Data</button>
+          <button class="nav-link" data-page-target="anomalies">Alerts</button>
           <button class="nav-link" data-page-target="forecasts">Forecasts</button>
         </nav>
 
@@ -75,63 +75,182 @@
         <header class="topbar">
           <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle menu">Menu</button>
           <div>
-            <h1 id="page-title">Dashboard Overview</h1>
-            <p id="page-subtitle">Real-time analytics and insights for your organization</p>
+            <h1 id="page-title">Spending Overview</h1>
+            <p id="page-subtitle">A plain-English view of company spend, hiring, and team mix</p>
           </div>
-          <div id="live-status-pill" class="status-pill">Live Data: idle</div>
+          <div id="live-status-pill" class="status-pill">Updating dashboard...</div>
         </header>
 
         <main class="page-shell">
           <section class="page page-active" data-page="dashboard">
-            <div class="metrics-grid">
-              <article class="metric-card metric-blue">
-                <h3>Total Employees</h3>
-                <strong id="metric-total-employees-value">--</strong>
-                <p id="metric-total-employees-subtitle">Loading from trusted data...</p>
+            <div class="dashboard-intro">
+              <div>
+                <p class="section-kicker">Executive overview</p>
+                <h2>Keep spending visible while your team grows</h2>
+                <p id="dashboard-summary" class="dashboard-summary">
+                  Loading the latest company spend and workforce picture.
+                </p>
+              </div>
+              <div class="dashboard-meta-grid">
+                <article class="mini-panel">
+                  <span class="mini-panel-label">Latest Data Sync</span>
+                  <strong id="dashboard-last-updated">Checking for new data...</strong>
+                  <p id="dashboard-last-updated-subtitle">Waiting for the first refresh.</p>
+                </article>
+                <article class="mini-panel">
+                  <span class="mini-panel-label">Data Confidence</span>
+                  <strong id="dashboard-confidence-value">--</strong>
+                  <p id="dashboard-confidence-subtitle">Looking at source quality and refresh coverage.</p>
+                </article>
+              </div>
+            </div>
+
+            <div class="metrics-grid executive-metrics">
+              <article class="metric-card metric-card-business">
+                <div class="metric-card-top">
+                  <h3>Total Spend This Month</h3>
+                  <span id="metric-total-spend-trend" class="metric-trend">Loading</span>
+                </div>
+                <strong id="metric-total-spend-value" class="skeleton skeleton-value"> </strong>
+                <p id="metric-total-spend-subtitle" class="skeleton skeleton-line"> </p>
               </article>
-              <article class="metric-card metric-violet">
-                <h3>Revenue</h3>
-                <strong id="metric-revenue-value">--</strong>
-                <p id="metric-revenue-subtitle">Loading from trusted data...</p>
+              <article class="metric-card metric-card-business">
+                <div class="metric-card-top">
+                  <h3>Spend vs Last Month</h3>
+                  <span id="metric-spend-change-trend" class="metric-trend">Loading</span>
+                </div>
+                <strong id="metric-spend-change-value" class="skeleton skeleton-value"> </strong>
+                <p id="metric-spend-change-subtitle" class="skeleton skeleton-line"> </p>
               </article>
-              <article class="metric-card metric-rose">
-                <h3>Growth Rate</h3>
-                <strong id="metric-growth-rate-value">--</strong>
-                <p id="metric-growth-rate-subtitle">Loading forecast trend...</p>
+              <article class="metric-card metric-card-business">
+                <div class="metric-card-top">
+                  <h3>Total Employees</h3>
+                  <span id="metric-total-employees-trend" class="metric-trend">Loading</span>
+                </div>
+                <strong id="metric-total-employees-value" class="skeleton skeleton-value"> </strong>
+                <p id="metric-total-employees-subtitle" class="skeleton skeleton-line"> </p>
               </article>
-              <article class="metric-card metric-teal">
-                <h3>Data Health</h3>
-                <strong id="metric-data-health-value">--</strong>
-                <p id="metric-data-health-subtitle">Loading pipeline diagnostics...</p>
+              <article class="metric-card metric-card-business">
+                <div class="metric-card-top">
+                  <h3>Employee Growth</h3>
+                  <span id="metric-employee-growth-trend" class="metric-trend">Loading</span>
+                </div>
+                <strong id="metric-employee-growth-value" class="skeleton skeleton-value"> </strong>
+                <p id="metric-employee-growth-subtitle" class="skeleton skeleton-line"> </p>
+              </article>
+              <article class="metric-card metric-card-business">
+                <div class="metric-card-top">
+                  <h3>Unusual Expenses</h3>
+                  <span id="metric-unusual-expenses-trend" class="metric-trend">Loading</span>
+                </div>
+                <strong id="metric-unusual-expenses-value" class="skeleton skeleton-value"> </strong>
+                <p id="metric-unusual-expenses-subtitle" class="skeleton skeleton-line"> </p>
+              </article>
+              <article class="metric-card metric-card-business">
+                <div class="metric-card-top">
+                  <h3>Largest Cost Category</h3>
+                  <span id="metric-largest-category-trend" class="metric-trend">Loading</span>
+                </div>
+                <strong id="metric-largest-category-value" class="skeleton skeleton-value"> </strong>
+                <p id="metric-largest-category-subtitle" class="skeleton skeleton-line"> </p>
               </article>
             </div>
 
-            <article class="panel live-feed-panel">
-              <header>
-                <h3>Latest Trusted Events</h3>
-                <p id="live-feed-meta">Waiting for live data feed...</p>
-              </header>
-              <div id="live-feed-chart" class="live-feed-chart" role="img" aria-label="Live finance chart">
-                <p class="live-chart-empty">No events loaded yet.</p>
-              </div>
-            </article>
+            <div class="dashboard-main-grid">
+              <article class="panel live-feed-panel spend-trend-panel">
+                <header class="panel-header-inline">
+                  <div>
+                    <h3>Daily Spend Trend</h3>
+                    <p id="live-feed-meta">Tracking day-by-day company spending.</p>
+                  </div>
+                  <div id="dashboard-spend-filters" class="segmented-control" role="group" aria-label="Spend trend range">
+                    <button class="segmented-btn" type="button" data-range-days="7">7D</button>
+                    <button class="segmented-btn is-active" type="button" data-range-days="30">30D</button>
+                    <button class="segmented-btn" type="button" data-range-days="90">90D</button>
+                  </div>
+                </header>
+                <div id="live-feed-chart" class="live-feed-chart" role="img" aria-label="Daily spend trend chart">
+                  <p class="live-chart-empty">Loading recent spend history.</p>
+                </div>
+              </article>
 
-            <div class="panel-grid two-up">
+              <article class="panel insights-panel">
+                <header>
+                  <h3>Key Insights</h3>
+                  <p>Short plain-English takeaways for business owners.</p>
+                </header>
+                <div id="key-insights-list" class="insight-list">
+                  <article class="insight-item skeleton-block"></article>
+                  <article class="insight-item skeleton-block"></article>
+                  <article class="insight-item skeleton-block"></article>
+                </div>
+
+                <div class="panel-divider"></div>
+
+                <header class="panel-subheader">
+                  <h3>What Needs Attention</h3>
+                  <p>Large payments and cost spikes worth a second look.</p>
+                </header>
+                <div id="alerts-list" class="alert-list">
+                  <article class="alert-item skeleton-block"></article>
+                  <article class="alert-item skeleton-block"></article>
+                </div>
+              </article>
+            </div>
+
+            <div class="dashboard-section-head">
+              <div>
+                <p class="section-kicker">Expense insights</p>
+                <h2>Where money is going</h2>
+                <p>Focus on the categories, merchants, and repeat spend driving this month.</p>
+              </div>
+            </div>
+
+            <div class="panel-grid three-up dashboard-detail-grid">
               <article class="panel chart-panel">
                 <header>
-                  <h3>Revenue vs Expenses</h3>
-                  <p>Monthly financial overview</p>
+                  <h3>Spend by Category</h3>
+                  <p>Which cost areas are taking the biggest share.</p>
                 </header>
-                <div id="revenue-expense-bars" class="bar-compare">
-                  <div class="month-row"><span>--</span><div class="track"><i style="--v:0"></i></div><div class="track alt"><i style="--v:0"></i></div></div>
+                <div id="category-breakdown" class="breakdown-list">
+                  <div class="breakdown-empty">Loading category mix...</div>
                 </div>
-                <div class="chart-legend"><span><i class="dot rev"></i>Revenue</span><span><i class="dot exp"></i>Expenses</span></div>
               </article>
 
               <article class="panel chart-panel">
                 <header>
+                  <h3>Top Vendors</h3>
+                  <p>Who received the most company spend recently.</p>
+                </header>
+                <div id="vendor-breakdown" class="breakdown-list">
+                  <div class="breakdown-empty">Loading vendor mix...</div>
+                </div>
+              </article>
+
+              <article class="panel chart-panel">
+                <header>
+                  <h3>Recurring vs One-Off</h3>
+                  <p>Separate regular spend from isolated purchases.</p>
+                </header>
+                <div id="recurring-breakdown" class="split-summary">
+                  <div class="breakdown-empty">Loading repeat-spend summary...</div>
+                </div>
+              </article>
+            </div>
+
+            <div class="dashboard-section-head">
+              <div>
+                <p class="section-kicker">Workforce context</p>
+                <h2>How team growth connects to spend</h2>
+                <p>Keep headcount movement and department mix visible beside your cost story.</p>
+              </div>
+            </div>
+
+            <div class="panel-grid three-up dashboard-detail-grid">
+              <article class="panel chart-panel">
+                <header>
                   <h3>Employee Growth</h3>
-                  <p>Total headcount over time</p>
+                  <p id="employee-growth-summary">Headcount trend over time.</p>
                 </header>
                 <div id="employee-growth-chart" class="line-chart-wrap">
                   <svg viewBox="0 0 520 220" preserveAspectRatio="none" aria-label="Employee growth line chart">
@@ -145,7 +264,7 @@
               <article class="panel chart-panel">
                 <header>
                   <h3>Department Distribution</h3>
-                  <p>Employees by department</p>
+                  <p id="department-summary">See which teams hold the most people today.</p>
                 </header>
                 <div class="donut-wrap">
                   <div id="department-donut" class="donut" aria-hidden="true"></div>
@@ -157,11 +276,11 @@
 
               <article class="panel chart-panel">
                 <header>
-                  <h3>Daily Activity</h3>
-                  <p>Recent transaction volume from trusted finance data</p>
+                  <h3>Spend by Department</h3>
+                  <p>Compare team cost levels where department tags are available.</p>
                 </header>
-                <div id="weekly-activity-bars" class="vertical-bars">
-                  <div><i style="--h:0"></i><span>--</span></div>
+                <div id="department-spend-breakdown" class="breakdown-list">
+                  <div class="breakdown-empty">Waiting for department-tagged spend.</div>
                 </div>
               </article>
             </div>

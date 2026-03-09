@@ -1,16 +1,16 @@
 /**
  * File purpose:
- * Polls the backend latest-events endpoint, normalizes incoming finance records,
- * and renders the live feed chart plus related status/meta display elements.
+ * Queries recent finance rows from the backend and renders a business-friendly
+ * spend trend chart plus related status and metadata in the dashboard UI.
  */
 const DEFAULT_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const DEFAULT_POLL_INTERVAL_MS = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 3000);
-const MAX_CHART_POINTS = 24;
-const MIN_CHART_WIDTH = 640;
+const DEFAULT_POLL_INTERVAL_MS = 60000;
+const MAX_QUERY_ROWS = 1000;
+const FINANCE_PATH_FILTER = "trusted/finance/transactions/";
+const MIN_CHART_WIDTH = 680;
 const MAX_CHART_WIDTH = 1180;
-const MIN_CHART_HEIGHT = 220;
+const MIN_CHART_HEIGHT = 250;
 const MAX_CHART_HEIGHT = 320;
-const AMOUNT_FIELDS = ["amount", "transaction_amount", "value", "total", "net_amount"];
 const DATE_FIELDS = [
   "transaction_date",
   "event_time",
@@ -21,12 +21,47 @@ const DATE_FIELDS = [
   "created_at",
   "updated_at"
 ];
+const AMOUNT_FIELDS = ["amount", "transaction_amount", "value", "total", "net_amount"];
+const CATEGORY_FIELDS = ["category", "transaction_type", "type", "entry_type"];
+const VENDOR_FIELDS = ["merchant", "merchant_name", "vendor", "vendor_name", "supplier", "payee", "counterparty", "description"];
+const DEPARTMENT_FIELDS = ["department", "dept", "team", "division"];
+const REVENUE_HINTS = ["revenue", "income", "credit", "sale", "sales", "deposit", "inflow", "received"];
+const EXPENDITURE_HINTS = ["expense", "expenditure", "debit", "cost", "purchase", "withdrawal", "outflow", "payment"];
+const WINDOW_OPTIONS = [7, 30, 90];
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
-  maximumFractionDigits: 2
+  maximumFractionDigits: 0
 });
+
+let financeColumnsCache = null;
+
+function buildAuthHeaders(getAuthToken) {
+  const token = typeof getAuthToken === "function" ? String(getAuthToken() || "").trim() : "";
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function postJSON(path, body, getAuthToken) {
+  const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...buildAuthHeaders(getAuthToken)
+    },
+    body: JSON.stringify(body)
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || `HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+function quoteIdentifier(value) {
+  return `"${String(value || "").replace(/"/g, "\"\"")}"`;
+}
 
 function parseNumeric(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -38,32 +73,8 @@ function parseNumeric(value) {
     if (!cleaned) {
       return null;
     }
-
     const parsed = Number(cleaned);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return null;
-}
-
-function extractAmount(item) {
-  if (!item || typeof item !== "object") {
-    return null;
-  }
-
-  for (const field of AMOUNT_FIELDS) {
-    const parsed = parseNumeric(item[field]);
-    if (parsed !== null) {
-      return parsed;
-    }
-  }
-
-  const credit = parseNumeric(item.credit);
-  const debit = parseNumeric(item.debit);
-  if (credit !== null || debit !== null) {
-    return (credit || 0) - (debit || 0);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   return null;
@@ -100,24 +111,134 @@ function parseDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function extractTimestamp(item) {
-  if (item && typeof item === "object") {
-    for (const field of DATE_FIELDS) {
-      const parsed = parseDate(item[field]);
-      if (parsed) {
-        return parsed;
-      }
+function extractField(record, fields, fallback = "") {
+  for (const field of fields) {
+    const value = record?.[field];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
     }
+  }
+  return fallback;
+}
+
+function extractDate(record) {
+  for (const field of DATE_FIELDS) {
+    const parsed = parseDate(record?.[field]);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function extractAmount(record) {
+  for (const field of AMOUNT_FIELDS) {
+    const parsed = parseNumeric(record?.[field]);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  const credit = parseNumeric(record?.credit);
+  const debit = parseNumeric(record?.debit);
+  if (credit !== null || debit !== null) {
+    return (credit || 0) - (debit || 0);
   }
 
   return null;
 }
 
-function formatDateLabel(value) {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
-    return "--";
+function classifyFinanceFlow(record, amount) {
+  const hintText = [
+    record?.transaction_type,
+    record?.type,
+    record?.category,
+    record?.entry_type,
+    record?.direction
+  ]
+    .filter((value) => value !== undefined && value !== null)
+    .join(" ")
+    .toLowerCase();
+
+  if (REVENUE_HINTS.some((token) => hintText.includes(token))) {
+    return "revenue";
   }
-  return value.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (EXPENDITURE_HINTS.some((token) => hintText.includes(token))) {
+    return "expenditure";
+  }
+  return amount >= 0 ? "revenue" : "expenditure";
+}
+
+function normalizeFinanceRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((record) => {
+      const signedAmount = extractAmount(record);
+      const date = extractDate(record);
+      if (!Number.isFinite(signedAmount)) {
+        return null;
+      }
+
+      return {
+        raw: record,
+        date,
+        dayKey: date ? date.toISOString().slice(0, 10) : "",
+        signedAmount,
+        amount: Math.abs(signedAmount),
+        flow: classifyFinanceFlow(record, signedAmount),
+        category: extractField(record, CATEGORY_FIELDS, "Other"),
+        vendor: extractField(record, VENDOR_FIELDS, "Unlabelled vendor"),
+        department: extractField(record, DEPARTMENT_FIELDS, "")
+      };
+    })
+    .filter(Boolean);
+}
+
+function discoverFinanceColumns(columns) {
+  const available = new Set(columns || []);
+  return {
+    dateField: DATE_FIELDS.find((field) => available.has(field)) || "",
+    amountFields: ["credit", "debit", ...AMOUNT_FIELDS].filter((field) => available.has(field)),
+    categoryField: CATEGORY_FIELDS.find((field) => available.has(field)) || "",
+    vendorField: VENDOR_FIELDS.find((field) => available.has(field)) || "",
+    departmentField: DEPARTMENT_FIELDS.find((field) => available.has(field)) || ""
+  };
+}
+
+function buildFinanceRowsQuery(columns, limit = MAX_QUERY_ROWS) {
+  const { dateField, amountFields, categoryField, vendorField, departmentField } = discoverFinanceColumns(columns);
+  const projection = Array.from(
+    new Set(
+      [dateField, ...amountFields, categoryField, vendorField, departmentField]
+        .filter(Boolean)
+        .map((field) => quoteIdentifier(field))
+    )
+  );
+
+  const selectedColumns = projection.length ? projection.join(", ") : "*";
+  const orderClause = dateField ? ` ORDER BY ${quoteIdentifier(dateField)} DESC` : "";
+
+  return `SELECT ${selectedColumns} FROM trusted WHERE "$path" LIKE '%/${FINANCE_PATH_FILTER}%'${orderClause} LIMIT ${limit}`;
+}
+
+async function fetchFinanceRows(getAuthToken) {
+  if (!financeColumnsCache) {
+    const discovery = await postJSON("/query", {
+      query: `SELECT * FROM trusted WHERE "$path" LIKE '%/${FINANCE_PATH_FILTER}%' LIMIT 1`,
+      limit: 1
+    }, getAuthToken);
+    financeColumnsCache = Array.isArray(discovery?.columns) ? discovery.columns : [];
+  }
+
+  const payload = await postJSON("/query", {
+    query: buildFinanceRowsQuery(financeColumnsCache, MAX_QUERY_ROWS),
+    limit: MAX_QUERY_ROWS
+  }, getAuthToken);
+
+  return {
+    columns: financeColumnsCache,
+    rows: Array.isArray(payload?.rows) ? payload.rows : [],
+    rowCount: Number(payload?.row_count || 0)
+  };
 }
 
 function formatCurrency(value) {
@@ -127,56 +248,43 @@ function formatCurrency(value) {
   return currencyFormatter.format(value);
 }
 
-function formatSignedCurrency(value) {
-  const sign = value >= 0 ? "+" : "-";
-  return `${sign}${formatCurrency(Math.abs(value))}`;
+function formatPercent(value) {
+  if (!Number.isFinite(value)) {
+    return "n/a";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${Math.abs(value).toFixed(1)}%`;
 }
 
-function buildAuthHeaders(getAuthToken) {
-  const token = typeof getAuthToken === "function" ? String(getAuthToken() || "").trim() : "";
-  return token ? { Authorization: `Bearer ${token}` } : {};
+function formatDateLabel(value, windowDays) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return "--";
+  }
+  if (windowDays <= 7) {
+    return value.toLocaleDateString(undefined, { weekday: "short" });
+  }
+  return value.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function buildSeries(items) {
-  if (!Array.isArray(items)) {
-    return [];
+function formatBusinessDateTime(value) {
+  const date = parseDate(value);
+  if (!date) {
+    return "Waiting for the latest refresh";
   }
-
-  const points = items
-    .map((item, index) => {
-      const value = extractAmount(item);
-      if (!Number.isFinite(value)) {
-        return null;
-      }
-
-      const timestamp = extractTimestamp(item);
-      return {
-        timestamp,
-        timestampMs: timestamp ? timestamp.getTime() : Number.NaN,
-        value,
-        inputOrder: index
-      };
-    })
-    .filter(Boolean);
-
-  if (!points.length) {
-    return [];
-  }
-
-  const timestampedPoints = points.filter((point) => Number.isFinite(point.timestampMs));
-  const sortablePoints = timestampedPoints.length ? timestampedPoints : points;
-  sortablePoints.sort((left, right) => {
-    if (Number.isFinite(left.timestampMs) && Number.isFinite(right.timestampMs)) {
-      return left.timestampMs - right.timestampMs;
-    }
-    return left.inputOrder - right.inputOrder;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
   });
+}
 
-  return sortablePoints.slice(-MAX_CHART_POINTS).map((point, index) => ({
-    timestamp: point.timestamp,
-    value: point.value,
-    label: point.timestamp ? formatDateLabel(point.timestamp) : `#${index + 1}`
-  }));
+function getChartDimensions(chartElement) {
+  const containerWidth = Math.round(chartElement.getBoundingClientRect().width);
+  const usableWidth = Math.max(0, containerWidth - 24);
+  const width = Math.min(MAX_CHART_WIDTH, Math.max(MIN_CHART_WIDTH, usableWidth || MIN_CHART_WIDTH));
+  const height = Math.max(MIN_CHART_HEIGHT, Math.min(MAX_CHART_HEIGHT, Math.round(width * 0.29)));
+  return { width, height };
 }
 
 function buildSmoothPath(points) {
@@ -218,20 +326,101 @@ function buildAreaPath(points, baselineY, linePath) {
   return `${linePath} L ${last.x.toFixed(1)} ${baselineY.toFixed(1)} L ${first.x.toFixed(1)} ${baselineY.toFixed(1)} Z`;
 }
 
-function pickAxisLabels(series, slots = 6) {
-  if (!Array.isArray(series) || series.length === 0) {
-    return Array.from({ length: slots }, () => "--");
+function uniqueTickIndices(length, slots = 5) {
+  if (length <= 0) {
+    return [];
   }
 
-  if (series.length === 1) {
-    return Array.from({ length: slots }, () => series[0].label || "--");
-  }
-
-  return Array.from({ length: slots }, (_, index) => {
-    const ratio = index / (slots - 1);
-    const pointIndex = Math.round(ratio * (series.length - 1));
-    return series[pointIndex]?.label || "--";
+  const indices = Array.from({ length: Math.min(slots, length) }, (_, index) => {
+    if (length === 1) {
+      return 0;
+    }
+    return Math.round((index / (Math.min(slots, length) - 1 || 1)) * (length - 1));
   });
+
+  return Array.from(new Set(indices)).sort((left, right) => left - right);
+}
+
+function buildDailySpendSeries(rows) {
+  const expenseRows = rows
+    .filter((row) => row.flow === "expenditure" && row.date)
+    .sort((left, right) => left.date - right.date);
+
+  if (!expenseRows.length) {
+    return [];
+  }
+
+  const latestDate = expenseRows[expenseRows.length - 1].date;
+  const startDate = new Date(latestDate);
+  startDate.setDate(startDate.getDate() - 89);
+
+  const totals = new Map();
+  expenseRows.forEach((row) => {
+    if (row.date < startDate) {
+      return;
+    }
+    const key = row.dayKey;
+    totals.set(key, (totals.get(key) || 0) + row.amount);
+  });
+
+  const points = [];
+  for (let offset = 0; offset < 90; offset += 1) {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + offset);
+    const key = date.toISOString().slice(0, 10);
+    points.push({
+      date,
+      dayKey: key,
+      label: formatDateLabel(date, 90),
+      value: Number((totals.get(key) || 0).toFixed(2))
+    });
+  }
+
+  return points;
+}
+
+function buildChartModel(rows, windowDays) {
+  const normalizedRows = normalizeFinanceRows(rows);
+  const fullSeries = buildDailySpendSeries(normalizedRows);
+  const series = fullSeries.slice(-windowDays);
+
+  if (!series.length) {
+    return {
+      series: [],
+      currentTotal: 0,
+      previousTotal: 0,
+      average: 0,
+      peak: 0,
+      anomalies: [],
+      latestDate: null,
+      transactionCount: normalizedRows.filter((row) => row.flow === "expenditure").length
+    };
+  }
+
+  const values = series.map((point) => point.value);
+  const currentTotal = values.reduce((sum, value) => sum + value, 0);
+  const average = currentTotal / series.length;
+  const peak = Math.max(0, ...values);
+  const previousSeries = fullSeries.slice(-(windowDays * 2), -windowDays);
+  const previousTotal = previousSeries.reduce((sum, point) => sum + point.value, 0);
+  const latestDate = series[series.length - 1].date;
+
+  const mean = average;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(values.length, 1);
+  const deviation = Math.sqrt(variance);
+  const anomalyThreshold = mean + deviation * 1.6;
+  const anomalies = series.filter((point) => point.value > anomalyThreshold && point.value > mean * 1.25);
+
+  return {
+    series,
+    currentTotal,
+    previousTotal,
+    average,
+    peak,
+    anomalies,
+    latestDate,
+    transactionCount: normalizedRows.filter((row) => row.flow === "expenditure").length
+  };
 }
 
 function renderEmptyChart(chartElement, message) {
@@ -242,178 +431,215 @@ function renderEmptyChart(chartElement, message) {
   chartElement.append(empty);
 }
 
-function getChartDimensions(chartElement) {
-  const containerWidth = Math.round(chartElement.getBoundingClientRect().width);
-  const usableWidth = Math.max(0, containerWidth - 32);
-  const width = Math.min(MAX_CHART_WIDTH, Math.max(MIN_CHART_WIDTH, usableWidth || MIN_CHART_WIDTH));
-  const height = Math.max(MIN_CHART_HEIGHT, Math.min(MAX_CHART_HEIGHT, Math.round(width * 0.27)));
-  return { width, height };
-}
-
-function renderChart(chartElement, items) {
-  const series = buildSeries(items);
-  if (!series.length) {
-    renderEmptyChart(chartElement, "No numeric finance values found in latest object.");
+function renderChart(chartElement, model, windowDays) {
+  if (!model.series.length) {
+    renderEmptyChart(chartElement, "No spend history was available for this period.");
     return;
   }
 
   const { width, height } = getChartDimensions(chartElement);
-  const paddingX = Math.max(20, Math.round(width * 0.04));
-  const paddingY = Math.max(16, Math.round(height * 0.08));
+  const paddingX = Math.max(22, Math.round(width * 0.04));
+  const paddingY = Math.max(18, Math.round(height * 0.12));
+  const values = model.series.map((point) => point.value);
+  const maxValue = Math.max(1, ...values);
+  const minValue = 0;
+  const range = Math.max(1, maxValue - minValue);
+  const baselineY = height - paddingY;
 
-  const values = series.map((point) => point.value);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const spread = maxValue - minValue;
-  const domainPadding = spread > 0 ? spread * 0.2 : Math.max(Math.abs(maxValue) * 0.15, 1);
-  const domainMin = minValue - domainPadding;
-  const domainMax = maxValue + domainPadding;
-  const range = Math.max(1, domainMax - domainMin);
-  const baselineValue = domainMin > 0 ? domainMin : domainMax < 0 ? domainMax : 0;
-  const baselineY =
-    paddingY + ((domainMax - baselineValue) / range) * (height - paddingY * 2);
-
-  const points = series.map((point, index) => {
+  const points = model.series.map((point, index) => {
     const x =
-      series.length === 1
+      model.series.length === 1
         ? width / 2
-        : paddingX + (index / (series.length - 1)) * (width - paddingX * 2);
-    const y = paddingY + ((domainMax - point.value) / range) * (height - paddingY * 2);
+        : paddingX + (index / (model.series.length - 1)) * (width - paddingX * 2);
+    const y = paddingY + ((maxValue - point.value) / range) * (height - paddingY * 2);
     return { ...point, x, y };
   });
 
   const linePath = buildSmoothPath(points);
   const areaPath = buildAreaPath(points, baselineY, linePath);
-  const labels = pickAxisLabels(series);
-  const gridLines = [0.2, 0.4, 0.6, 0.8]
+  const gridValues = [0, 0.33, 0.66, 1];
+  const gridLines = gridValues
     .map((position) => {
       const y = (paddingY + (height - paddingY * 2) * position).toFixed(1);
-      return `<line class="line-grid-line" x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}"></line>`;
+      return `<line class="live-chart-grid-line" x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}"></line>`;
     })
     .join("");
 
   const pointDots = points
-    .map((point) => `<circle class="line-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.8"></circle>`)
+    .map((point) => {
+      const tooltip = `${formatDateLabel(point.date, windowDays)}: ${formatCurrency(point.value)}`;
+      return `
+        <circle class="live-chart-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.6">
+          <title>${tooltip}</title>
+        </circle>
+      `;
+    })
     .join("");
 
-  const latest = series[series.length - 1].value;
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const delta = values.length > 1 ? series[series.length - 1].value - series[0].value : 0;
+  const anomalyDots = model.anomalies
+    .map((anomaly) => {
+      const point = points.find((candidate) => candidate.dayKey === anomaly.dayKey);
+      if (!point) {
+        return "";
+      }
+      return `
+        <circle class="live-chart-anomaly" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="6.4">
+          <title>Unusual spend: ${formatDateLabel(point.date, windowDays)} ${formatCurrency(point.value)}</title>
+        </circle>
+      `;
+    })
+    .join("");
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "live-chart-wrap";
-  wrapper.innerHTML = `
-    <div class="live-chart-stats">
-      <div class="live-chart-stat">
-        <span class="label">Latest</span>
-        <strong class="value live-stat-latest"></strong>
+  const deltaPercent = model.previousTotal > 0
+    ? ((model.currentTotal - model.previousTotal) / model.previousTotal) * 100
+    : null;
+
+  const tickIndices = uniqueTickIndices(points.length, 5);
+  const axisMarkup = tickIndices
+    .map((index) => `<span>${formatDateLabel(points[index].date, windowDays)}</span>`)
+    .join("");
+
+  chartElement.innerHTML = `
+    <div class="live-chart-wrap">
+      <div class="live-chart-stats">
+        <div class="live-chart-stat">
+          <span class="label">Total Spend</span>
+          <strong class="value">${formatCurrency(model.currentTotal)}</strong>
+        </div>
+        <div class="live-chart-stat">
+          <span class="label">Daily Average</span>
+          <strong class="value">${formatCurrency(model.average)}</strong>
+        </div>
+        <div class="live-chart-stat ${deltaPercent > 0 ? "live-stat-delta-wrap is-up" : deltaPercent < 0 ? "live-stat-delta-wrap is-down" : ""}">
+          <span class="label">Vs Prior Period</span>
+          <strong class="value">${deltaPercent === null ? "n/a" : formatPercent(deltaPercent)}</strong>
+        </div>
+        <div class="live-chart-stat">
+          <span class="label">Highest Day</span>
+          <strong class="value">${formatCurrency(model.peak)}</strong>
+        </div>
       </div>
-      <div class="live-chart-stat">
-        <span class="label">Average</span>
-        <strong class="value live-stat-average"></strong>
-      </div>
-      <div class="live-chart-stat live-stat-delta-wrap">
-        <span class="label">Window Change</span>
-        <strong class="value live-stat-delta"></strong>
-      </div>
-    </div>
-    <div class="line-chart-wrap">
-      <svg viewBox="0 0 ${width} ${height}" aria-label="Latest trusted events line chart" style="height:${height}px">
-        ${gridLines}
-        <path class="line-fill" d="${areaPath}"></path>
-        <path class="line-stroke" d="${linePath}"></path>
-        ${pointDots}
-      </svg>
-      <div class="x-axis">
-        ${labels.map((label) => `<span>${label}</span>`).join("")}
+      <div class="line-chart-wrap live-spend-chart">
+        <svg class="live-chart-svg" viewBox="0 0 ${width} ${height}" aria-label="Daily spend trend chart" style="height:${height}px">
+          ${gridLines}
+          <path class="live-chart-area" d="${areaPath}"></path>
+          <path class="live-chart-line" d="${linePath}"></path>
+          ${pointDots}
+          ${anomalyDots}
+        </svg>
+        <div class="live-chart-axis">${axisMarkup}</div>
+        <div class="live-chart-legend">
+          <span><i class="dot spend"></i>Daily spend</span>
+          <span><i class="dot alert"></i>Unusual spike</span>
+        </div>
       </div>
     </div>
   `;
+}
 
-  wrapper.querySelector(".live-stat-latest").textContent = formatCurrency(latest);
-  wrapper.querySelector(".live-stat-average").textContent = formatCurrency(average);
-
-  const deltaElement = wrapper.querySelector(".live-stat-delta");
-  const deltaWrap = wrapper.querySelector(".live-stat-delta-wrap");
-  deltaElement.textContent = formatSignedCurrency(delta);
-  deltaWrap.classList.toggle("is-up", values.length > 1 && delta > 0);
-  deltaWrap.classList.toggle("is-down", values.length > 1 && delta < 0);
-
-  chartElement.innerHTML = "";
-  chartElement.append(wrapper);
+function publishFinanceState(state) {
+  window.__smartstreamFinanceRowsState = state;
+  window.dispatchEvent(new CustomEvent("smartstream:finance-rows-updated", {
+    detail: state
+  }));
 }
 
 export function startLiveUpdates({
   chartElement,
   metaElement,
   statusElement,
-  limit = 50,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   getAuthToken = () => ""
 }) {
   if (!DEFAULT_API_BASE_URL) {
-    metaElement.textContent = "Missing VITE_API_BASE_URL";
-    statusElement.textContent = "Live Data: config required";
+    metaElement.textContent = "Set VITE_API_BASE_URL to load dashboard data.";
+    statusElement.textContent = "Configuration needed";
     statusElement.classList.add("is-error");
-    renderEmptyChart(chartElement, "Set VITE_API_BASE_URL to load live data.");
+    renderEmptyChart(chartElement, "Set VITE_API_BASE_URL to load spend history.");
     return () => {};
   }
 
   let timer = null;
   let resizeFrame = null;
-  let latestItems = [];
+  let latestRows = [];
+  let selectedWindow = 30;
+  const filterButtons = Array.from(document.querySelectorAll("#dashboard-spend-filters .segmented-btn"));
 
-  const rerenderChart = () => {
+  const updateFilterButtons = () => {
+    filterButtons.forEach((button) => {
+      button.classList.toggle("is-active", Number(button.dataset.rangeDays) === selectedWindow);
+    });
+  };
+
+  const rerender = () => {
     resizeFrame = null;
-    if (latestItems.length) {
-      renderChart(chartElement, latestItems);
-    }
+    const model = buildChartModel(latestRows, selectedWindow);
+    renderChart(chartElement, model, selectedWindow);
   };
 
   const handleResize = () => {
     if (resizeFrame !== null) {
       return;
     }
-
-    resizeFrame = window.requestAnimationFrame(rerenderChart);
+    resizeFrame = window.requestAnimationFrame(rerender);
   };
 
+  const handleFilterClick = (event) => {
+    const button = event.currentTarget;
+    const nextWindow = Number(button.dataset.rangeDays);
+    if (!WINDOW_OPTIONS.includes(nextWindow) || nextWindow === selectedWindow) {
+      return;
+    }
+    selectedWindow = nextWindow;
+    updateFilterButtons();
+    rerender();
+  };
+
+  filterButtons.forEach((button) => {
+    button.addEventListener("click", handleFilterClick);
+  });
+  updateFilterButtons();
   window.addEventListener("resize", handleResize);
 
   const refresh = async () => {
     try {
-      const response = await fetch(`${DEFAULT_API_BASE_URL}/latest?limit=${limit}&_ts=${Date.now()}`, {
-        cache: "no-store",
-        headers: {
-          ...buildAuthHeaders(getAuthToken)
-        }
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      const payload = await fetchFinanceRows(getAuthToken);
+      latestRows = payload.rows;
 
-      const payload = await response.json();
-      latestItems = payload.items || [];
-      renderChart(chartElement, latestItems);
+      const model = buildChartModel(latestRows, selectedWindow);
+      renderChart(chartElement, model, selectedWindow);
 
-      const lastModified = payload.last_modified ? new Date(payload.last_modified).toLocaleString() : "n/a";
-      metaElement.textContent = `Object: ${payload.s3_key || "none"} | Last modified: ${lastModified}`;
-
-      statusElement.textContent = `Live Data: updated ${new Date().toLocaleTimeString()}`;
+      const refreshedAt = new Date().toISOString();
+      const anomalyCount = model.anomalies.length;
+      metaElement.textContent = model.series.length
+        ? `Showing ${selectedWindow} days of spend from ${payload.rowCount || latestRows.length} finance rows${anomalyCount ? ` with ${anomalyCount} highlighted spike${anomalyCount === 1 ? "" : "s"}` : ""}.`
+        : "Finance rows loaded, but no spend history was available for the selected period.";
+      statusElement.textContent = `Updated ${formatBusinessDateTime(refreshedAt)}`;
       statusElement.classList.remove("is-error");
       statusElement.classList.add("is-live");
+
+      publishFinanceState({
+        rows: latestRows,
+        columns: payload.columns,
+        refreshedAt,
+        selectedWindow
+      });
     } catch (error) {
-      statusElement.textContent = `Live Data: error (${error.message})`;
+      statusElement.textContent = `Update failed: ${error.message}`;
       statusElement.classList.remove("is-live");
       statusElement.classList.add("is-error");
-      renderEmptyChart(chartElement, "Live data is temporarily unavailable.");
+      metaElement.textContent = "Spend history is temporarily unavailable.";
+      renderEmptyChart(chartElement, "Recent spend history could not be loaded.");
     }
   };
 
   refresh();
-  timer = window.setInterval(refresh, pollIntervalMs);
+  timer = window.setInterval(refresh, Math.max(30000, pollIntervalMs));
 
   return () => {
+    filterButtons.forEach((button) => {
+      button.removeEventListener("click", handleFilterClick);
+    });
     window.removeEventListener("resize", handleResize);
     if (resizeFrame !== null) {
       window.cancelAnimationFrame(resizeFrame);

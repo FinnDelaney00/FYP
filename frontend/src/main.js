@@ -38,24 +38,24 @@ let stopInsights = null;
 
 const pageMeta = {
   dashboard: {
-    title: "Dashboard Overview",
-    subtitle: "Real-time analytics and insights for your organization"
+    title: "Spending Overview",
+    subtitle: "A plain-English view of company spend, hiring, and team mix"
   },
   "create-graph": {
-    title: "Create Graphs",
-    subtitle: "Build custom visualizations for business metrics"
+    title: "Custom Charts",
+    subtitle: "Build a simple view of the business metric you want to track"
   },
   query: {
-    title: "Query Data",
-    subtitle: "Run ad-hoc SQL style queries on company datasets"
+    title: "Explore Data",
+    subtitle: "Look deeper into the raw company data when you need detail"
   },
   anomalies: {
-    title: "Anomaly Detection",
-    subtitle: "Track unusual patterns and prioritize investigations"
+    title: "Alerts",
+    subtitle: "Review unusual cost patterns and other items that need attention"
   },
   forecasts: {
     title: "Forecasts",
-    subtitle: "Forward-looking revenue and workforce projections"
+    subtitle: "Forward-looking spend and workforce projections"
   }
 };
 
@@ -126,6 +126,7 @@ function startWorkspaceData() {
     chartElement: liveFeedChart,
     metaElement: liveFeedMeta,
     statusElement: liveStatusPill,
+    pollIntervalMs: 60000,
     getAuthToken: getStoredToken
   });
   stopInsights = initInsightsData({
@@ -146,7 +147,7 @@ function setAuthMode(signupMode) {
     displayNameInput.setAttribute("required", "required");
   } else {
     authTitle.textContent = "Sign in";
-    authSubtitle.textContent = "Access employee and financial analytics in one workspace.";
+    authSubtitle.textContent = "Access clear spending and workforce insights in one workspace.";
     authSubmitBtn.textContent = "Sign In";
     authToggleBtn.textContent = "Need an account? Create one";
     displayNameInput.removeAttribute("required");
