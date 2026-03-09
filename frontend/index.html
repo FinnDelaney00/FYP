@@ -428,26 +428,146 @@
           </section>
 
           <section class="page" data-page="forecasts">
-            <div class="panel-grid two-up">
-              <article class="panel">
-                <header>
-                  <h3>Revenue Forecast</h3>
-                  <p id="forecast-generated-at">Waiting for latest ML predictions...</p>
-                </header>
-                <div id="revenue-forecast-list" class="forecast-list">
-                  <div><span>--</span><b>Loading...</b></div>
+            <div class="forecasts-shell">
+              <section class="forecast-page-head panel">
+                <div>
+                  <p class="section-kicker">Forward Planning</p>
+                  <h2>Executive Forecast View</h2>
+                  <p class="dashboard-summary">
+                    Understand where spend and headcount are likely to land next, how reliable that outlook is,
+                    and which business decisions deserve attention now.
+                  </p>
                 </div>
-              </article>
+                <div class="forecast-page-controls">
+                  <div>
+                    <span class="forecast-control-label">Forecast horizon</span>
+                    <div class="segmented-control" id="forecast-horizon-control" aria-label="Forecast horizon">
+                      <button class="segmented-btn is-active" type="button" data-forecast-horizon="7">7D</button>
+                      <button class="segmented-btn" type="button" data-forecast-horizon="30">30D</button>
+                      <button class="segmented-btn" type="button" data-forecast-horizon="90">90D</button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="forecast-control-label">Focus</span>
+                    <div class="segmented-control" id="forecast-focus-control" aria-label="Forecast focus">
+                      <button class="segmented-btn is-active" type="button" data-forecast-focus="all">All</button>
+                      <button class="segmented-btn" type="button" data-forecast-focus="spend">Spend</button>
+                      <button class="segmented-btn" type="button" data-forecast-focus="headcount">Headcount</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
-              <article class="panel">
-                <header>
-                  <h3>Headcount Forecast</h3>
-                  <p>Projected employee growth from ML inference output</p>
+              <section id="forecast-summary-cards" class="panel-grid executive-metrics forecast-summary-grid">
+                <article class="panel metric-card-business skeleton-block"></article>
+                <article class="panel metric-card-business skeleton-block"></article>
+                <article class="panel metric-card-business skeleton-block"></article>
+                <article class="panel metric-card-business skeleton-block"></article>
+                <article class="panel metric-card-business skeleton-block"></article>
+              </section>
+
+              <section class="forecast-main-grid">
+                <article class="panel forecast-chart-panel">
+                  <header class="panel-header-inline">
+                    <div>
+                      <p class="section-kicker">Spend Outlook</p>
+                      <h3>Spend Forecast</h3>
+                      <p id="forecast-generated-at">Waiting for latest forecast refresh...</p>
+                    </div>
+                    <span id="forecast-trust-chip" class="metric-trend" data-tone="muted">Loading confidence</span>
+                  </header>
+                  <div id="forecast-spend-chart" class="forecast-chart-card skeleton-block"></div>
+                  <div class="forecast-chart-footer">
+                    <div class="forecast-legend">
+                      <span><i class="forecast-legend-dot actual"></i>Actual spend</span>
+                      <span><i class="forecast-legend-dot projected"></i>Forecast</span>
+                      <span><i class="forecast-legend-dot range"></i>Confidence range</span>
+                    </div>
+                    <p id="forecast-spend-summary" class="muted-note">Projected company spend based on recent trends.</p>
+                  </div>
+                </article>
+
+                <aside class="panel forecast-side-panel">
+                  <header>
+                    <p class="section-kicker">What To Expect</p>
+                    <h3 id="forecast-highlights-title">Forecast Highlights</h3>
+                    <p>Plain-English takeaways for business planning.</p>
+                  </header>
+                  <div id="forecast-highlights-list" class="forecast-note-list">
+                    <article class="forecast-note-item skeleton-block"></article>
+                    <article class="forecast-note-item skeleton-block"></article>
+                    <article class="forecast-note-item skeleton-block"></article>
+                  </div>
+
+                  <div class="panel-divider"></div>
+
+                  <header class="panel-subheader">
+                    <h3>Confidence & Trust</h3>
+                    <p>Business-friendly context behind the prediction.</p>
+                  </header>
+                  <div id="forecast-trust-list" class="forecast-trust-list">
+                    <div class="forecast-trust-row skeleton-line"></div>
+                    <div class="forecast-trust-row skeleton-line"></div>
+                    <div class="forecast-trust-row skeleton-line"></div>
+                    <div class="forecast-trust-row skeleton-line"></div>
+                  </div>
+                </aside>
+              </section>
+
+              <section class="panel forecast-headcount-panel">
+                <header class="panel-header-inline">
+                  <div>
+                    <p class="section-kicker">Workforce Outlook</p>
+                    <h3>Headcount Forecast</h3>
+                    <p id="forecast-headcount-subtitle">Projected employee growth based on recent workforce trends.</p>
+                  </div>
+                  <span id="forecast-headcount-chip" class="metric-trend" data-tone="muted">Loading</span>
                 </header>
-                <div id="headcount-forecast-bars" class="forecast-bars">
-                  <div><label>Current</label><i style="--w:0"></i><span>--</span></div>
+
+                <div id="forecast-headcount-summary" class="forecast-stat-grid">
+                  <article class="forecast-stat-card skeleton-block"></article>
+                  <article class="forecast-stat-card skeleton-block"></article>
+                  <article class="forecast-stat-card skeleton-block"></article>
+                  <article class="forecast-stat-card skeleton-block"></article>
                 </div>
-              </article>
+
+                <div id="forecast-headcount-chart" class="forecast-chart-card skeleton-block"></div>
+                <div class="forecast-chart-footer">
+                  <div class="forecast-legend">
+                    <span><i class="forecast-legend-dot actual headcount"></i>Current trend</span>
+                    <span><i class="forecast-legend-dot projected headcount"></i>Projected trend</span>
+                  </div>
+                  <p id="forecast-headcount-summary-text" class="muted-note">Expected staffing change over the selected forecast horizon.</p>
+                </div>
+
+                <div id="forecast-department-summary" class="forecast-department-row"></div>
+              </section>
+
+              <section class="panel-grid two-up forecast-bottom-grid">
+                <article class="panel">
+                  <header>
+                    <p class="section-kicker">What Needs Attention</p>
+                    <h3>Potential Risks</h3>
+                    <p>Signals that could push spend or hiring away from plan.</p>
+                  </header>
+                  <div id="forecast-risks-list" class="forecast-note-list">
+                    <article class="forecast-note-item skeleton-block"></article>
+                    <article class="forecast-note-item skeleton-block"></article>
+                  </div>
+                </article>
+
+                <article class="panel">
+                  <header>
+                    <p class="section-kicker">Planning Notes</p>
+                    <h3>Recommended Actions</h3>
+                    <p>Simple next steps for budget and workforce planning.</p>
+                  </header>
+                  <div id="forecast-actions-list" class="forecast-note-list">
+                    <article class="forecast-note-item skeleton-block"></article>
+                    <article class="forecast-note-item skeleton-block"></article>
+                  </div>
+                </article>
+              </section>
             </div>
           </section>
         </main>

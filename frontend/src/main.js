@@ -55,7 +55,7 @@ const pageMeta = {
   },
   forecasts: {
     title: "Forecasts",
-    subtitle: "Forward-looking spend and workforce projections"
+    subtitle: "Business-ready outlook for future spend, hiring, and planning risk"
   }
 };
 
