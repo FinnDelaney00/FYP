@@ -11,6 +11,28 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2
 });
 
+const QUERY_SINGLE_TABLE = "trusted";
+const QUERY_TABLE_OPTIONS = [
+  { value: QUERY_SINGLE_TABLE, label: "trusted (all tables)" },
+  { value: "employees", label: "employees (path: trusted/employees)" },
+  { value: "transactions", label: "transactions (path: trusted/finance/transactions)" },
+  { value: "accounts", label: "accounts (path: trusted/finance/accounts)" }
+];
+const QUERY_TABLE_PATH_FILTERS = {
+  employees: "trusted/employees/",
+  transactions: "trusted/finance/transactions/",
+  accounts: "trusted/finance/accounts/"
+};
+
+const QUERY_LIMIT_OPTIONS = ["20", "50", "100", "200"];
+const DEFAULT_QUERY_LIMIT = 20;
+const DEFAULT_QUERY_TABLE = QUERY_SINGLE_TABLE;
+
+const QUERY_ROW_SQL_PREVIEW_PREFIX = "Generated SQL: ";
+
+let latestDashboardPayload = null;
+const queryRowsCache = new Map();
+
 function formatCurrency(value) {
   if (!Number.isFinite(value)) {
     return "--";
@@ -59,6 +81,413 @@ function getJSON(path, options, getAuthToken) {
       throw new Error(message);
     }
     return payload;
+  });
+}
+
+function escapeHtml(value) {
+  return String(value).replace(
+    /[&<>"']/g,
+    (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#39;"
+    }[char])
+  );
+}
+
+function normalizeDatabaseName(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+}
+
+function sanitizeQueryProjection(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "*";
+  }
+  if (normalized === "__count__" || /^count\(\s*\*\s*\)/i.test(normalized)) {
+    return "COUNT(*) AS row_count";
+  }
+  if (normalized === "*") {
+    return "*";
+  }
+  if (/^[a-zA-Z_][\w]*$/.test(normalized)) {
+    return normalized;
+  }
+  return `"${normalized.replace(/"/g, '""')}"`;
+}
+
+function normalizeQueryLimit(value) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_QUERY_LIMIT;
+  }
+  return Math.min(1000, Math.max(1, parsed));
+}
+
+function buildQueryFromControls({
+  database = DEFAULT_QUERY_TABLE,
+  projection = "*",
+  limit = DEFAULT_QUERY_LIMIT
+}) {
+  const safeDatabase = normalizeDatabaseName(database);
+  if (!safeDatabase) {
+    return "";
+  }
+  const safeProjection = sanitizeQueryProjection(projection);
+  const safeLimit = normalizeQueryLimit(limit);
+  if (safeDatabase === QUERY_SINGLE_TABLE) {
+    return `SELECT ${safeProjection} FROM ${QUERY_SINGLE_TABLE} LIMIT ${safeLimit}`;
+  }
+
+  const pathFilter = QUERY_TABLE_PATH_FILTERS[safeDatabase];
+  if (!pathFilter) {
+    return `SELECT ${safeProjection} FROM ${safeDatabase} LIMIT ${safeLimit}`;
+  }
+
+  const escapedFilter = pathFilter.replace(/'/g, "''");
+  return `SELECT ${safeProjection} FROM ${QUERY_SINGLE_TABLE} WHERE "$path" LIKE '%/${escapedFilter}%' LIMIT ${safeLimit}`;
+}
+
+function getQueryFormElements() {
+  return {
+    databaseSelect: document.getElementById("query-database"),
+    rowSelect: document.getElementById("query-row"),
+    limitSelect: document.getElementById("query-limit"),
+    status: document.getElementById("query-status"),
+    statusPreview: document.getElementById("query-sql-preview"),
+    form: document.getElementById("query-form")
+  };
+}
+
+function setQuerySqlPreview() {
+  const elements = getQueryFormElements();
+  if (!elements.statusPreview || !elements.databaseSelect || !elements.rowSelect || !elements.limitSelect) {
+    return;
+  }
+
+  const query = buildQueryFromControls({
+    database: elements.databaseSelect.value,
+    projection: elements.rowSelect.value,
+    limit: elements.limitSelect.value
+  });
+  elements.statusPreview.textContent = `${QUERY_ROW_SQL_PREVIEW_PREFIX}${query}`;
+}
+
+function setQueryRowOptions(database, getAuthToken) {
+  const elements = getQueryFormElements();
+  const rowSelect = elements.rowSelect;
+  const status = elements.status;
+  if (!rowSelect || !database) {
+    return Promise.resolve();
+  }
+
+  const cachedRows = queryRowsCache.get(database);
+  if (cachedRows) {
+    rowSelect.innerHTML = cachedRows;
+    rowSelect.disabled = false;
+    setQuerySqlPreview();
+    return Promise.resolve();
+  }
+
+  rowSelect.disabled = true;
+  if (status) {
+    status.textContent = "Loading available rows...";
+  }
+
+  const discoveryQuery = buildQueryFromControls({ database, projection: "*", limit: 1 });
+  return getJSON("/query", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      query: discoveryQuery,
+      limit: 1
+    })
+  }, getAuthToken)
+    .then((payload) => {
+      const columns = Array.isArray(payload?.columns) ? payload.columns : [];
+      const options = [
+        `<option value="*">All columns</option>`,
+        ...columns
+          .map((column) => String(column))
+          .filter((column, index, list) => column && list.indexOf(column) === index)
+          .map((column) => `<option value="${escapeHtml(column)}">${escapeHtml(column)}</option>`),
+        `<option value="__count__">Row count</option>`
+      ];
+      const optionHtml = options.join("");
+      rowSelect.innerHTML = optionHtml;
+      queryRowsCache.set(database, optionHtml);
+      rowSelect.disabled = false;
+      setQuerySqlPreview();
+      return optionHtml;
+    })
+    .catch(() => {
+      const fallbackOptions = [
+        `<option value="*">All columns</option>`,
+        `<option value="__count__">Row count</option>`
+      ].join("");
+      rowSelect.innerHTML = fallbackOptions;
+      queryRowsCache.set(database, fallbackOptions);
+      rowSelect.disabled = false;
+      setQuerySqlPreview();
+      return fallbackOptions;
+    });
+}
+
+function buildQueryGraphSeries(payload, metric) {
+  const charts = payload?.charts || {};
+  if (metric === "revenue") {
+    return (charts.revenue_expenses || []).map((item) => ({
+      label: item.label || "--",
+      value: Number(item.revenue) || 0
+    }));
+  }
+  if (metric === "expenses") {
+    return (charts.revenue_expenses || []).map((item) => ({
+      label: item.label || "--",
+      value: Number(item.expenditure) || 0
+    }));
+  }
+  return (charts.employee_growth || []).map((item) => ({
+    label: item.label || "--",
+    value: Number(item.value) || 0
+  }));
+}
+
+function applyGraphWindow(series, windowValue) {
+  if (!Array.isArray(series) || series.length === 0) {
+    return [];
+  }
+
+  if (windowValue.includes("12")) {
+    return series.slice(-12);
+  }
+  if (windowValue.includes("year")) {
+    return series.slice();
+  }
+  return series.slice(-6);
+}
+
+function graphTypeFromSelection(value) {
+  const normalized = (value || "line chart").toLowerCase();
+  if (normalized.includes("bar")) {
+    return "bar";
+  }
+  if (normalized.includes("area")) {
+    return "area";
+  }
+  return "line";
+}
+
+function graphMetricFromSelection(value) {
+  const normalized = (value || "revenue").toLowerCase();
+  if (normalized.includes("employee")) {
+    return "employees";
+  }
+  if (normalized.includes("expense")) {
+    return "expenses";
+  }
+  return "revenue";
+}
+
+function graphFormatterFromMetric(metric) {
+  if (metric === "employees") {
+    return (value) => `${Math.round(Number(value) || 0).toLocaleString()}`;
+  }
+  return formatCurrency;
+}
+
+function renderGraphLines(series, withArea) {
+  if (!Array.isArray(series) || series.length === 0) {
+    return "";
+  }
+
+  const width = 500;
+  const height = 180;
+  const paddingX = 20;
+  const paddingY = 15;
+  const values = series.map((point) => Number(point.value) || 0);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const spread = maxValue - minValue;
+  const rangePadding = spread > 0 ? spread * 0.2 : 1;
+  const domainMin = minValue - rangePadding;
+  const domainMax = maxValue + rangePadding;
+  const plotRange = Math.max(1, domainMax - domainMin);
+
+  const points = series.map((point, index) => {
+    const x = series.length === 1 ? width / 2 : paddingX + (index / (series.length - 1)) * (width - paddingX * 2);
+    const y = paddingY + ((domainMax - (Number(point.value) || 0)) / plotRange) * (height - paddingY * 2);
+    return {
+      x,
+      y,
+      label: point.label || "--"
+    };
+  });
+
+  const linePath = buildSmoothLinePath(points);
+  const areaPath = withArea ? buildAreaPath(points, height - paddingY, linePath) : "";
+  const gridLines = [0.2, 0.4, 0.6, 0.8]
+    .map((position) => {
+      const y = (paddingY + (height - paddingY * 2) * position).toFixed(1);
+      return `<line class="line-grid-line" x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}"></line>`;
+    })
+    .join("");
+  const dots = points
+    .map((point) => `<circle class="line-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.6"></circle>`)
+    .join("");
+  const labels = series.map((item) => `<span>${escapeHtml(item.label || "--")}</span>`).join("");
+
+  return `
+    <div class="graph-line-wrap">
+      <svg viewBox="0 0 500 180" preserveAspectRatio="none" aria-label="Generated graph preview">
+        ${gridLines}
+        ${withArea ? `<path class="line-fill" d="${areaPath}"></path>` : ""}
+        <path class="line-stroke" d="${linePath}"></path>
+        ${dots}
+      </svg>
+      <div class="graph-x-axis">${labels}</div>
+    </div>
+  `;
+}
+
+function renderGraphBars(series, formatValue) {
+  if (!Array.isArray(series) || series.length === 0) {
+    return "";
+  }
+
+  const max = Math.max(1, ...series.map((point) => Number(point.value) || 0));
+  return `
+    <div class="graph-bars">
+      ${series
+        .map((point) => {
+          const width = Math.max(10, Math.round(((Number(point.value) || 0) / max) * 100));
+          return `
+            <div class="graph-bar-row">
+              <span class="graph-bar-label">${escapeHtml(point.label || "--")}</span>
+              <i class="graph-bar" style="--w:${width}"></i>
+              <span class="graph-bar-value">${formatValue(Number(point.value) || 0)}</span>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderGraphPreview({
+  metric,
+  graphType,
+  windowText,
+  series
+}) {
+  const preview = document.getElementById("graph-preview");
+  const status = document.getElementById("graph-status");
+  if (!preview || !status) {
+    return;
+  }
+
+  if (!Array.isArray(series) || series.length === 0) {
+    preview.innerHTML = `<p class="graph-empty">No ${metric} data available for this window (${windowText}).</p>`;
+    status.textContent = `No data found for ${metric}.`;
+    return;
+  }
+
+  const formatter = graphFormatterFromMetric(metric);
+  const values = series.map((point) => ({
+    label: point.label || "--",
+    value: Number(point.value) || 0
+  }));
+
+  const chart = graphType === "bar"
+    ? renderGraphBars(values, formatter)
+    : renderGraphLines(values, graphType === "area");
+
+  const latestValue = formatter(values[values.length - 1]?.value || 0);
+  preview.innerHTML = `
+    <p class="muted-note">Showing ${values.length} point(s) for ${metric} (${windowText}). Latest: ${latestValue}</p>
+    ${chart}
+  `;
+  status.textContent = "Graph preview generated.";
+}
+
+async function runCreateGraph() {
+  const graphTypeSelect = document.getElementById("graph-type");
+  const graphMetricSelect = document.getElementById("graph-metric");
+  const graphWindowSelect = document.getElementById("graph-window");
+  if (!graphTypeSelect || !graphMetricSelect || !graphWindowSelect) {
+    return;
+  }
+
+  if (!latestDashboardPayload) {
+    renderGraphPreview({
+      metric: graphMetricFromSelection(graphMetricSelect.value),
+      graphType: graphTypeFromSelection(graphTypeSelect.value),
+      windowText: graphWindowSelect.value,
+      series: []
+    });
+    return;
+  }
+
+  const metric = graphMetricFromSelection(graphMetricSelect.value);
+  const windowValue = graphWindowSelect.value;
+  const rawSeries = buildQueryGraphSeries(latestDashboardPayload, metric);
+  const normalized = applyGraphWindow(rawSeries, windowValue);
+  renderGraphPreview({
+    metric,
+    graphType: graphTypeFromSelection(graphTypeSelect.value),
+    windowText: windowValue,
+    series: normalized
+  });
+}
+
+async function initializeQueryPage(getAuthToken) {
+  const elements = getQueryFormElements();
+  if (!elements.databaseSelect || !elements.rowSelect || !elements.limitSelect || !elements.form) {
+    return;
+  }
+
+  if (!elements.databaseSelect.options.length || elements.databaseSelect.options[0]?.value === "") {
+    elements.databaseSelect.innerHTML = QUERY_TABLE_OPTIONS
+      .map((option) => `<option value="${option.value}">${option.label}</option>`)
+      .join("");
+  }
+  if (elements.limitSelect.options.length !== QUERY_LIMIT_OPTIONS.length) {
+    elements.limitSelect.innerHTML = QUERY_LIMIT_OPTIONS
+      .map((value) => `<option value="${value}">${value}</option>`)
+      .join("");
+  }
+
+  elements.databaseSelect.value = QUERY_TABLE_OPTIONS.find((option) => option.value === DEFAULT_QUERY_TABLE)?.value || QUERY_TABLE_OPTIONS[0].value;
+  elements.limitSelect.value = String(DEFAULT_QUERY_LIMIT);
+
+  elements.databaseSelect.addEventListener("change", () => {
+    const db = elements.databaseSelect.value;
+    void setQueryRowOptions(db, getAuthToken);
+  });
+
+  elements.rowSelect.addEventListener("change", setQuerySqlPreview);
+  elements.limitSelect.addEventListener("change", setQuerySqlPreview);
+  elements.form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void runQuery(getAuthToken);
+  });
+
+  await setQueryRowOptions(elements.databaseSelect.value, getAuthToken);
+  setQuerySqlPreview();
+}
+
+function initializeCreateGraphPage() {
+  const graphButton = document.getElementById("graph-generate-btn");
+  if (!graphButton) {
+    return;
+  }
+
+  graphButton.addEventListener("click", () => {
+    void runCreateGraph();
   });
 }
 
@@ -431,15 +860,24 @@ function renderQueryResult(payload) {
 }
 
 async function runQuery(getAuthToken) {
+  const elements = getQueryFormElements();
   const input = document.getElementById("query-input");
-  const status = document.getElementById("query-status");
-  if (!input || !status) {
+  const status = elements.status;
+  if (!status) {
     return;
   }
 
-  const query = input.value.trim();
+  const hasBuilder = elements.databaseSelect && elements.rowSelect && elements.limitSelect;
+  const query = hasBuilder
+    ? buildQueryFromControls({
+        database: elements.databaseSelect.value,
+        projection: elements.rowSelect.value,
+        limit: elements.limitSelect.value
+      })
+    : input?.value?.trim();
+
   if (!query) {
-    status.textContent = "Enter a SQL query first.";
+    status.textContent = "Select a database and row option first.";
     return;
   }
 
@@ -465,6 +903,7 @@ async function runQuery(getAuthToken) {
 
 async function refreshDashboard(getAuthToken) {
   const payload = await getJSON("/dashboard", undefined, getAuthToken);
+  latestDashboardPayload = payload || {};
   renderDashboard(payload);
 }
 
@@ -495,6 +934,9 @@ export function initInsightsData({ getAuthToken = () => "" } = {}) {
 
   refreshAll();
   const timer = window.setInterval(refreshAll, 20000);
+
+  void initializeQueryPage(getAuthToken);
+  initializeCreateGraphPage();
 
   return () => {
     window.clearInterval(timer);

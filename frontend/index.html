@@ -174,29 +174,29 @@
                   <h3>Create Custom Graph</h3>
                   <p>Build chart views from your latest data</p>
                 </header>
-                <form class="inline-form" onsubmit="return false;">
-                  <label>Graph type
-                    <select>
+                <form id="create-graph-form" class="inline-form" onsubmit="return false;">
+                  <label for="graph-type">Graph type
+                    <select id="graph-type">
                       <option>Line Chart</option>
                       <option>Bar Chart</option>
                       <option>Area Chart</option>
                     </select>
                   </label>
-                  <label>Primary metric
-                    <select>
+                  <label for="graph-metric">Primary metric
+                    <select id="graph-metric">
                       <option>Revenue</option>
                       <option>Expenses</option>
                       <option>Employee Count</option>
                     </select>
                   </label>
-                  <label>Time window
-                    <select>
+                  <label for="graph-window">Time window
+                    <select id="graph-window">
                       <option>Last 6 months</option>
                       <option>Last 12 months</option>
                       <option>Year to date</option>
                     </select>
                   </label>
-                  <button type="button" class="action">Generate Preview</button>
+                  <button id="graph-generate-btn" type="button" class="action">Generate Preview</button>
                 </form>
               </article>
 
@@ -205,13 +205,10 @@
                   <h3>Graph Preview</h3>
                   <p>Live preview of selected settings</p>
                 </header>
-                <div class="preview-grid">
-                  <div class="preview-line"></div>
-                  <div class="preview-line"></div>
-                  <div class="preview-line"></div>
-                  <div class="preview-line"></div>
+                <div id="graph-preview" class="graph-preview">
+                  <p class="graph-empty">Configure options and generate a preview.</p>
                 </div>
-                <p class="muted-note">Tip: You can export generated charts as PNG or SVG in your next backend integration step.</p>
+                <p id="graph-status" class="muted-note">Ready.</p>
               </article>
             </div>
           </section>
@@ -223,9 +220,29 @@
                   <h3>Query Data</h3>
                   <p>Run ad-hoc queries against your analytics dataset</p>
                 </header>
-                <label class="query-label" for="query-input">SQL query</label>
-                <textarea id="query-input" rows="6">SELECT * FROM employees LIMIT 20</textarea>
-                <button id="query-run-btn" class="action" type="button">Run Query</button>
+                <form id="query-form" class="inline-form" onsubmit="return false;">
+                  <label for="query-database">Database
+                    <select id="query-database">
+                      <option value="">Loading...</option>
+                    </select>
+                  </label>
+                  <label for="query-row">Rows to select
+                    <select id="query-row">
+                      <option value="*">All columns</option>
+                      <option value="__count__">Row count</option>
+                    </select>
+                  </label>
+                  <label for="query-limit">Max rows
+                    <select id="query-limit">
+                      <option value="20">20</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                      <option value="200">200</option>
+                    </select>
+                  </label>
+                  <button id="query-run-btn" class="action" type="button">Run Query</button>
+                  <p id="query-sql-preview" class="query-sql-preview">Generated SQL: SELECT * FROM trusted LIMIT 20</p>
+                </form>
                 <p id="query-status" class="muted-note">Ready.</p>
               </article>
 

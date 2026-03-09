@@ -82,14 +82,14 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
         Resource = concat(
           flatten([
             for bucket_arn in local.data_lake_bucket_arn_patterns : [
-              "${bucket_arn}/${var.trusted_prefix_finance_transactions}*",
-              "${bucket_arn}/${var.trusted_prefix_employees}*",
+              "${bucket_arn}/${local.s3_trusted_prefix}*",
+              "${bucket_arn}/${local.s3_trusted_analytics_prefix}*",
               "${bucket_arn}/${var.trusted_prefix_predictions}*"
             ]
           ]),
           [
-            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_finance_transactions}*",
-            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_employees}*",
+            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${local.s3_trusted_prefix}*",
+            "arn:aws:s3:::${local.live_api_data_lake_bucket}/${local.s3_trusted_analytics_prefix}*",
             "arn:aws:s3:::${local.live_api_data_lake_bucket}/${var.trusted_prefix_predictions}*"
           ]
         )

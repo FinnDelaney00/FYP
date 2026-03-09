@@ -6,6 +6,10 @@
 const DEFAULT_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const DEFAULT_POLL_INTERVAL_MS = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 3000);
 const MAX_CHART_POINTS = 24;
+const MIN_CHART_WIDTH = 640;
+const MAX_CHART_WIDTH = 1180;
+const MIN_CHART_HEIGHT = 220;
+const MAX_CHART_HEIGHT = 320;
 const AMOUNT_FIELDS = ["amount", "transaction_amount", "value", "total", "net_amount"];
 const DATE_FIELDS = [
   "transaction_date",
@@ -238,6 +242,14 @@ function renderEmptyChart(chartElement, message) {
   chartElement.append(empty);
 }
 
+function getChartDimensions(chartElement) {
+  const containerWidth = Math.round(chartElement.getBoundingClientRect().width);
+  const usableWidth = Math.max(0, containerWidth - 32);
+  const width = Math.min(MAX_CHART_WIDTH, Math.max(MIN_CHART_WIDTH, usableWidth || MIN_CHART_WIDTH));
+  const height = Math.max(MIN_CHART_HEIGHT, Math.min(MAX_CHART_HEIGHT, Math.round(width * 0.27)));
+  return { width, height };
+}
+
 function renderChart(chartElement, items) {
   const series = buildSeries(items);
   if (!series.length) {
@@ -245,10 +257,9 @@ function renderChart(chartElement, items) {
     return;
   }
 
-  const width = 520;
-  const height = 220;
-  const paddingX = 20;
-  const paddingY = 15;
+  const { width, height } = getChartDimensions(chartElement);
+  const paddingX = Math.max(20, Math.round(width * 0.04));
+  const paddingY = Math.max(16, Math.round(height * 0.08));
 
   const values = series.map((point) => point.value);
   const minValue = Math.min(...values);
@@ -307,7 +318,7 @@ function renderChart(chartElement, items) {
       </div>
     </div>
     <div class="line-chart-wrap">
-      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="Latest trusted events line chart">
+      <svg viewBox="0 0 ${width} ${height}" aria-label="Latest trusted events line chart" style="height:${height}px">
         ${gridLines}
         <path class="line-fill" d="${areaPath}"></path>
         <path class="line-stroke" d="${linePath}"></path>
@@ -349,6 +360,25 @@ export function startLiveUpdates({
   }
 
   let timer = null;
+  let resizeFrame = null;
+  let latestItems = [];
+
+  const rerenderChart = () => {
+    resizeFrame = null;
+    if (latestItems.length) {
+      renderChart(chartElement, latestItems);
+    }
+  };
+
+  const handleResize = () => {
+    if (resizeFrame !== null) {
+      return;
+    }
+
+    resizeFrame = window.requestAnimationFrame(rerenderChart);
+  };
+
+  window.addEventListener("resize", handleResize);
 
   const refresh = async () => {
     try {
@@ -363,7 +393,8 @@ export function startLiveUpdates({
       }
 
       const payload = await response.json();
-      renderChart(chartElement, payload.items || []);
+      latestItems = payload.items || [];
+      renderChart(chartElement, latestItems);
 
       const lastModified = payload.last_modified ? new Date(payload.last_modified).toLocaleString() : "n/a";
       metaElement.textContent = `Object: ${payload.s3_key || "none"} | Last modified: ${lastModified}`;
@@ -383,6 +414,10 @@ export function startLiveUpdates({
   timer = window.setInterval(refresh, pollIntervalMs);
 
   return () => {
+    window.removeEventListener("resize", handleResize);
+    if (resizeFrame !== null) {
+      window.cancelAnimationFrame(resizeFrame);
+    }
     if (timer) {
       window.clearInterval(timer);
     }
