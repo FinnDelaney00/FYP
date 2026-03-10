@@ -1,6 +1,38 @@
-import { buildAreaPath, buildSmoothLinePath } from "./chartUtils.js";
+import { buildAreaPath, buildSmoothLinePath, pickSeriesAxisLabels } from "./chartUtils.js";
 import { createElementCache } from "./domCache.js";
-import { escapeHtml, formatCurrency } from "./formatters.js";
+import { escapeHtml, formatCompactCurrency, formatCount, formatCurrency, formatWholePercent } from "./formatters.js";
+
+const GRAPH_CANVAS = {
+  width: 920,
+  height: 360,
+  paddingTop: 20,
+  paddingRight: 24,
+  paddingBottom: 26,
+  paddingLeft: 64
+};
+
+const GRAPH_X_AXIS_MAX_LABELS = 6;
+const GRAPH_Y_AXIS_TICKS = 5;
+
+function formatGraphAxisLabel(value) {
+  const raw = String(value || "--").trim();
+  if (!raw) {
+    return "--";
+  }
+
+  const hasDateLikeShape = /^\d{4}-\d{2}(-\d{2})?$/.test(raw) || /^\d{4}\/\d{2}(\/\d{2})?$/.test(raw);
+  if (hasDateLikeShape) {
+    const date = new Date(raw);
+    if (!Number.isNaN(date.getTime())) {
+      const options = raw.length >= 10
+        ? { month: "short", day: "numeric" }
+        : { month: "short", year: "2-digit" };
+      return date.toLocaleDateString(undefined, options);
+    }
+  }
+
+  return raw.length > 14 ? `${raw.slice(0, 13)}...` : raw;
+}
 
 function buildQueryGraphSeries(payload, metric) {
   const charts = payload?.charts || {};
@@ -27,10 +59,12 @@ function applyGraphWindow(series, windowValue) {
     return [];
   }
 
-  if (windowValue.includes("12")) {
+  const normalizedWindow = String(windowValue || "").toLowerCase();
+
+  if (normalizedWindow.includes("12")) {
     return series.slice(-12);
   }
-  if (windowValue.includes("year")) {
+  if (normalizedWindow.includes("year")) {
     return series.slice();
   }
   return series.slice(-6);
@@ -60,85 +94,262 @@ function graphMetricFromSelection(value) {
 
 function graphFormatterFromMetric(metric) {
   if (metric === "employees") {
-    return (value) => `${Math.round(Number(value) || 0).toLocaleString()}`;
+    return (value) => formatCount(Number(value) || 0);
   }
   return formatCurrency;
 }
 
-function renderGraphLines(series, withArea) {
+function graphAxisFormatterFromMetric(metric) {
+  if (metric === "employees") {
+    return (value) => formatCount(Number(value) || 0);
+  }
+  return formatCompactCurrency;
+}
+
+function graphMetricLabel(metric) {
+  if (metric === "employees") {
+    return "Employee Count";
+  }
+  if (metric === "expenses") {
+    return "Expenses";
+  }
+  return "Revenue";
+}
+
+function formatMetricDelta(value, metric) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  if (value === 0) {
+    return metric === "employees" ? "0" : "$0.00";
+  }
+
+  if (metric === "employees") {
+    return `${value > 0 ? "+" : "-"}${formatCount(Math.abs(value))}`;
+  }
+  return `${value > 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
+}
+
+function normalizeGraphSeries(series) {
+  return (Array.isArray(series) ? series : []).map((point) => ({
+    rawLabel: String(point?.label || "--"),
+    label: formatGraphAxisLabel(point?.label),
+    value: Number(point?.value) || 0
+  }));
+}
+
+function buildDomain(values) {
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const spread = maxValue - minValue;
+  const paddingValue = spread > 0 ? spread * 0.16 : Math.max(Math.abs(maxValue) * 0.22, 1);
+
+  let domainMin = minValue - paddingValue;
+  let domainMax = maxValue + paddingValue;
+
+  if (minValue >= 0) {
+    domainMin = Math.max(0, domainMin);
+  }
+  if (maxValue <= 0) {
+    domainMax = Math.min(0, domainMax);
+  }
+
+  if (!Number.isFinite(domainMin) || !Number.isFinite(domainMax) || domainMin === domainMax) {
+    domainMin = 0;
+    domainMax = Math.max(1, maxValue || 1);
+  }
+
+  return {
+    minValue,
+    maxValue,
+    domainMin,
+    domainMax,
+    range: Math.max(1, domainMax - domainMin)
+  };
+}
+
+function buildYAxis({ axisFormatter, domainMax, paddingLeft, paddingTop, plotHeight, range, width, paddingRight }) {
+  return Array.from({ length: GRAPH_Y_AXIS_TICKS }, (_, index) => {
+    const ratio = index / (GRAPH_Y_AXIS_TICKS - 1);
+    const y = paddingTop + plotHeight * ratio;
+    const value = domainMax - range * ratio;
+    const label = axisFormatter(value);
+    return `
+      <line class="graph-grid-line" x1="${paddingLeft}" y1="${y.toFixed(1)}" x2="${(width - paddingRight).toFixed(1)}" y2="${y.toFixed(1)}"></line>
+      <text class="graph-y-axis-label" x="${(paddingLeft - 10).toFixed(1)}" y="${(y + 4).toFixed(1)}">${escapeHtml(label)}</text>
+    `;
+  }).join("");
+}
+
+function buildXAxis(labels) {
+  const slots = Math.max(1, Math.min(GRAPH_X_AXIS_MAX_LABELS, labels.length || 1));
+  const axisLabels = pickSeriesAxisLabels(
+    labels.map((label) => ({ axisLabel: label })),
+    slots,
+    ["axisLabel", "label"]
+  );
+
+  return {
+    slots,
+    markup: axisLabels.map((label) => `<span title="${escapeHtml(label)}">${escapeHtml(label)}</span>`).join("")
+  };
+}
+
+function renderGraphLines({ series, metric, withArea, formatter, axisFormatter }) {
   if (!Array.isArray(series) || series.length === 0) {
     return "";
   }
 
-  const width = 500;
-  const height = 180;
-  const paddingX = 20;
-  const paddingY = 15;
+  const {
+    width,
+    height,
+    paddingTop,
+    paddingRight,
+    paddingBottom,
+    paddingLeft
+  } = GRAPH_CANVAS;
+  const plotWidth = width - paddingLeft - paddingRight;
+  const plotHeight = height - paddingTop - paddingBottom;
+  const baselineY = height - paddingBottom;
   const values = series.map((point) => Number(point.value) || 0);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const spread = maxValue - minValue;
-  const rangePadding = spread > 0 ? spread * 0.2 : 1;
-  const domainMin = minValue - rangePadding;
-  const domainMax = maxValue + rangePadding;
-  const plotRange = Math.max(1, domainMax - domainMin);
+  const { minValue, maxValue, domainMax, range } = buildDomain(values);
 
   const points = series.map((point, index) => {
-    const x = series.length === 1 ? width / 2 : paddingX + (index / (series.length - 1)) * (width - paddingX * 2);
-    const y = paddingY + ((domainMax - (Number(point.value) || 0)) / plotRange) * (height - paddingY * 2);
+    const x =
+      series.length === 1
+        ? paddingLeft + plotWidth / 2
+        : paddingLeft + (index / (series.length - 1)) * plotWidth;
+    const y = paddingTop + ((domainMax - (Number(point.value) || 0)) / range) * plotHeight;
+    const tooltip = `${point.rawLabel || point.label}: ${formatter(Number(point.value) || 0)}`;
     return {
       x,
       y,
-      label: point.label || "--"
+      value: Number(point.value) || 0,
+      tooltip
     };
   });
 
   const linePath = buildSmoothLinePath(points);
-  const areaPath = withArea ? buildAreaPath(points, height - paddingY, linePath) : "";
-  const gridLines = [0.2, 0.4, 0.6, 0.8]
-    .map((position) => {
-      const y = (paddingY + (height - paddingY * 2) * position).toFixed(1);
-      return `<line class="line-grid-line" x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}"></line>`;
-    })
-    .join("");
+  const areaPath = withArea ? buildAreaPath(points, baselineY, linePath) : "";
+  const yAxis = buildYAxis({
+    axisFormatter,
+    domainMax,
+    paddingLeft,
+    paddingTop,
+    plotHeight,
+    range,
+    width,
+    paddingRight
+  });
+  const pointRadius = series.length > 18 ? 3.1 : 4.1;
   const dots = points
-    .map((point) => `<circle class="line-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.6"></circle>`)
+    .map((point) => `
+      <circle class="graph-point-marker" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${pointRadius}" data-tooltip="${escapeHtml(point.tooltip)}">
+        <title>${escapeHtml(point.tooltip)}</title>
+      </circle>
+    `)
     .join("");
-  const labels = series.map((item) => `<span>${escapeHtml(item.label || "--")}</span>`).join("");
+  const xAxis = buildXAxis(series.map((point) => point.label));
+  const metricLabel = graphMetricLabel(metric);
+  const rangeText = `${axisFormatter(minValue)} to ${axisFormatter(maxValue)}`;
 
   return `
-    <div class="graph-line-wrap">
-      <svg viewBox="0 0 500 180" preserveAspectRatio="none" aria-label="Generated graph preview">
-        ${gridLines}
-        ${withArea ? `<path class="line-fill" d="${areaPath}"></path>` : ""}
-        <path class="line-stroke" d="${linePath}"></path>
+    <div class="graph-chart-shell ${withArea ? "is-area" : "is-line"}">
+      <div class="graph-chart-meta">
+        <span class="graph-legend-item"><i class="graph-legend-dot ${withArea ? "is-area" : "is-line"}"></i>${escapeHtml(metricLabel)}</span>
+        <span class="graph-range-note">Range: ${escapeHtml(rangeText)}</span>
+      </div>
+      <div class="graph-chart-frame">
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-label="Generated graph preview">
+          ${yAxis}
+          ${withArea ? `<path class="graph-area-path" d="${areaPath}"></path>` : ""}
+          <path class="graph-line-path" d="${linePath}"></path>
         ${dots}
-      </svg>
-      <div class="graph-x-axis">${labels}</div>
+        </svg>
+        <div class="graph-tooltip" hidden></div>
+      </div>
+      <div class="graph-x-axis" style="--graph-axis-slots:${xAxis.slots}">
+        ${xAxis.markup}
+      </div>
     </div>
   `;
 }
 
-function renderGraphBars(series, formatValue) {
+function renderGraphBars({ series, metric, formatter, axisFormatter }) {
   if (!Array.isArray(series) || series.length === 0) {
     return "";
   }
 
-  const max = Math.max(1, ...series.map((point) => Number(point.value) || 0));
+  const {
+    width,
+    height,
+    paddingTop,
+    paddingRight,
+    paddingBottom,
+    paddingLeft
+  } = GRAPH_CANVAS;
+  const plotWidth = width - paddingLeft - paddingRight;
+  const plotHeight = height - paddingTop - paddingBottom;
+  const values = series.map((point) => Number(point.value) || 0);
+  const { minValue, maxValue, domainMax, range } = buildDomain(values);
+  const toY = (value) => paddingTop + ((domainMax - value) / range) * plotHeight;
+  const baselineY = toY(0);
+  const yAxis = buildYAxis({
+    axisFormatter,
+    domainMax,
+    paddingLeft,
+    paddingTop,
+    plotHeight,
+    range,
+    width,
+    paddingRight
+  });
+  const step = plotWidth / Math.max(1, series.length);
+  const barWidth = Math.max(8, Math.min(52, step * 0.7));
+  const bars = series
+    .map((point, index) => {
+      const value = Number(point.value) || 0;
+      const x = paddingLeft + index * step + (step - barWidth) / 2;
+      const y = value >= 0 ? toY(value) : baselineY;
+      const barHeight = Math.max(2, Math.abs(toY(value) - baselineY));
+      const tooltip = `${point.rawLabel || point.label}: ${formatter(value)}`;
+      return `
+        <rect
+          class="graph-bar-rect"
+          x="${x.toFixed(1)}"
+          y="${y.toFixed(1)}"
+          width="${barWidth.toFixed(1)}"
+          height="${barHeight.toFixed(1)}"
+          rx="${Math.min(8, Math.max(3, barWidth * 0.18)).toFixed(1)}"
+          data-tooltip="${escapeHtml(tooltip)}"
+        >
+          <title>${escapeHtml(tooltip)}</title>
+        </rect>
+      `;
+    })
+    .join("");
+  const xAxis = buildXAxis(series.map((point) => point.label));
+  const metricLabel = graphMetricLabel(metric);
+  const rangeText = `${axisFormatter(minValue)} to ${axisFormatter(maxValue)}`;
+
   return `
-    <div class="graph-bars">
-      ${series
-        .map((point) => {
-          const width = Math.max(10, Math.round(((Number(point.value) || 0) / max) * 100));
-          return `
-            <div class="graph-bar-row">
-              <span class="graph-bar-label">${escapeHtml(point.label || "--")}</span>
-              <i class="graph-bar" style="--w:${width}"></i>
-              <span class="graph-bar-value">${formatValue(Number(point.value) || 0)}</span>
-            </div>
-          `;
-        })
-        .join("")}
+    <div class="graph-chart-shell is-bar">
+      <div class="graph-chart-meta">
+        <span class="graph-legend-item"><i class="graph-legend-dot is-bar"></i>${escapeHtml(metricLabel)}</span>
+        <span class="graph-range-note">Range: ${escapeHtml(rangeText)}</span>
+      </div>
+      <div class="graph-chart-frame">
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-label="Generated bar chart preview">
+          ${yAxis}
+          <line class="graph-baseline-line" x1="${paddingLeft}" y1="${baselineY.toFixed(1)}" x2="${(width - paddingRight).toFixed(1)}" y2="${baselineY.toFixed(1)}"></line>
+          ${bars}
+        </svg>
+        <div class="graph-tooltip" hidden></div>
+      </div>
+      <div class="graph-x-axis" style="--graph-axis-slots:${xAxis.slots}">
+        ${xAxis.markup}
+      </div>
     </div>
   `;
 }
@@ -146,82 +357,365 @@ function renderGraphBars(series, formatValue) {
 export function createGraphModule({ getLatestDashboardPayload }) {
   const getElement = createElementCache();
 
+  function setGraphStatus(message, state = "neutral") {
+    const status = getElement("graph-status");
+    if (!status) {
+      return;
+    }
+    status.textContent = message;
+    status.dataset.state = state;
+  }
+
+  function setGraphSubtitle(message) {
+    const subtitle = getElement("graph-preview-subtitle");
+    if (subtitle) {
+      subtitle.textContent = message;
+    }
+  }
+
+  function setGraphFootnote(message) {
+    const footnote = getElement("graph-footnote");
+    if (footnote) {
+      footnote.textContent = message;
+    }
+  }
+
+  function renderGraphSelectionMeta({ graphTypeText, metricText, windowText }) {
+    const meta = getElement("graph-selection-meta");
+    if (!meta) {
+      return;
+    }
+
+    meta.innerHTML = [graphTypeText, metricText, windowText]
+      .map((value) => `<span class="graph-chip">${escapeHtml(value)}</span>`)
+      .join("");
+  }
+
+  function renderGraphInsights(items, emptyMessage = "Generate a chart to see summary insights.") {
+    const insights = getElement("graph-insights");
+    if (!insights) {
+      return;
+    }
+
+    if (!Array.isArray(items) || !items.length) {
+      insights.innerHTML = `<p class="graph-insight-empty">${escapeHtml(emptyMessage)}</p>`;
+      return;
+    }
+
+    insights.innerHTML = items
+      .map((item) => `
+        <article class="graph-insight-card">
+          <span>${escapeHtml(item.label || "--")}</span>
+          <strong>${escapeHtml(item.value || "--")}</strong>
+          <p>${escapeHtml(item.note || "")}</p>
+        </article>
+      `)
+      .join("");
+  }
+
+  function renderGraphState({ tone, title, body, loading = false }) {
+    const preview = getElement("graph-preview");
+    if (!preview) {
+      return;
+    }
+
+    preview.innerHTML = `
+      <div class="graph-state graph-state-${tone}">
+        ${loading ? "<span class=\"graph-loader\" aria-hidden=\"true\"></span>" : ""}
+        <div>
+          <h4>${escapeHtml(title)}</h4>
+          <p>${escapeHtml(body)}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  function buildGraphInsights({ series, metric, formatter }) {
+    if (!Array.isArray(series) || !series.length) {
+      return [];
+    }
+
+    const latest = series[series.length - 1];
+    const previous = series.length > 1 ? series[series.length - 2] : null;
+    const values = series.map((point) => Number(point.value) || 0);
+    const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const maxPoint = series.reduce((highest, point) => (point.value > highest.value ? point : highest), series[0]);
+    const minPoint = series.reduce((lowest, point) => (point.value < lowest.value ? point : lowest), series[0]);
+    const delta = previous ? latest.value - previous.value : 0;
+    const deltaPercent = previous && previous.value !== 0
+      ? (delta / Math.abs(previous.value)) * 100
+      : null;
+
+    return [
+      {
+        label: "Latest Value",
+        value: formatter(latest.value),
+        note: `Most recent point: ${latest.rawLabel || latest.label}`
+      },
+      {
+        label: "Average",
+        value: formatter(average),
+        note: `Average across ${series.length} displayed points`
+      },
+      {
+        label: "Point-to-Point Change",
+        value: Number.isFinite(deltaPercent) ? formatWholePercent(deltaPercent) : formatMetricDelta(delta, metric),
+        note: previous
+          ? `Compared with ${previous.rawLabel || previous.label}`
+          : "Only one point is available in this view"
+      },
+      {
+        label: "Range",
+        value: `${formatter(minPoint.value)} - ${formatter(maxPoint.value)}`,
+        note: `Low: ${minPoint.rawLabel || minPoint.label} | High: ${maxPoint.rawLabel || maxPoint.label}`
+      }
+    ];
+  }
+
+  function bindGraphTooltip(preview) {
+    const frame = preview.querySelector(".graph-chart-frame");
+    const tooltip = preview.querySelector(".graph-tooltip");
+    if (!frame || !tooltip) {
+      return;
+    }
+
+    const hideTooltip = () => {
+      tooltip.hidden = true;
+    };
+
+    frame.addEventListener("mouseleave", hideTooltip);
+    frame.addEventListener("mousemove", (event) => {
+      const target = event.target.closest("[data-tooltip]");
+      if (!target || !frame.contains(target)) {
+        hideTooltip();
+        return;
+      }
+
+      const text = target.getAttribute("data-tooltip");
+      if (!text) {
+        hideTooltip();
+        return;
+      }
+
+      tooltip.hidden = false;
+      tooltip.textContent = text;
+
+      const frameRect = frame.getBoundingClientRect();
+      const tooltipRect = tooltip.getBoundingClientRect();
+      let left = event.clientX - frameRect.left + 12;
+      let top = event.clientY - frameRect.top - tooltipRect.height - 12;
+
+      if (left + tooltipRect.width > frameRect.width - 8) {
+        left = frameRect.width - tooltipRect.width - 8;
+      }
+      if (left < 8) {
+        left = 8;
+      }
+      if (top < 8) {
+        top = event.clientY - frameRect.top + 14;
+      }
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    });
+  }
+
   function renderGraphPreview({
     metric,
     graphType,
+    graphTypeText,
+    metricText,
     windowText,
     series
   }) {
     const preview = getElement("graph-preview");
-    const status = getElement("graph-status");
-    if (!preview || !status) {
+    if (!preview) {
       return;
     }
 
-    if (!Array.isArray(series) || series.length === 0) {
-      preview.innerHTML = `<p class="graph-empty">No ${metric} data available for this window (${windowText}).</p>`;
-      status.textContent = `No data found for ${metric}.`;
+    if (!Array.isArray(series) || !series.length) {
+      renderGraphState({
+        tone: "empty",
+        title: "No chart data available",
+        body: `No ${metricText.toLowerCase()} data is available for ${windowText.toLowerCase()}.`
+      });
+      renderGraphInsights([], `No summary insights are available for ${metricText.toLowerCase()} in this window.`);
+      setGraphStatus(`No data found for ${metricText.toLowerCase()}.`, "empty");
+      setGraphSubtitle(`${graphTypeText} preview for ${metricText.toLowerCase()} in ${windowText.toLowerCase()}.`);
+      setGraphFootnote("Try a different metric or broader time window to generate a chart.");
       return;
     }
 
     const formatter = graphFormatterFromMetric(metric);
+    const axisFormatter = graphAxisFormatterFromMetric(metric);
     const values = series.map((point) => ({
+      rawLabel: point.rawLabel || point.label || "--",
       label: point.label || "--",
       value: Number(point.value) || 0
     }));
 
     const chart = graphType === "bar"
-      ? renderGraphBars(values, formatter)
-      : renderGraphLines(values, graphType === "area");
+      ? renderGraphBars({
+          series: values,
+          metric,
+          formatter,
+          axisFormatter
+        })
+      : renderGraphLines({
+          series: values,
+          metric,
+          withArea: graphType === "area",
+          formatter,
+          axisFormatter
+        });
 
     const latestValue = formatter(values[values.length - 1]?.value || 0);
-    preview.innerHTML = `
-      <p class="muted-note">Showing ${values.length} point(s) for ${metric} (${windowText}). Latest: ${latestValue}</p>
-      ${chart}
-    `;
-    status.textContent = "Graph preview generated.";
+    preview.innerHTML = chart;
+    bindGraphTooltip(preview);
+
+    const insightCards = buildGraphInsights({
+      series: values,
+      metric,
+      formatter
+    });
+    renderGraphInsights(insightCards);
+    setGraphStatus(`Graph preview generated (${values.length} point${values.length === 1 ? "" : "s"}).`, "success");
+    setGraphSubtitle(`${graphTypeText} preview of ${metricText.toLowerCase()} for ${windowText.toLowerCase()}.`);
+    setGraphFootnote(`Showing ${values.length} point${values.length === 1 ? "" : "s"} with a latest value of ${latestValue}.`);
   }
 
-  async function runCreateGraph() {
+  function readGraphSelections() {
     const graphTypeSelect = getElement("graph-type");
     const graphMetricSelect = getElement("graph-metric");
     const graphWindowSelect = getElement("graph-window");
     if (!graphTypeSelect || !graphMetricSelect || !graphWindowSelect) {
-      return;
+      return null;
     }
 
-    const latestDashboardPayload = getLatestDashboardPayload();
-    if (!latestDashboardPayload) {
-      renderGraphPreview({
-        metric: graphMetricFromSelection(graphMetricSelect.value),
-        graphType: graphTypeFromSelection(graphTypeSelect.value),
-        windowText: graphWindowSelect.value,
-        series: []
-      });
-      return;
+    const graphTypeText = graphTypeSelect.value || "Line Chart";
+    const metricText = graphMetricSelect.value || "Revenue";
+    const windowText = graphWindowSelect.value || "Last 6 months";
+    return {
+      graphType: graphTypeFromSelection(graphTypeText),
+      graphTypeText,
+      metric: graphMetricFromSelection(metricText),
+      metricText,
+      windowText
+    };
+  }
+
+  function renderIdleGraphState() {
+    const selections = readGraphSelections();
+    if (selections) {
+      renderGraphSelectionMeta(selections);
+      setGraphSubtitle(`Live preview of your selected graph settings.`);
     }
 
-    const metric = graphMetricFromSelection(graphMetricSelect.value);
-    const windowValue = graphWindowSelect.value;
-    const rawSeries = buildQueryGraphSeries(latestDashboardPayload, metric);
-    const normalized = applyGraphWindow(rawSeries, windowValue);
-    renderGraphPreview({
-      metric,
-      graphType: graphTypeFromSelection(graphTypeSelect.value),
-      windowText: windowValue,
-      series: normalized
+    renderGraphState({
+      tone: "empty",
+      title: "Ready to generate",
+      body: "Choose your settings above, then generate a chart preview."
     });
+    renderGraphInsights([], "Generate a chart to see summary insights.");
+    setGraphStatus("Ready to generate a chart preview.", "neutral");
+    setGraphFootnote("Chart sizing is optimized for clear executive-style reporting.");
+  }
+
+  async function runCreateGraph() {
+    const selections = readGraphSelections();
+    if (!selections) {
+      return;
+    }
+
+    renderGraphSelectionMeta(selections);
+    setGraphStatus("Generating graph preview...", "loading");
+    renderGraphState({
+      tone: "loading",
+      title: "Generating preview",
+      body: `Preparing ${selections.metricText.toLowerCase()} data for ${selections.windowText.toLowerCase()}.`,
+      loading: true
+    });
+    renderGraphInsights([], "Calculating summary insights...");
+    setGraphSubtitle(`${selections.graphTypeText} preview of ${selections.metricText.toLowerCase()} for ${selections.windowText.toLowerCase()}.`);
+    setGraphFootnote("Formatting chart layout and axis labels...");
+
+    await new Promise((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+
+    try {
+      const latestDashboardPayload = getLatestDashboardPayload();
+      if (!latestDashboardPayload) {
+        renderGraphState({
+          tone: "empty",
+          title: "Dashboard data is still loading",
+          body: "Generate again once the dashboard refresh is complete."
+        });
+        renderGraphInsights([], "Summary insights will appear once dashboard data is available.");
+        setGraphStatus("No dashboard data available yet.", "empty");
+        setGraphFootnote("Wait for the latest dashboard refresh, then regenerate this preview.");
+        return;
+      }
+
+      const rawSeries = buildQueryGraphSeries(latestDashboardPayload, selections.metric);
+      const normalized = normalizeGraphSeries(applyGraphWindow(rawSeries, selections.windowText));
+      renderGraphPreview({
+        metric: selections.metric,
+        metricText: selections.metricText,
+        graphType: selections.graphType,
+        graphTypeText: selections.graphTypeText,
+        windowText: selections.windowText,
+        series: normalized
+      });
+    } catch (error) {
+      renderGraphState({
+        tone: "error",
+        title: "Graph generation failed",
+        body: "An unexpected error occurred while rendering this chart preview."
+      });
+      renderGraphInsights([], "Summary insights are unavailable because the chart failed to render.");
+      setGraphStatus(`Graph generation failed: ${error?.message || "Unknown error"}`, "error");
+      setGraphFootnote("Try generating again or choose a different chart option.");
+    }
   }
 
   function initializeCreateGraphPage() {
     const graphButton = getElement("graph-generate-btn");
-    if (!graphButton) {
-      return;
+    const graphForm = getElement("create-graph-form");
+    const graphTypeSelect = getElement("graph-type");
+    const graphMetricSelect = getElement("graph-metric");
+    const graphWindowSelect = getElement("graph-window");
+
+    if (graphButton && graphButton.dataset.bound !== "true") {
+      graphButton.dataset.bound = "true";
+      graphButton.addEventListener("click", () => {
+        void runCreateGraph();
+      });
     }
 
-    graphButton.addEventListener("click", () => {
-      void runCreateGraph();
+    if (graphForm && graphForm.dataset.bound !== "true") {
+      graphForm.dataset.bound = "true";
+      graphForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void runCreateGraph();
+      });
+    }
+
+    const syncMeta = () => {
+      const selections = readGraphSelections();
+      if (selections) {
+        renderGraphSelectionMeta(selections);
+      }
+    };
+
+    [graphTypeSelect, graphMetricSelect, graphWindowSelect].forEach((element) => {
+      if (element && element.dataset.bound !== "true") {
+        element.dataset.bound = "true";
+        element.addEventListener("change", syncMeta);
+      }
     });
+
+    renderIdleGraphState();
   }
 
   return {

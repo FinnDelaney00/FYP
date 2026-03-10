@@ -78,6 +78,14 @@ export function createQueryModule({ getJSON }) {
     };
   }
 
+  function setStatus(elements, message, state = "idle") {
+    if (!elements.status) {
+      return;
+    }
+    elements.status.textContent = message;
+    elements.status.dataset.state = state;
+  }
+
   function setQuerySqlPreview() {
     const elements = getQueryFormElements();
     if (!elements.statusPreview || !elements.databaseSelect || !elements.rowSelect || !elements.limitSelect) {
@@ -105,12 +113,13 @@ export function createQueryModule({ getJSON }) {
       rowSelect.innerHTML = cachedRows;
       rowSelect.disabled = false;
       setQuerySqlPreview();
+      setStatus(elements, "Ready.");
       return Promise.resolve();
     }
 
     rowSelect.disabled = true;
     if (status) {
-      status.textContent = "Loading available rows...";
+      setStatus(elements, "Loading available rows...", "loading");
     }
 
     const discoveryQuery = buildQueryFromControls({ database, projection: "*", limit: 1 });
@@ -139,6 +148,7 @@ export function createQueryModule({ getJSON }) {
         queryRowsCache.set(database, optionHtml);
         rowSelect.disabled = false;
         setQuerySqlPreview();
+        setStatus(elements, "Ready.");
         return optionHtml;
       })
       .catch(() => {
@@ -150,6 +160,7 @@ export function createQueryModule({ getJSON }) {
         queryRowsCache.set(database, fallbackOptions);
         rowSelect.disabled = false;
         setQuerySqlPreview();
+        setStatus(elements, "Ready.");
         return fallbackOptions;
       });
   }
@@ -188,8 +199,7 @@ export function createQueryModule({ getJSON }) {
   async function runQuery(getAuthToken) {
     const elements = getQueryFormElements();
     const input = getElement("query-input");
-    const status = elements.status;
-    if (!status) {
+    if (!elements.status) {
       return;
     }
 
@@ -203,11 +213,11 @@ export function createQueryModule({ getJSON }) {
       : input?.value?.trim();
 
     if (!query) {
-      status.textContent = "Select a database and row option first.";
+      setStatus(elements, "Select a database and row option first.", "error");
       return;
     }
 
-    status.textContent = "Running query...";
+    setStatus(elements, "Running query...", "loading");
     try {
       const payload = await getJSON("/query", {
         method: "POST",
@@ -221,9 +231,9 @@ export function createQueryModule({ getJSON }) {
       }, getAuthToken);
 
       renderQueryResult(payload);
-      status.textContent = "Query completed.";
+      setStatus(elements, "Query completed.", "success");
     } catch (error) {
-      status.textContent = `Query failed: ${error.message}`;
+      setStatus(elements, `Query failed: ${error.message}`, "error");
     }
   }
 
@@ -261,6 +271,7 @@ export function createQueryModule({ getJSON }) {
 
     await setQueryRowOptions(elements.databaseSelect.value, getAuthToken);
     setQuerySqlPreview();
+    setStatus(elements, "Ready.");
   }
 
   return {

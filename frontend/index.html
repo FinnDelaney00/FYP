@@ -21,7 +21,7 @@
     <section id="login-view" class="view view-active" aria-label="Login view">
       <div class="login-shell">
         <div class="login-brand">
-          <span class="brand-mark">AI</span>
+          <span class="brand-mark">SS</span>
           <div>
             <p class="brand-eyebrow">SmartStream Platform</p>
             <h1>Business Spending Dashboard</h1>
@@ -287,97 +287,179 @@
           </section>
 
           <section class="page" data-page="create-graph">
-            <div class="panel-grid">
-              <article class="panel">
+            <div class="graph-page-layout">
+              <article class="panel graph-controls-panel">
                 <header>
                   <h3>Create Custom Graph</h3>
-                  <p>Build chart views from your latest data</p>
+                  <p>Select the metric, chart type, and time window for your preview.</p>
                 </header>
-                <form id="create-graph-form" class="inline-form" onsubmit="return false;">
-                  <label for="graph-type">Graph type
-                    <select id="graph-type">
-                      <option>Line Chart</option>
-                      <option>Bar Chart</option>
-                      <option>Area Chart</option>
-                    </select>
-                  </label>
-                  <label for="graph-metric">Primary metric
-                    <select id="graph-metric">
-                      <option>Revenue</option>
-                      <option>Expenses</option>
-                      <option>Employee Count</option>
-                    </select>
-                  </label>
-                  <label for="graph-window">Time window
-                    <select id="graph-window">
-                      <option>Last 6 months</option>
-                      <option>Last 12 months</option>
-                      <option>Year to date</option>
-                    </select>
-                  </label>
-                  <button id="graph-generate-btn" type="button" class="action">Generate Preview</button>
+                <form id="create-graph-form" class="inline-form graph-controls-form" onsubmit="return false;">
+                  <div class="graph-controls-grid">
+                    <label for="graph-type">Graph type
+                      <select id="graph-type">
+                        <option>Line Chart</option>
+                        <option>Bar Chart</option>
+                        <option>Area Chart</option>
+                      </select>
+                    </label>
+                    <label for="graph-metric">Primary metric
+                      <select id="graph-metric">
+                        <option>Revenue</option>
+                        <option>Expenses</option>
+                        <option>Employee Count</option>
+                      </select>
+                    </label>
+                    <label for="graph-window">Time window
+                      <select id="graph-window">
+                        <option>Last 6 months</option>
+                        <option>Last 12 months</option>
+                        <option>Year to date</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="graph-controls-actions">
+                    <button id="graph-generate-btn" type="button" class="action">Generate Preview</button>
+                    <p id="graph-status" class="graph-status" role="status" aria-live="polite">Ready to generate a chart preview.</p>
+                  </div>
                 </form>
               </article>
 
-              <article class="panel">
-                <header>
-                  <h3>Graph Preview</h3>
-                  <p>Live preview of selected settings</p>
+              <article class="panel graph-preview-panel">
+                <header class="graph-preview-head">
+                  <div>
+                    <h3>Graph Preview</h3>
+                    <p id="graph-preview-subtitle">Live preview of your selected graph settings.</p>
+                  </div>
+                  <div id="graph-selection-meta" class="graph-selection-meta" aria-label="Selected graph settings">
+                    <span class="graph-chip">Line Chart</span>
+                    <span class="graph-chip">Revenue</span>
+                    <span class="graph-chip">Last 6 months</span>
+                  </div>
                 </header>
-                <div id="graph-preview" class="graph-preview">
-                  <p class="graph-empty">Configure options and generate a preview.</p>
+                <div id="graph-preview" class="graph-preview" role="region" aria-label="Generated graph preview">
+                  <div class="graph-state graph-state-empty">
+                    <h4>Ready to generate</h4>
+                    <p>Choose your settings above, then generate a chart preview.</p>
+                  </div>
                 </div>
-                <p id="graph-status" class="muted-note">Ready.</p>
+                <footer class="graph-preview-footer">
+                  <p id="graph-footnote" class="graph-footnote">Chart sizing is optimized for clear executive-style reporting.</p>
+                </footer>
+              </article>
+
+              <article class="panel graph-insights-panel">
+                <header>
+                  <h3>Quick Insights</h3>
+                  <p>Summary stats and trend context from the currently rendered graph.</p>
+                </header>
+                <div id="graph-insights" class="graph-insights-grid">
+                  <p class="graph-insight-empty">Generate a chart to see summary insights.</p>
+                </div>
               </article>
             </div>
           </section>
 
           <section class="page" data-page="query">
-            <div class="panel-grid">
-              <article class="panel">
-                <header>
-                  <h3>Query Data</h3>
-                  <p>Run ad-hoc queries against your analytics dataset</p>
-                </header>
-                <form id="query-form" class="inline-form" onsubmit="return false;">
-                  <label for="query-database">Database
-                    <select id="query-database">
-                      <option value="">Loading...</option>
-                    </select>
-                  </label>
-                  <label for="query-row">Rows to select
-                    <select id="query-row">
-                      <option value="*">All columns</option>
-                      <option value="__count__">Row count</option>
-                    </select>
-                  </label>
-                  <label for="query-limit">Max rows
-                    <select id="query-limit">
-                      <option value="20">20</option>
-                      <option value="50">50</option>
-                      <option value="100">100</option>
-                      <option value="200">200</option>
-                    </select>
-                  </label>
-                  <button id="query-run-btn" class="action" type="button">Run Query</button>
-                  <p id="query-sql-preview" class="query-sql-preview">Generated SQL: SELECT * FROM trusted LIMIT 20</p>
-                </form>
-                <p id="query-status" class="muted-note">Ready.</p>
-              </article>
+            <div class="query-shell">
+              <section class="panel query-page-head">
+                <div>
+                  <p class="section-kicker">Data Explorer</p>
+                  <h2>Run quick checks on trusted datasets</h2>
+                  <p class="dashboard-summary">
+                    Build a simple query without writing SQL, inspect returned records, and validate source data in seconds.
+                  </p>
+                </div>
+                <div class="query-head-notes">
+                  <article class="query-head-note">
+                    <span>Flexible source</span>
+                    <p>Switch between dataset tables from one guided query builder.</p>
+                  </article>
+                  <article class="query-head-note">
+                    <span>Fast review</span>
+                    <p>Use row limits to keep previews compact and readable.</p>
+                  </article>
+                </div>
+              </section>
 
-              <article class="panel">
-                <header>
-                  <h3>Query Results</h3>
-                  <p id="query-results-meta">No query executed yet.</p>
+              <div class="query-main-grid">
+                <article class="panel query-controls-panel">
+                  <header class="panel-header-inline">
+                    <div>
+                      <h3>Query Builder</h3>
+                      <p>Select a dataset, choose columns, and run your query.</p>
+                    </div>
+                    <span class="metric-trend" data-tone="muted">Guided SQL</span>
+                  </header>
+                  <form id="query-form" class="inline-form query-controls-form" onsubmit="return false;">
+                    <div class="query-controls-grid">
+                      <label for="query-database">Database
+                        <select id="query-database">
+                          <option value="">Loading...</option>
+                        </select>
+                      </label>
+                      <label for="query-row">Rows to select
+                        <select id="query-row">
+                          <option value="*">All columns</option>
+                          <option value="__count__">Row count</option>
+                        </select>
+                      </label>
+                      <label for="query-limit">Max rows
+                        <select id="query-limit">
+                          <option value="20">20</option>
+                          <option value="50">50</option>
+                          <option value="100">100</option>
+                          <option value="200">200</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="query-controls-actions">
+                      <button id="query-run-btn" class="action" type="button">Run Query</button>
+                      <p id="query-status" class="query-status" role="status" aria-live="polite">Ready.</p>
+                    </div>
+                  </form>
+                  <p id="query-sql-preview" class="query-sql-preview">Generated SQL: SELECT * FROM trusted LIMIT 20</p>
+                </article>
+
+                <aside class="panel query-help-panel">
+                  <header>
+                    <h3>How It Works</h3>
+                    <p>Quick steps for exploring source data.</p>
+                  </header>
+                  <div class="query-note-list">
+                    <article class="query-note-item">
+                      <span>1</span>
+                      <p>Pick the dataset table you want to inspect.</p>
+                    </article>
+                    <article class="query-note-item">
+                      <span>2</span>
+                      <p>Choose all columns, one column, or total row count.</p>
+                    </article>
+                    <article class="query-note-item">
+                      <span>3</span>
+                      <p>Run and review returned rows in the result grid below.</p>
+                    </article>
+                  </div>
+                </aside>
+              </div>
+
+              <article class="panel query-results-panel">
+                <header class="panel-header-inline">
+                  <div>
+                    <h3>Query Results</h3>
+                    <p id="query-results-meta">No query executed yet.</p>
+                  </div>
+                  <span class="metric-trend" data-tone="muted">Live dataset</span>
                 </header>
-                <table id="query-results-table" class="results-table">
-                  <thead id="query-results-head">
-                    <tr><th>Run a query to see results</th></tr>
-                  </thead>
-                  <tbody id="query-results-body">
-                    <tr><td>Results will appear here.</td></tr>
-                  </tbody>
-                </table>
+                <div class="query-results-wrap">
+                  <table id="query-results-table" class="results-table query-results-table">
+                    <thead id="query-results-head">
+                      <tr><th>Run a query to see results</th></tr>
+                    </thead>
+                    <tbody id="query-results-body">
+                      <tr><td>Results will appear here.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </article>
             </div>
           </section>
