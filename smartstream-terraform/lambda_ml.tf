@@ -19,8 +19,8 @@ resource "aws_lambda_function" "ml_inference" {
   environment {
     variables = {
       DATA_LAKE_BUCKET = aws_s3_bucket.data_lake.id
-      TRUSTED_PREFIX   = local.s3_trusted_prefix
-      ANALYTICS_PREFIX = "${local.s3_trusted_analytics_prefix}predictions/"
+      TRUSTED_PREFIX   = "${local.s3_trusted_prefix}${local.name_prefix}/"
+      ANALYTICS_PREFIX = "${local.s3_trusted_analytics_prefix}${local.name_prefix}/predictions/"
       MAX_INPUT_FILES  = tostring(var.ml_max_input_files)
       FORECAST_DAYS    = tostring(var.ml_forecast_days)
       LOG_LEVEL        = "INFO"

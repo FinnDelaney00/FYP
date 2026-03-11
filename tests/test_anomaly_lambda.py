@@ -15,10 +15,10 @@ class AnomalyLambdaTests(unittest.TestCase):
             fake_s3_client=cls.fake_s3,
             env={
                 "DATA_LAKE_BUCKET": "test-data-lake",
-                "TRUSTED_PREFIX": "trusted/",
-                "EMPLOYEES_PREFIX": "trusted/employees/",
-                "TRANSACTIONS_PREFIX": "trusted/finance/transactions/",
-                "ANALYTICS_PREFIX": "trusted-analytics/anomalies/",
+                "TRUSTED_PREFIX": "trusted/smartstream-dev/",
+                "EMPLOYEES_PREFIX": "trusted/smartstream-dev/employees/",
+                "TRANSACTIONS_PREFIX": "trusted/smartstream-dev/finance/transactions/",
+                "ANALYTICS_PREFIX": "trusted-analytics/smartstream-dev/anomalies/",
                 "MAX_INPUT_FILES": "20",
                 "SALARY_OUTLIER_ZSCORE_THRESHOLD": "2.0",
                 "DUPLICATE_TRANSACTION_WINDOW_MINUTES": "10",
@@ -79,8 +79,8 @@ class AnomalyLambdaTests(unittest.TestCase):
         self.assertEqual(sorted(anomalies[0]["record_ids"]), ["t1", "t2"])
 
     def test_lambda_handler_writes_anomaly_payload(self):
-        employees_key = "trusted/employees/employees/2026/03/09/employees.json"
-        transactions_key = "trusted/finance/transactions/2026/03/09/transactions.json"
+        employees_key = "trusted/smartstream-dev/employees/employees/2026/03/09/employees.json"
+        transactions_key = "trusted/smartstream-dev/finance/transactions/2026/03/09/transactions.json"
         now = datetime(2026, 3, 9, 10, 0, tzinfo=timezone.utc)
 
         self.fake_s3.pages = [
@@ -139,7 +139,9 @@ class AnomalyLambdaTests(unittest.TestCase):
         self.assertGreater(body["anomaly_count"], 0)
         self.assertEqual(len(self.fake_s3.put_calls), 1)
         self.assertEqual(self.fake_s3.put_calls[0]["Bucket"], "test-data-lake")
-        self.assertTrue(self.fake_s3.put_calls[0]["Key"].startswith("trusted-analytics/anomalies/"))
+        self.assertTrue(
+            self.fake_s3.put_calls[0]["Key"].startswith("trusted-analytics/smartstream-dev/anomalies/")
+        )
 
 
 if __name__ == "__main__":

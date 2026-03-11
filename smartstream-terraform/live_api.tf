@@ -53,6 +53,46 @@ resource "aws_dynamodb_table" "anomaly_reviews" {
   })
 }
 
+resource "aws_dynamodb_table" "companies" {
+  name         = "${local.name_prefix}-companies"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "company_id"
+
+  attribute {
+    name = "company_id"
+    type = "S"
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = merge(local.common_tags, {
+    Name    = "${local.name_prefix}-companies"
+    Purpose = "CompanyTenancy"
+  })
+}
+
+resource "aws_dynamodb_table" "invites" {
+  name         = "${local.name_prefix}-invites"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "invite_code"
+
+  attribute {
+    name = "invite_code"
+    type = "S"
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = merge(local.common_tags, {
+    Name    = "${local.name_prefix}-invites"
+    Purpose = "InviteSignup"
+  })
+}
+
 resource "aws_iam_role" "lambda_live_api" {
   count       = var.create_shared_iam ? 1 : 0
   name_prefix = "${local.legacy_prefix}-lambda-live-api-"
@@ -161,11 +201,14 @@ resource "aws_iam_role_policy" "lambda_live_api_s3" {
         Action = [
           "dynamodb:GetItem",
           "dynamodb:PutItem",
-          "dynamodb:UpdateItem"
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem"
         ]
         Resource = [
           "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-accounts",
-          "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-anomaly-reviews"
+          "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-anomaly-reviews",
+          "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-companies",
+          "arn:aws:dynamodb:${var.region}:${local.account_id}:table/*-invites"
         ]
       }
     ]
@@ -190,22 +233,23 @@ resource "aws_lambda_function" "live_api" {
 
   environment {
     variables = {
-      DATA_LAKE_BUCKET       = local.live_api_data_lake_bucket
-      TRUSTED_PREFIX         = var.trusted_prefix_finance_transactions
-      EMPLOYEES_PREFIX       = var.trusted_prefix_employees
-      PREDICTIONS_PREFIX     = var.trusted_prefix_predictions
-      ANOMALIES_PREFIX       = var.trusted_prefix_anomalies
-      MAX_ITEMS_DEFAULT      = tostring(var.max_items)
-      QUERY_MAX_ROWS         = tostring(var.query_max_rows)
-      ALLOWED_ORIGIN         = var.allowed_origin
-      POLL_INTERVAL_MS       = tostring(var.poll_interval_ms)
-      ATHENA_WORKGROUP       = aws_athena_workgroup.main.name
-      ATHENA_DATABASE        = aws_glue_catalog_database.main.name
-      ATHENA_OUTPUT_LOCATION = "s3://${aws_s3_bucket.athena_results.id}/results/"
-      ACCOUNTS_TABLE         = aws_dynamodb_table.accounts.name
-      ANOMALY_REVIEWS_TABLE  = aws_dynamodb_table.anomaly_reviews.name
-      AUTH_TOKEN_SECRET      = random_password.auth_token_secret.result
-      AUTH_TOKEN_TTL_SECONDS = tostring(var.auth_token_ttl_seconds)
+      DATA_LAKE_BUCKET              = local.live_api_data_lake_bucket
+      TRUSTED_ROOT_PREFIX           = local.s3_trusted_prefix
+      TRUSTED_ANALYTICS_ROOT_PREFIX = local.s3_trusted_analytics_prefix
+      MAX_ITEMS_DEFAULT             = tostring(var.max_items)
+      QUERY_MAX_ROWS                = tostring(var.query_max_rows)
+      ALLOWED_ORIGIN                = var.allowed_origin
+      POLL_INTERVAL_MS              = tostring(var.poll_interval_ms)
+      ATHENA_WORKGROUP              = aws_athena_workgroup.main.name
+      ATHENA_DATABASE               = aws_glue_catalog_database.main.name
+      ATHENA_OUTPUT_LOCATION        = "s3://${aws_s3_bucket.athena_results.id}/results/"
+      ACCOUNTS_TABLE                = aws_dynamodb_table.accounts.name
+      ANOMALY_REVIEWS_TABLE         = aws_dynamodb_table.anomaly_reviews.name
+      COMPANIES_TABLE               = aws_dynamodb_table.companies.name
+      INVITES_TABLE                 = aws_dynamodb_table.invites.name
+      AUTH_TOKEN_SECRET             = random_password.auth_token_secret.result
+      AUTH_TOKEN_TTL_SECONDS        = tostring(var.auth_token_ttl_seconds)
+      DEFAULT_ACCOUNT_ROLE          = "member"
     }
   }
 
@@ -305,6 +349,12 @@ resource "aws_apigatewayv2_route" "live_api_auth_login" {
 resource "aws_apigatewayv2_route" "live_api_auth_me" {
   api_id    = aws_apigatewayv2_api.live_api.id
   route_key = "GET /auth/me"
+  target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "live_api_admin_invites" {
+  api_id    = aws_apigatewayv2_api.live_api.id
+  route_key = "POST /admin/invites"
   target    = "integrations/${aws_apigatewayv2_integration.live_api_lambda.id}"
 }
 

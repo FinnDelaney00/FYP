@@ -7,9 +7,11 @@ import os
 import re
 import secrets
 import time
+from uuid import uuid4
 from urllib.parse import unquote
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from functools import lru_cache
 from io import BytesIO
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -17,13 +19,22 @@ import boto3
 
 s3_client = boto3.client("s3")
 athena_client = boto3.client("athena")
+glue_client = boto3.client("glue")
 dynamodb = boto3.resource("dynamodb")
 
+
+def _normalize_prefix(raw_prefix: Optional[str], fallback: str) -> str:
+    prefix = str(raw_prefix or "").strip()
+    if not prefix:
+        prefix = fallback
+    return prefix if prefix.endswith("/") else f"{prefix}/"
+
+
 DATA_LAKE_BUCKET = os.environ["DATA_LAKE_BUCKET"]
-TRUSTED_PREFIX = os.environ.get("TRUSTED_PREFIX", "trusted/finance/transactions/")
-EMPLOYEES_PREFIX = os.environ.get("EMPLOYEES_PREFIX", "trusted/employees/")
-PREDICTIONS_PREFIX = os.environ.get("PREDICTIONS_PREFIX", "trusted-analytics/predictions/")
-ANOMALIES_PREFIX = os.environ.get("ANOMALIES_PREFIX", "trusted-analytics/anomalies/")
+TRUSTED_ROOT_PREFIX = _normalize_prefix(os.environ.get("TRUSTED_ROOT_PREFIX"), "trusted/")
+TRUSTED_ANALYTICS_ROOT_PREFIX = _normalize_prefix(
+    os.environ.get("TRUSTED_ANALYTICS_ROOT_PREFIX"), "trusted-analytics/"
+)
 MAX_ITEMS_DEFAULT = int(os.environ.get("MAX_ITEMS_DEFAULT", "200"))
 QUERY_MAX_ROWS = int(os.environ.get("QUERY_MAX_ROWS", str(MAX_ITEMS_DEFAULT)))
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
@@ -34,13 +45,26 @@ ATHENA_QUERY_TIMEOUT_SECONDS = int(os.environ.get("ATHENA_QUERY_TIMEOUT_SECONDS"
 ATHENA_POLL_INTERVAL_SECONDS = float(os.environ.get("ATHENA_POLL_INTERVAL_SECONDS", "0.5"))
 ACCOUNTS_TABLE_NAME = os.environ.get("ACCOUNTS_TABLE", "smartstream-accounts")
 ANOMALY_REVIEWS_TABLE_NAME = os.environ.get("ANOMALY_REVIEWS_TABLE", "smartstream-anomaly-reviews")
+COMPANIES_TABLE_NAME = os.environ.get("COMPANIES_TABLE", "smartstream-companies")
+INVITES_TABLE_NAME = os.environ.get("INVITES_TABLE", "smartstream-invites")
 AUTH_TOKEN_SECRET = os.environ.get("AUTH_TOKEN_SECRET", "dev-secret-change-me")
 AUTH_TOKEN_TTL_SECONDS = int(os.environ.get("AUTH_TOKEN_TTL_SECONDS", "604800"))
+DEFAULT_ACCOUNT_ROLE = str(os.environ.get("DEFAULT_ACCOUNT_ROLE", "member") or "member").strip().lower() or "member"
 
 accounts_table = dynamodb.Table(ACCOUNTS_TABLE_NAME)
 anomaly_reviews_table = dynamodb.Table(ANOMALY_REVIEWS_TABLE_NAME)
+companies_table = dynamodb.Table(COMPANIES_TABLE_NAME)
+invites_table = dynamodb.Table(INVITES_TABLE_NAME)
 
 EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+COMPANY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{1,62}$")
+SIMPLE_TRUSTED_SQL_PATTERN = re.compile(
+    r"""^\s*select\s+(?P<select>.+?)\s+from\s+(?P<table>"?trusted"?)"""
+    r"""(?:\s+where\s+(?P<where>.+?))?"""
+    r"""(?:\s+order\s+by\s+(?P<order>.+?))?"""
+    r"""(?:\s+limit\s+(?P<limit>\d+))?\s*$""",
+    re.IGNORECASE | re.DOTALL,
+)
 
 DATE_FIELDS = (
     "transaction_date",
@@ -62,6 +86,7 @@ FORBIDDEN_SQL_PATTERN = re.compile(
     r"\b(insert|update|delete|drop|alter|create|truncate|merge|grant|revoke|unload|call|msck|repair)\b",
     re.IGNORECASE,
 )
+UNSAFE_SQL_PATTERN = re.compile(r"(--|/\*|\*/|\bjoin\b|\bunion\b|\bintersect\b|\bexcept\b)", re.IGNORECASE)
 HAS_LIMIT_PATTERN = re.compile(r"\blimit\s+\d+\b", re.IGNORECASE)
 ANOMALY_STATUS_VALUES = {
     "new",
@@ -71,6 +96,16 @@ ANOMALY_STATUS_VALUES = {
     "false_positive",
     "resolved",
 }
+ALLOWED_ACCOUNT_ROLES = {"viewer", "member", "analyst", "admin"}
+ACTIVE_STATUS_VALUES = {"active"}
+
+
+if DEFAULT_ACCOUNT_ROLE not in ALLOWED_ACCOUNT_ROLES or DEFAULT_ACCOUNT_ROLE == "admin":
+    DEFAULT_ACCOUNT_ROLE = "member"
+
+
+class ForbiddenError(Exception):
+    pass
 ANOMALY_REVIEW_ACTIONS = {
     "mark_reviewed": {"status": "reviewed", "verb": "Marked as reviewed"},
     "mark_false_positive": {"status": "false_positive", "verb": "Marked as false positive"},
@@ -113,6 +148,60 @@ def _event_path(event: Dict[str, Any]) -> str:
     if not raw_path.startswith("/"):
         return f"/{raw_path}"
     return raw_path
+
+
+def _normalize_company_id(value: Any) -> str:
+    company_id = str(value or "").strip().lower()
+    if not COMPANY_ID_PATTERN.match(company_id):
+        raise ValueError("Invalid company identifier.")
+    return company_id
+
+
+def _normalize_role(value: Any, *, fallback: str = DEFAULT_ACCOUNT_ROLE) -> str:
+    role = str(value or "").strip().lower()
+    if not role:
+        role = fallback
+    if role not in ALLOWED_ACCOUNT_ROLES:
+        role = fallback
+    return role
+
+
+def _is_active_status(value: Any) -> bool:
+    normalized = str(value or "active").strip().lower()
+    return normalized in ACTIVE_STATUS_VALUES
+
+
+def _looks_company_scoped_prefix(prefix: str, company_id: str) -> bool:
+    return prefix.startswith(TRUSTED_ROOT_PREFIX) and f"/{company_id}/" in f"/{prefix}"
+
+
+def _looks_company_scoped_analytics_prefix(prefix: str, company_id: str) -> bool:
+    return prefix.startswith(TRUSTED_ANALYTICS_ROOT_PREFIX) and f"/{company_id}/" in f"/{prefix}"
+
+
+def _company_prefixes(company_id: str, company: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    trusted_base_default = f"{TRUSTED_ROOT_PREFIX}{company_id}/"
+    analytics_base_default = f"{TRUSTED_ANALYTICS_ROOT_PREFIX}{company_id}/"
+
+    trusted_base = _normalize_prefix(
+        (company or {}).get("trusted_prefix") if _looks_company_scoped_prefix(str((company or {}).get("trusted_prefix") or ""), company_id) else trusted_base_default,
+        trusted_base_default,
+    )
+    analytics_base = _normalize_prefix(
+        (company or {}).get("analytics_prefix")
+        if _looks_company_scoped_analytics_prefix(str((company or {}).get("analytics_prefix") or ""), company_id)
+        else analytics_base_default,
+        analytics_base_default,
+    )
+
+    return {
+        "trusted_base": trusted_base,
+        "analytics_base": analytics_base,
+        "employees": f"{trusted_base}employees/",
+        "finance": f"{trusted_base}finance/transactions/",
+        "predictions": f"{analytics_base}predictions/",
+        "anomalies": f"{analytics_base}anomalies/",
+    }
 
 
 def _parse_limit(event: Dict[str, Any]) -> int:
@@ -345,8 +434,8 @@ def _parse_prediction_document(document: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _load_latest_prediction() -> Dict[str, Any]:
-    latest = _get_latest_object(PREDICTIONS_PREFIX)
+def _load_latest_prediction(prefix: str) -> Dict[str, Any]:
+    latest = _get_latest_object(prefix)
     if latest is None:
         return {
             "found": False,
@@ -573,8 +662,10 @@ def _metric_data_health(prediction: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_dashboard_payload() -> Dict[str, Any]:
-    latest_finance_object = _get_latest_object(TRUSTED_PREFIX)
+def _build_dashboard_payload(auth_context: Dict[str, Any]) -> Dict[str, Any]:
+    prefixes = auth_context["prefixes"]
+
+    latest_finance_object = _get_latest_object(prefixes["finance"])
     finance_items: List[Dict[str, Any]] = []
     latest_finance_key = None
     latest_finance_modified = None
@@ -587,7 +678,7 @@ def _build_dashboard_payload() -> Dict[str, Any]:
         except Exception:
             finance_items = []
 
-    prediction_info = _load_latest_prediction()
+    prediction_info = _load_latest_prediction(prefixes["predictions"])
     prediction = prediction_info.get("prediction") or {
         "status": "no_prediction",
         "generated_at": None,
@@ -601,8 +692,8 @@ def _build_dashboard_payload() -> Dict[str, Any]:
         "raw": {},
     }
 
-    employee_records, employee_keys = _load_records(EMPLOYEES_PREFIX, max_files=12)
-    finance_records, finance_keys = _load_records(TRUSTED_PREFIX, max_files=12)
+    employee_records, employee_keys = _load_records(prefixes["employees"], max_files=12)
+    finance_records, finance_keys = _load_records(prefixes["finance"], max_files=12)
 
     if not prediction["revenue_history"] and finance_records:
         daily_revenue: Dict[str, float] = defaultdict(float)
@@ -653,14 +744,16 @@ def _build_dashboard_payload() -> Dict[str, Any]:
             "employee_source_keys": employee_keys,
             "finance_source_keys": finance_keys,
             "latest_item_count": len(finance_items),
+            "company_id": auth_context.get("company_id"),
+            "trusted_prefix": prefixes["trusted_base"],
         },
     }
 
     return dashboard
 
 
-def _forecast_payload() -> Dict[str, Any]:
-    prediction_info = _load_latest_prediction()
+def _forecast_payload(auth_context: Dict[str, Any]) -> Dict[str, Any]:
+    prediction_info = _load_latest_prediction(auth_context["prefixes"]["predictions"])
     if not prediction_info.get("found"):
         return {
             "status": "no_prediction",
@@ -690,6 +783,7 @@ def _forecast_payload() -> Dict[str, Any]:
         "employee_growth_forecast": prediction.get("employee_forecast", []),
         "revenue_forecast": prediction.get("revenue_forecast", []),
         "expenditure_forecast": prediction.get("expenditure_forecast", []),
+        "company_id": auth_context.get("company_id"),
     }
 
 
@@ -715,8 +809,8 @@ def _normalize_anomaly_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return normalized
 
 
-def _load_latest_anomalies() -> Dict[str, Any]:
-    latest = _get_latest_object(ANOMALIES_PREFIX)
+def _load_latest_anomalies(prefix: str) -> Dict[str, Any]:
+    latest = _get_latest_object(prefix)
     if latest is None:
         return {
             "found": False,
@@ -755,8 +849,12 @@ def _load_latest_anomalies() -> Dict[str, Any]:
         }
 
 
-def _get_review_item(anomaly_id: str) -> Dict[str, Any]:
-    response = anomaly_reviews_table.get_item(Key={"anomaly_id": anomaly_id})
+def _review_partition_key(company_id: str, anomaly_id: str) -> str:
+    return f"{company_id}#{anomaly_id}"
+
+
+def _get_review_item(company_id: str, anomaly_id: str) -> Dict[str, Any]:
+    response = anomaly_reviews_table.get_item(Key={"anomaly_id": _review_partition_key(company_id, anomaly_id)})
     item = response.get("Item")
     return item if isinstance(item, dict) else {}
 
@@ -778,14 +876,14 @@ def _merge_anomaly_with_review(anomaly: Dict[str, Any], review_item: Dict[str, A
     return merged
 
 
-def _load_anomalies_with_reviews() -> Dict[str, Any]:
-    source = _load_latest_anomalies()
+def _load_anomalies_with_reviews(auth_context: Dict[str, Any]) -> Dict[str, Any]:
+    source = _load_latest_anomalies(auth_context["prefixes"]["anomalies"])
     merged_items: List[Dict[str, Any]] = []
     for anomaly in source.get("items", []):
         anomaly_id = str(anomaly.get("anomaly_id") or "")
         if not anomaly_id:
             continue
-        review_item = _get_review_item(anomaly_id)
+        review_item = _get_review_item(auth_context["company_id"], anomaly_id)
         merged_items.append(_merge_anomaly_with_review(anomaly, review_item))
 
     source["items"] = sorted(
@@ -865,10 +963,10 @@ def _anomaly_path_parts(path: str) -> Tuple[Optional[str], bool]:
     return None, False
 
 
-def _build_anomaly_list_payload(event: Dict[str, Any]) -> Dict[str, Any]:
+def _build_anomaly_list_payload(event: Dict[str, Any], auth_context: Dict[str, Any]) -> Dict[str, Any]:
     limit = _parse_limit(event)
     query = event.get("queryStringParameters") or {}
-    source = _load_anomalies_with_reviews()
+    source = _load_anomalies_with_reviews(auth_context)
     filtered = _filter_anomalies(source.get("items", []), query)
 
     return {
@@ -878,22 +976,23 @@ def _build_anomaly_list_payload(event: Dict[str, Any]) -> Dict[str, Any]:
         "s3_key": source.get("key"),
         "last_modified": source.get("last_modified"),
         "error": source.get("error"),
+        "company_id": auth_context.get("company_id"),
     }
 
 
-def _find_anomaly_by_id(anomaly_id: str) -> Optional[Dict[str, Any]]:
-    source = _load_anomalies_with_reviews()
+def _find_anomaly_by_id(auth_context: Dict[str, Any], anomaly_id: str) -> Optional[Dict[str, Any]]:
+    source = _load_anomalies_with_reviews(auth_context)
     for item in source.get("items", []):
         if str(item.get("anomaly_id")) == anomaly_id:
             return item
     return None
 
 
-def _build_anomaly_detail_payload(anomaly_id: str) -> Optional[Dict[str, Any]]:
-    anomaly = _find_anomaly_by_id(anomaly_id)
+def _build_anomaly_detail_payload(auth_context: Dict[str, Any], anomaly_id: str) -> Optional[Dict[str, Any]]:
+    anomaly = _find_anomaly_by_id(auth_context, anomaly_id)
     if anomaly is None:
         return None
-    return {"item": anomaly}
+    return {"item": anomaly, "company_id": auth_context.get("company_id")}
 
 
 def _normalize_review_action(action: str) -> str:
@@ -918,13 +1017,15 @@ def _validated_status(status: str) -> str:
     return normalized
 
 
-def _update_anomaly_review(event: Dict[str, Any], claims: Dict[str, Any], anomaly_id: str) -> Dict[str, Any]:
+def _update_anomaly_review(event: Dict[str, Any], auth_context: Dict[str, Any], anomaly_id: str) -> Dict[str, Any]:
     body = _parse_json_body(event)
     action = _normalize_review_action(str(body.get("action") or "mark_reviewed"))
     action_definition = ANOMALY_REVIEW_ACTIONS.get(action)
     if action_definition is None:
         raise ValueError("Unsupported review action.")
 
+    claims = auth_context["claims"]
+    company_id = auth_context["company_id"]
     actor_email = str(claims.get("sub") or "unknown")
     actor_name = str(claims.get("name") or "")
     actor = actor_name if actor_name else actor_email
@@ -936,7 +1037,7 @@ def _update_anomaly_review(event: Dict[str, Any], claims: Dict[str, Any], anomal
     if status_override:
         status = _validated_status(status_override)
 
-    review_item = _get_review_item(anomaly_id) or {"anomaly_id": anomaly_id, "audit_trail": [], "notes": []}
+    review_item = _get_review_item(company_id, anomaly_id) or {"audit_trail": [], "notes": []}
     audit_trail = list(review_item.get("audit_trail") or [])
     notes = list(review_item.get("notes") or [])
 
@@ -952,8 +1053,11 @@ def _update_anomaly_review(event: Dict[str, Any], claims: Dict[str, Any], anomal
         notes.append({"at": now_iso, "author": actor, "note": note_text, "action": action})
 
     audit_trail.append(audit_entry)
+    review_key = _review_partition_key(company_id, anomaly_id)
     updated_item = {
-        "anomaly_id": anomaly_id,
+        "anomaly_id": review_key,
+        "company_id": company_id,
+        "source_anomaly_id": anomaly_id,
         "status": status,
         "last_action": action,
         "updated_at": now_iso,
@@ -964,7 +1068,7 @@ def _update_anomaly_review(event: Dict[str, Any], claims: Dict[str, Any], anomal
 
     anomaly_reviews_table.put_item(Item=updated_item)
 
-    anomaly = _find_anomaly_by_id(anomaly_id)
+    anomaly = _find_anomaly_by_id(auth_context, anomaly_id)
     if anomaly is None:
         anomaly = {
             "anomaly_id": anomaly_id,
@@ -984,7 +1088,7 @@ def _update_anomaly_review(event: Dict[str, Any], claims: Dict[str, Any], anomal
             "audit_trail": [],
         }
 
-    return {"item": _merge_anomaly_with_review(anomaly, updated_item)}
+    return {"item": _merge_anomaly_with_review(anomaly, updated_item), "company_id": company_id}
 
 
 def _parse_json_body(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -1013,20 +1117,117 @@ def _normalize_sql(sql: str) -> str:
         raise ValueError("Only one SQL statement is allowed.")
 
     if FORBIDDEN_SQL_PATTERN.search(cleaned):
-        raise ValueError("Only read-only SELECT/WITH queries are allowed.")
+        raise ValueError("Only read-only SELECT queries are allowed.")
 
-    lowered = cleaned.lower()
-    if not (lowered.startswith("select") or lowered.startswith("with")):
-        raise ValueError("Query must start with SELECT or WITH.")
+    if UNSAFE_SQL_PATTERN.search(cleaned):
+        raise ValueError("Query contains unsupported SQL constructs.")
+
+    lowered = cleaned.lower().strip()
+    if not lowered.startswith("select"):
+        raise ValueError("Query must start with SELECT.")
+    if lowered.count("select") > 1:
+        raise ValueError("Subqueries are not supported on this endpoint.")
 
     return cleaned
 
 
 def _enforce_limit(sql: str, limit: int) -> str:
     safe_limit = max(1, min(limit, QUERY_MAX_ROWS))
-    if HAS_LIMIT_PATTERN.search(sql):
-        return sql
-    return f"SELECT * FROM ({sql}) AS live_query LIMIT {safe_limit}"
+    match = re.search(r"\blimit\s+(\d+)\s*$", sql, re.IGNORECASE)
+    if not match:
+        return f"{sql} LIMIT {safe_limit}"
+
+    existing = int(match.group(1))
+    bounded = min(existing, safe_limit)
+    return re.sub(r"\blimit\s+\d+\s*$", f"LIMIT {bounded}", sql, count=1, flags=re.IGNORECASE)
+
+
+def _normalize_s3_location(location: str) -> str:
+    value = str(location or "").strip()
+    if not value:
+        return ""
+    return value if value.endswith("/") else f"{value}/"
+
+
+def _quote_sql_identifier(identifier: str) -> str:
+    cleaned = str(identifier or "").strip()
+    if not cleaned:
+        raise ValueError("Query table name is not configured.")
+    return f"\"{cleaned.replace('\"', '\"\"')}\""
+
+
+def _list_glue_tables(database_name: str) -> List[Dict[str, Any]]:
+    tables: List[Dict[str, Any]] = []
+    next_token: Optional[str] = None
+
+    while True:
+        kwargs: Dict[str, Any] = {"DatabaseName": database_name}
+        if next_token:
+            kwargs["NextToken"] = next_token
+        response = glue_client.get_tables(**kwargs)
+        tables.extend(response.get("TableList") or [])
+        next_token = response.get("NextToken")
+        if not next_token:
+            return tables
+
+
+@lru_cache(maxsize=128)
+def _resolve_trusted_query_target(database_name: str, bucket_name: str, trusted_base_prefix: str) -> Tuple[str, Optional[str]]:
+    target_location = _normalize_s3_location(f"s3://{bucket_name}/{trusted_base_prefix}")
+    root_location = _normalize_s3_location(f"s3://{bucket_name}/{TRUSTED_ROOT_PREFIX}")
+    root_table_name: Optional[str] = None
+
+    for table in _list_glue_tables(database_name):
+        table_name = str(table.get("Name") or "").strip()
+        storage = table.get("StorageDescriptor") or {}
+        location = _normalize_s3_location(storage.get("Location") or "")
+        if not table_name or not location:
+            continue
+        if location == target_location:
+            return table_name, None
+        if table_name.lower() == "trusted" and location == root_location:
+            root_table_name = table_name
+
+    if root_table_name:
+        path_filter = trusted_base_prefix.strip("/")
+        if not path_filter:
+            raise ValueError("Company data prefix is not configured.")
+        return root_table_name, f"\"$path\" LIKE '%/{path_filter}/%'"
+
+    raise ValueError("Tenant query table is not available. Run the trusted Glue crawler and try again.")
+
+
+def _build_tenant_scoped_sql(sql: str, resolved_table_name: str, scope_predicate: Optional[str] = None) -> str:
+    parsed = SIMPLE_TRUSTED_SQL_PATTERN.match(sql)
+    if not parsed:
+        raise ValueError("Only simple SELECT queries against the trusted table are supported.")
+
+    table_name = str(parsed.group("table") or "").replace('"', "").strip().lower()
+    if table_name != "trusted":
+        raise ValueError("Queries must read from the trusted table.")
+
+    select_clause = str(parsed.group("select") or "").strip()
+    where_clause = str(parsed.group("where") or "").strip()
+    order_clause = str(parsed.group("order") or "").strip()
+
+    if not select_clause:
+        raise ValueError("Query projection is required.")
+
+    query_table = _quote_sql_identifier(resolved_table_name)
+
+    if where_clause and scope_predicate:
+        scoped_where = f"({where_clause}) AND {scope_predicate}"
+    elif where_clause:
+        scoped_where = where_clause
+    else:
+        scoped_where = scope_predicate or ""
+
+    scoped_sql = f"SELECT {select_clause} FROM {query_table}"
+    if scoped_where:
+        scoped_sql = f"{scoped_sql} WHERE {scoped_where}"
+    if order_clause:
+        scoped_sql = f"{scoped_sql} ORDER BY {order_clause}"
+    return scoped_sql
 
 
 def _await_athena(query_execution_id: str) -> Dict[str, Any]:
@@ -1082,8 +1283,11 @@ def _fetch_athena_rows(query_execution_id: str, max_rows: int) -> Tuple[List[str
     return columns, rows
 
 
-def _run_query(event: Dict[str, Any]) -> Dict[str, Any]:
-    if not ATHENA_WORKGROUP or not ATHENA_DATABASE:
+def _run_query(event: Dict[str, Any], auth_context: Dict[str, Any]) -> Dict[str, Any]:
+    company = auth_context["company"]
+    athena_database = str(company.get("athena_database") or ATHENA_DATABASE).strip()
+
+    if not ATHENA_WORKGROUP or not athena_database:
         raise ValueError("Athena query endpoint is not configured (missing workgroup/database).")
 
     body = _parse_json_body(event)
@@ -1091,11 +1295,17 @@ def _run_query(event: Dict[str, Any]) -> Dict[str, Any]:
     limit = int(body.get("limit", QUERY_MAX_ROWS) or QUERY_MAX_ROWS)
     limit = max(1, min(limit, QUERY_MAX_ROWS))
 
-    query_text = _enforce_limit(sql, limit)
+    query_table_name, scope_predicate = _resolve_trusted_query_target(
+        athena_database,
+        DATA_LAKE_BUCKET,
+        auth_context["prefixes"]["trusted_base"],
+    )
+    scoped_sql = _build_tenant_scoped_sql(sql, query_table_name, scope_predicate)
+    query_text = _enforce_limit(scoped_sql, limit)
 
     start_kwargs: Dict[str, Any] = {
         "QueryString": query_text,
-        "QueryExecutionContext": {"Database": ATHENA_DATABASE},
+        "QueryExecutionContext": {"Database": athena_database},
         "WorkGroup": ATHENA_WORKGROUP,
     }
     if ATHENA_OUTPUT_LOCATION:
@@ -1113,9 +1323,11 @@ def _run_query(event: Dict[str, Any]) -> Dict[str, Any]:
     columns, rows = _fetch_athena_rows(query_execution_id, max_rows=limit)
     return {
         "query_execution_id": query_execution_id,
+        "query_table": query_table_name,
         "columns": columns,
         "rows": rows,
         "row_count": len(rows),
+        "company_id": auth_context.get("company_id"),
     }
 
 
@@ -1152,11 +1364,18 @@ def _sign_token_segment(segment: str) -> str:
     return _base64url_encode(signature)
 
 
-def _issue_token(email: str, display_name: str) -> str:
+def _issue_token(account: Dict[str, Any]) -> str:
     now = int(time.time())
+    email = str(account.get("email") or "").strip().lower()
+    display_name = str(account.get("display_name") or "")
+    company_id = str(account.get("company_id") or "").strip().lower()
+    role = _normalize_role(account.get("role"), fallback=DEFAULT_ACCOUNT_ROLE)
+
     payload = {
         "sub": email,
         "name": display_name,
+        "company_id": company_id,
+        "role": role,
         "iat": now,
         "exp": now + AUTH_TOKEN_TTL_SECONDS,
     }
@@ -1215,9 +1434,24 @@ def _require_auth(event: Dict[str, Any]) -> Dict[str, Any]:
 
 def _sanitize_account(item: Dict[str, Any]) -> Dict[str, Any]:
     return {
+        "user_id": item.get("user_id"),
         "email": item.get("email"),
         "display_name": item.get("display_name") or "",
+        "company_id": item.get("company_id"),
+        "role": _normalize_role(item.get("role"), fallback=DEFAULT_ACCOUNT_ROLE),
+        "status": str(item.get("status") or "active"),
         "created_at": item.get("created_at"),
+    }
+
+
+def _sanitize_company(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "company_id": item.get("company_id"),
+        "company_name": item.get("company_name") or "",
+        "status": item.get("status") or "inactive",
+        "trusted_prefix": item.get("trusted_prefix"),
+        "analytics_prefix": item.get("analytics_prefix"),
+        "athena_database": item.get("athena_database"),
     }
 
 
@@ -1227,22 +1461,169 @@ def _get_account(email: str) -> Optional[Dict[str, Any]]:
     return item if isinstance(item, dict) else None
 
 
+def _get_company(company_id: str) -> Optional[Dict[str, Any]]:
+    response = companies_table.get_item(Key={"company_id": company_id})
+    item = response.get("Item")
+    return item if isinstance(item, dict) else None
+
+
+def _get_invite(invite_code: str) -> Optional[Dict[str, Any]]:
+    response = invites_table.get_item(Key={"invite_code": invite_code})
+    item = response.get("Item")
+    return item if isinstance(item, dict) else None
+
+
+def _parse_expiration_epoch(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    parsed = _parse_datetime(value)
+    if parsed is None:
+        return None
+    return int(parsed.timestamp())
+
+
+def _is_invite_used(invite: Dict[str, Any]) -> bool:
+    raw = invite.get("used")
+    if isinstance(raw, bool):
+        return raw
+    return str(raw or "").strip().lower() in {"1", "true", "yes"}
+
+
+def _is_invite_expired(invite: Dict[str, Any], now_ts: int) -> bool:
+    expiry = _parse_expiration_epoch(invite.get("expires_at"))
+    if expiry is None:
+        return False
+    return expiry < now_ts
+
+
+def _require_active_company(company_id: str) -> Dict[str, Any]:
+    company = _get_company(company_id)
+    if not company:
+        raise ForbiddenError("Company not found.")
+    if not _is_active_status(company.get("status")):
+        raise ForbiddenError("Company is inactive.")
+    return company
+
+
+def _build_auth_context(event: Dict[str, Any]) -> Dict[str, Any]:
+    claims = _require_auth(event)
+    email = _validate_email(str(claims.get("sub") or ""))
+    account = _get_account(email)
+    if not account:
+        raise PermissionError("Account not found.")
+
+    account_status = str(account.get("status") or "active").strip().lower()
+    if not _is_active_status(account_status):
+        raise ForbiddenError("Account is inactive.")
+
+    account_company_raw = str(account.get("company_id") or "").strip()
+    if not account_company_raw:
+        raise ForbiddenError("Account is missing company assignment. Migration required.")
+    account_company_id = _normalize_company_id(account_company_raw)
+
+    token_company_raw = str(claims.get("company_id") or "").strip().lower()
+    if token_company_raw and token_company_raw != account_company_id:
+        raise PermissionError("Auth token is stale. Please sign in again.")
+
+    account_role = _normalize_role(account.get("role"), fallback=DEFAULT_ACCOUNT_ROLE)
+    token_role = str(claims.get("role") or "").strip().lower()
+    if token_role and token_role != account_role:
+        raise PermissionError("Auth token is stale. Please sign in again.")
+
+    company = _require_active_company(account_company_id)
+    prefixes = _company_prefixes(account_company_id, company)
+
+    return {
+        "claims": claims,
+        "account": account,
+        "company": company,
+        "company_id": account_company_id,
+        "role": account_role,
+        "prefixes": prefixes,
+    }
+
+
+def _validate_invite_code(value: Any) -> str:
+    invite_code = str(value or "").strip()
+    if len(invite_code) < 8:
+        raise ValueError("A valid invite code is required.")
+    if len(invite_code) > 128:
+        raise ValueError("Invite code is invalid.")
+    return invite_code
+
+
+def _mark_invite_as_used(invite_code: str, used_by_email: str, now_iso: str, now_ts: int) -> None:
+    invites_table.update_item(
+        Key={"invite_code": invite_code},
+        UpdateExpression="SET used = :used, used_by = :used_by, used_at = :used_at",
+        ConditionExpression=(
+            "attribute_exists(invite_code) "
+            "AND (attribute_not_exists(used) OR used = :unused) "
+            "AND (attribute_not_exists(expires_at) OR expires_at >= :now_ts)"
+        ),
+        ExpressionAttributeValues={
+            ":used": True,
+            ":unused": False,
+            ":used_by": used_by_email,
+            ":used_at": now_iso,
+            ":now_ts": now_ts,
+        },
+    )
+
+
+def _delete_account_best_effort(email: str) -> None:
+    try:
+        accounts_table.delete_item(Key={"email": email})
+    except Exception:
+        pass
+
+
 def _handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
     body = _parse_json_body(event)
     email = _validate_email(str(body.get("email", "")))
     password = _validate_password(str(body.get("password", "")))
     display_name = str(body.get("display_name") or "").strip()
+    invite_code = _validate_invite_code(body.get("invite_code"))
+    now_ts = int(time.time())
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     if _get_account(email):
         return _response(409, {"message": "An account with that email already exists."})
 
+    invite = _get_invite(invite_code)
+    if not invite:
+        return _response(400, {"message": "Invite code is invalid or expired."})
+    if _is_invite_used(invite) or _is_invite_expired(invite, now_ts):
+        return _response(400, {"message": "Invite code is invalid or expired."})
+
+    invite_company_raw = str(invite.get("company_id") or "").strip()
+    if not invite_company_raw:
+        return _response(400, {"message": "Invite is not linked to a company."})
+
+    try:
+        company_id = _normalize_company_id(invite_company_raw)
+    except ValueError:
+        return _response(400, {"message": "Invite is not linked to a valid company."})
+
+    try:
+        _require_active_company(company_id)
+    except ForbiddenError as exc:
+        return _response(403, {"message": str(exc)})
+
+    role = _normalize_role(invite.get("role"), fallback=DEFAULT_ACCOUNT_ROLE)
     salt_hex, hash_hex = _hash_password(password)
-    now_iso = datetime.now(timezone.utc).isoformat()
     item = {
+        "user_id": uuid4().hex,
         "email": email,
         "display_name": display_name,
         "password_salt": salt_hex,
         "password_hash": hash_hex,
+        "company_id": company_id,
+        "role": role,
+        "status": "active",
+        "invite_code_used": invite_code,
         "created_at": now_iso,
         "updated_at": now_iso,
     }
@@ -1255,7 +1636,16 @@ def _handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
             return _response(409, {"message": "An account with that email already exists."})
         raise
 
-    token = _issue_token(email, display_name)
+    try:
+        _mark_invite_as_used(invite_code, email, now_iso, now_ts)
+    except Exception as exc:
+        _delete_account_best_effort(email)
+        message = str(exc)
+        if "ConditionalCheckFailed" in message:
+            return _response(400, {"message": "Invite code is invalid or expired."})
+        raise
+
+    token = _issue_token(item)
     return _response(201, {"token": token, "user": _sanitize_account(item)})
 
 
@@ -1277,28 +1667,123 @@ def _handle_login(event: Dict[str, Any]) -> Dict[str, Any]:
     if not hmac.compare_digest(stored_hash, computed_hash):
         return _response(401, {"message": "Invalid email or password."})
 
-    token = _issue_token(email, str(account.get("display_name") or ""))
+    company_raw = str(account.get("company_id") or "").strip()
+    if not company_raw:
+        return _response(403, {"message": "Account is missing company assignment. Migration required."})
+
+    try:
+        company_id = _normalize_company_id(company_raw)
+    except ValueError:
+        return _response(403, {"message": "Account company assignment is invalid."})
+
+    if not _is_active_status(account.get("status")):
+        return _response(403, {"message": "Account is inactive."})
+
+    try:
+        _require_active_company(company_id)
+    except ForbiddenError as exc:
+        return _response(403, {"message": str(exc)})
+
+    token = _issue_token(account)
     return _response(200, {"token": token, "user": _sanitize_account(account)})
 
 
-def _handle_auth_me(claims: Dict[str, Any]) -> Dict[str, Any]:
-    email = str(claims.get("sub") or "")
-    if not email:
-        return _response(401, {"message": "Invalid auth claims."})
+def _parse_invite_expiry(payload: Dict[str, Any], now_ts: int) -> int:
+    expires_at = payload.get("expires_at")
+    expires_in_days = payload.get("expires_in_days")
 
-    account = _get_account(email)
-    if not account:
-        return _response(404, {"message": "Account not found."})
+    if expires_at is not None:
+        parsed = _parse_expiration_epoch(expires_at)
+        if parsed is None:
+            raise ValueError("expires_at must be a valid ISO datetime or unix timestamp.")
+        if parsed <= now_ts:
+            raise ValueError("expires_at must be in the future.")
+        return parsed
 
-    return _response(200, {"user": _sanitize_account(account)})
+    days = 14
+    if expires_in_days is not None:
+        days = int(expires_in_days)
+    days = max(1, min(days, 90))
+    return now_ts + (days * 24 * 60 * 60)
 
 
-def _handle_latest(event: Dict[str, Any]) -> Dict[str, Any]:
+def _generate_invite_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(12))
+
+
+def _create_invite_record(company_id: str, role: str, expires_at: int, created_by: str, now_iso: str) -> Dict[str, Any]:
+    for _ in range(8):
+        invite_code = _generate_invite_code()
+        item = {
+            "invite_code": invite_code,
+            "company_id": company_id,
+            "role": role,
+            "expires_at": expires_at,
+            "used": False,
+            "used_by": None,
+            "used_at": None,
+            "created_at": now_iso,
+            "created_by": created_by,
+        }
+        try:
+            invites_table.put_item(Item=item, ConditionExpression="attribute_not_exists(invite_code)")
+            return item
+        except Exception as exc:
+            if "ConditionalCheckFailed" in str(exc):
+                continue
+            raise
+    raise RuntimeError("Could not generate a unique invite code.")
+
+
+def _handle_admin_create_invite(event: Dict[str, Any], auth_context: Dict[str, Any]) -> Dict[str, Any]:
+    if auth_context.get("role") != "admin":
+        raise ForbiddenError("Admin role required.")
+
+    payload = _parse_json_body(event)
+    requested_role = _normalize_role(payload.get("role"), fallback=DEFAULT_ACCOUNT_ROLE)
+    now_ts = int(time.time())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    expires_at = _parse_invite_expiry(payload, now_ts)
+
+    created = _create_invite_record(
+        auth_context["company_id"],
+        requested_role,
+        expires_at,
+        str(auth_context["account"].get("email") or ""),
+        now_iso,
+    )
+    return _response(
+        201,
+        {
+            "invite": {
+                "invite_code": created["invite_code"],
+                "company_id": created["company_id"],
+                "role": created["role"],
+                "expires_at": created["expires_at"],
+                "used": created["used"],
+                "created_at": created["created_at"],
+            }
+        },
+    )
+
+
+def _handle_auth_me(auth_context: Dict[str, Any]) -> Dict[str, Any]:
+    return _response(
+        200,
+        {
+            "user": _sanitize_account(auth_context["account"]),
+            "company": _sanitize_company(auth_context["company"]),
+        },
+    )
+
+
+def _handle_latest(event: Dict[str, Any], auth_context: Dict[str, Any]) -> Dict[str, Any]:
     limit = _parse_limit(event)
-    latest = _get_latest_object(TRUSTED_PREFIX)
+    latest = _get_latest_object(auth_context["prefixes"]["finance"])
 
     if latest is None:
-        return _response(200, {"items": [], "s3_key": None, "last_modified": None})
+        return _response(200, {"items": [], "s3_key": None, "last_modified": None, "company_id": auth_context["company_id"]})
 
     decoded_text = _read_object_text(latest["Key"])
     items = _parse_items(decoded_text)
@@ -1309,6 +1794,7 @@ def _handle_latest(event: Dict[str, Any]) -> Dict[str, Any]:
             "items": items[-limit:],
             "s3_key": latest["Key"],
             "last_modified": latest["LastModified"].isoformat(),
+            "company_id": auth_context["company_id"],
         },
     )
 
@@ -1338,30 +1824,35 @@ def lambda_handler(event, _context):
         if path == "/auth/me":
             if method != "GET":
                 return _response(405, {"message": "Method not allowed"})
-            claims = _require_auth(event)
-            return _handle_auth_me(claims)
+            auth_context = _build_auth_context(event)
+            return _handle_auth_me(auth_context)
 
-        claims = _require_auth(event)
+        auth_context = _build_auth_context(event)
+
+        if path == "/admin/invites":
+            if method != "POST":
+                return _response(405, {"message": "Method not allowed"})
+            return _handle_admin_create_invite(event, auth_context)
 
         if path == "/query":
             if method != "POST":
                 return _response(405, {"message": "Method not allowed"})
-            return _response(200, _run_query(event))
+            return _response(200, _run_query(event, auth_context))
 
         if path == "/anomalies":
             if method != "GET":
                 return _response(405, {"message": "Method not allowed"})
-            return _response(200, _build_anomaly_list_payload(event))
+            return _response(200, _build_anomaly_list_payload(event, auth_context))
 
         anomaly_id, is_action_route = _anomaly_path_parts(path)
         if anomaly_id and is_action_route:
             if method != "POST":
                 return _response(405, {"message": "Method not allowed"})
-            return _response(200, _update_anomaly_review(event, claims, anomaly_id))
+            return _response(200, _update_anomaly_review(event, auth_context, anomaly_id))
         if anomaly_id:
             if method != "GET":
                 return _response(405, {"message": "Method not allowed"})
-            payload = _build_anomaly_detail_payload(anomaly_id)
+            payload = _build_anomaly_detail_payload(auth_context, anomaly_id)
             if payload is None:
                 return _response(404, {"message": "Anomaly not found."})
             return _response(200, payload)
@@ -1370,16 +1861,18 @@ def lambda_handler(event, _context):
             return _response(405, {"message": "Method not allowed"})
 
         if path in {"/latest", "/"}:
-            return _handle_latest(event)
+            return _handle_latest(event, auth_context)
         if path == "/dashboard":
-            return _response(200, _build_dashboard_payload())
+            return _response(200, _build_dashboard_payload(auth_context))
         if path == "/forecasts":
-            return _response(200, _forecast_payload())
+            return _response(200, _forecast_payload(auth_context))
 
         return _response(404, {"message": f"Route not found: {path}"})
 
     except PermissionError as exc:
         return _response(401, {"message": str(exc)})
+    except ForbiddenError as exc:
+        return _response(403, {"message": str(exc)})
     except ValueError as exc:
         return _response(400, {"message": str(exc)})
     except TimeoutError as exc:

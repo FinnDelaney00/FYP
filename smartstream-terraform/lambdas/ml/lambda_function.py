@@ -267,7 +267,7 @@ def build_employee_growth_insight(records: List[Dict[str, Any]], forecast_days: 
     if not records:
         return {
             "status": "insufficient_data",
-            "message": "No employee records found under trusted/employees/.",
+            "message": f"No employee records found under {EMPLOYEES_PREFIX}.",
             "history": [],
             "forecast": [],
         }
@@ -328,7 +328,7 @@ def build_employee_growth_insight(records: List[Dict[str, Any]], forecast_days: 
 
 def build_finance_insight(records: List[Dict[str, Any]], forecast_days: int) -> Dict[str, Any]:
     if not records:
-        return insufficient_finance_result("No finance records found under trusted/finance/.")
+        return insufficient_finance_result(f"No finance records found under {FINANCE_PREFIX}.")
 
     revenue_by_date: Dict[date, float] = defaultdict(float)
     expenditure_by_date: Dict[date, float] = defaultdict(float)

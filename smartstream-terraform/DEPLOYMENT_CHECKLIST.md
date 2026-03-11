@@ -1,322 +1,192 @@
 # SmartStream Deployment Checklist
 
-Use this checklist to ensure a smooth deployment of the SmartStream data pipeline.
+Use this checklist for current SmartStream Terraform deployments.
 
-## Pre-Deployment
+## 1. Pre-Deployment
 
-- [ ] AWS CLI installed and configured
+- [ ] AWS CLI configured and identity verified
   ```bash
-  aws configure
-  aws sts get-caller-identity  # Verify credentials
+  aws sts get-caller-identity
   ```
-
-- [ ] Terraform installed (>= 1.5.0)
+- [ ] Terraform `>= 1.5.0` installed
   ```bash
   terraform version
   ```
-
-- [ ] Reviewed and customized `terraform.tfvars`
+- [ ] Chosen deployment target:
+  - [ ] Legacy bootstrap (`create_shared_iam=true`)
+  - [ ] Tenant workspace (`create_shared_iam=false`)
+- [ ] `terraform.tfvars` reviewed and aligned to selected mode
   ```bash
+  cd smartstream-terraform
   cp terraform.tfvars.example terraform.tfvars
-  # Edit terraform.tfvars with your settings
   ```
+- [ ] Required IAM permissions available (see `IAM_PERMISSIONS.md`)
 
-- [ ] Verified AWS service quotas in target region (eu-north-1)
-  - VPC: 1 required
-  - RDS instances: 1 required
-  - DMS replication instances: 1 required
-  - Kinesis shards: 2+ required
-  - Lambda concurrent executions: Check current usage
-
-- [ ] Estimated monthly costs (~$85 for default configuration)
-
-## Deployment
+## 2. Terraform Plan and Apply
 
 - [ ] Initialize Terraform
   ```bash
   terraform init
   ```
-
-- [ ] Validate configuration
+- [ ] Validate and format check
   ```bash
+  terraform fmt -check -recursive
   terraform validate
   ```
-
-- [ ] Review execution plan
+- [ ] Select/create correct workspace
   ```bash
-  terraform plan -out=tfplan
-  ```
+  # legacy
+  terraform workspace select newaccount || terraform workspace new newaccount
 
-- [ ] Apply infrastructure (takes 15-20 minutes)
+  # tenant example
+  terraform workspace select acme || terraform workspace new acme
+  ```
+- [ ] Run mode-correct plan
   ```bash
-  terraform apply tfplan
-  ```
+  # legacy
+  terraform plan -var 'enable_tenant_prefix=false' -var 'create_shared_iam=true'
 
-- [ ] Save outputs to file for reference
+  # tenant
+  terraform plan \
+    -var 'enable_tenant_prefix=true' \
+    -var 'company_name=acme' \
+    -var 'environment=dev' \
+    -var 'create_shared_iam=false'
+  ```
+- [ ] Apply
   ```bash
-  terraform output > deployment-outputs.txt
+  terraform apply
   ```
 
-## Post-Deployment Configuration
+## 3. Output Verification
 
-### Database Setup
-
-- [ ] Retrieve RDS credentials from Secrets Manager
+- [ ] Capture key outputs
   ```bash
-  aws secretsmanager get-secret-value \
-    --secret-id $(terraform output -raw rds_secret_arn) \
-    --query SecretString --output text | jq .
+  terraform output -raw live_api_base_url
+  terraform output -raw data_lake_bucket_name
+  terraform output -raw dms_replication_task_arn
+  terraform output -raw dms_finance_replication_task_arn
+  terraform output -raw accounts_table_name
+  terraform output -raw companies_table_name
+  terraform output -raw invites_table_name
   ```
 
-- [ ] Connect to RDS PostgreSQL
+## 4. Source Database Setup
+
+- [ ] Connect to RDS and create required schemas/tables
+- [ ] Ensure at least:
+  - `public.employees`
+  - `finance.transactions`
+  - `finance.accounts`
+- [ ] Insert sample data in employees and transactions
+
+## 5. Pipeline Health Checks
+
+- [ ] Confirm both DMS tasks are running (tasks are configured to auto-start)
   ```bash
-  psql -h <RDS_ENDPOINT> -U dbadmin -d employees
+  aws dms describe-replication-tasks --filters Name=replication-task-arn,Values=$(terraform output -raw dms_replication_task_arn)
+  aws dms describe-replication-tasks --filters Name=replication-task-arn,Values=$(terraform output -raw dms_finance_replication_task_arn)
   ```
-
-- [ ] Create sample tables and data (see README.md)
-
-- [ ] Verify logical replication is enabled
-  ```sql
-  SHOW rds.logical_replication;  -- Should return 'on'
-  ```
-
-### DMS Configuration
-
-- [ ] Verify DMS endpoints are healthy
+- [ ] Verify raw objects in S3
   ```bash
-  aws dms test-connection \
-    --replication-instance-arn $(terraform output -raw dms_replication_instance_arn) \
-    --endpoint-arn $(terraform output -raw dms_source_endpoint_arn)
+  aws s3 ls s3://$(terraform output -raw data_lake_bucket_name)/raw/ --recursive | head
   ```
-
-- [ ] Start DMS replication task
+- [ ] Verify trusted objects in S3
   ```bash
-  aws dms start-replication-task \
-    --replication-task-arn $(terraform output -raw dms_replication_task_arn) \
-    --start-replication-task-type start-replication
+  aws s3 ls s3://$(terraform output -raw data_lake_bucket_name)/trusted/ --recursive | head
   ```
-
-- [ ] Monitor DMS task status
+- [ ] Verify analytics outputs (after schedules/manual invokes)
   ```bash
-  aws dms describe-replication-tasks \
-    --filters Name=replication-task-arn,Values=$(terraform output -raw dms_replication_task_arn)
+  aws s3 ls s3://$(terraform output -raw data_lake_bucket_name)/trusted-analytics/ --recursive | head
   ```
 
-### Data Flow Verification
+## 6. Glue and Athena
 
-- [ ] Verify data in Kinesis stream
-  ```bash
-  aws kinesis describe-stream \
-    --stream-name $(terraform output -raw kinesis_stream_name)
-  ```
-
-- [ ] Check S3 raw zone for incoming data (wait 1-2 minutes after DMS start)
-  ```bash
-  aws s3 ls s3://$(terraform output -raw data_lake_bucket_name)/raw/ --recursive | head -10
-  ```
-
-- [ ] Verify Lambda transform is triggered
-  ```bash
-  aws logs tail /aws/lambda/$(terraform output -raw lambda_transform_function_name) --follow
-  ```
-
-- [ ] Check S3 trusted zone for transformed data
-  ```bash
-  aws s3 ls s3://$(terraform output -raw data_lake_bucket_name)/trusted/ --recursive | head -10
-  ```
-
-### Glue Catalog Setup
-
-- [ ] Run Glue crawler for trusted zone
+- [ ] Run trusted crawler
   ```bash
   aws glue start-crawler --name $(terraform output -raw glue_trusted_crawler_name)
   ```
-
-- [ ] Wait for crawler completion (2-5 minutes)
-  ```bash
-  aws glue get-crawler --name $(terraform output -raw glue_trusted_crawler_name) \
-    | jq .Crawler.State
-  ```
-
-- [ ] Verify tables created in Glue catalog
-  ```bash
-  aws glue get-tables \
-    --database-name $(terraform output -raw glue_database_name) \
-    | jq .TableList[].Name
-  ```
-
-### Athena Configuration
-
-- [ ] Open Athena console
-  ```bash
-  # Use the URL from terraform output quick_start_commands
-  ```
-
-- [ ] Run test query
-  ```sql
-  SELECT * FROM <table_name> LIMIT 10;
-  ```
-
-- [ ] Verify query results in S3
-  ```bash
-  aws s3 ls s3://$(terraform output -raw athena_results_bucket_name)/results/ --recursive | tail -5
-  ```
-
-### ML Pipeline Setup
-
-- [ ] Verify ML Lambda is scheduled
-  ```bash
-  aws events list-rules --name-prefix smartstream-dev-ml
-  ```
-
-- [ ] Manually invoke ML Lambda for testing
-  ```bash
-  aws lambda invoke \
-    --function-name $(terraform output -raw lambda_ml_function_name) \
-    /tmp/response.json && cat /tmp/response.json
-  ```
-
-- [ ] Check ML outputs in analytics zone
-  ```bash
-  aws s3 ls s3://$(terraform output -raw data_lake_bucket_name)/trusted-analytics/ --recursive
-  ```
-
 - [ ] Run analytics crawler
   ```bash
   aws glue start-crawler --name $(terraform output -raw glue_analytics_crawler_name)
   ```
+- [ ] Confirm tables visible in Glue database
 
-### Monitoring Setup
+## 7. Auth/Tenant Seed Data
 
-- [ ] View CloudWatch Dashboard
+- [ ] Add active company record to companies table (`company_id`, `status=active`)
+- [ ] Add invite code record to invites table for first user
+- [ ] Complete `POST /auth/signup` with invite code
+- [ ] Verify `GET /auth/me` returns expected company and role
+
+## 8. API Endpoint Smoke Tests
+
+- [ ] Login returns token
+- [ ] Protected routes succeed with bearer token:
+  - [ ] `/dashboard`
+  - [ ] `/forecasts`
+  - [ ] `/anomalies`
+  - [ ] `/query`
+- [ ] Admin invite route works for admin role only
+
+## 9. Frontend Verification
+
+- [ ] Set `frontend/.env.local` with `VITE_API_BASE_URL`
+- [ ] Run frontend locally
   ```bash
-  # Use the URL from terraform output quick_start_commands
+  cd ../frontend
+  npm ci
+  npm run dev
   ```
+- [ ] Validate login/signup, page navigation, and data refreshes
 
-- [ ] Configure SNS topic email subscription (optional)
+## 10. Observability
+
+- [ ] Open CloudWatch dashboard
+- [ ] Check Lambda log groups for transform/ML/anomaly/live API
+- [ ] Confirm no sustained alarms in pipeline composite alarm
+
+## 11. Known Alignment Check
+
+- [ ] Confirm tenant data path strategy is aligned
+  - Transform currently writes `trusted/employees/...` and `trusted/finance/...`
+  - Live API enforces tenant-scoped prefixes based on company context
+  - If needed, migrate or duplicate data to tenant-scoped prefixes
+
+## 12. Validation Tests
+
+- [ ] Run unit tests from repo root
   ```bash
-  aws sns subscribe \
-    --topic-arn $(terraform output -raw sns_alerts_topic_arn) \
-    --protocol email \
-    --notification-endpoint your-email@example.com
-  
-  # Check email and confirm subscription
+  python -m unittest discover -s tests -v
   ```
-
-- [ ] Test alarms by triggering errors (optional)
-
-### CDC Testing
-
-- [ ] Insert test record in RDS
-  ```sql
-  INSERT INTO employees (first_name, last_name, email, department, salary, hire_date)
-  VALUES ('Test', 'User', 'test@example.com', 'QA', 75000, CURRENT_DATE);
-  ```
-
-- [ ] Wait 2-3 minutes and verify record appears in:
-  - [ ] Kinesis stream metrics (CloudWatch)
-  - [ ] S3 raw zone (new file)
-  - [ ] S3 trusted zone (after Lambda transform)
-
-- [ ] Update test record
-  ```sql
-  UPDATE employees SET salary = 80000 WHERE email = 'test@example.com';
-  ```
-
-- [ ] Verify update captured in CDC pipeline
-
-- [ ] Delete test record
-  ```sql
-  DELETE FROM employees WHERE email = 'test@example.com';
-  ```
-
-- [ ] Verify delete operation captured
-
-## Documentation
-
-- [ ] Document RDS endpoint and credentials location
-- [ ] Document S3 bucket names and prefixes
-- [ ] Document Glue database and table names
-- [ ] Document Athena workgroup name
-- [ ] Document CloudWatch dashboard URL
-- [ ] Save Terraform outputs for team reference
-- [ ] Document any customizations made
-- [ ] Create runbook for common operations
-
-## Cost Monitoring
-
-- [ ] Set up AWS Budget alert
+- [ ] Optionally run Terraform tests
   ```bash
-  # Create a budget via AWS Console or CLI
+  cd smartstream-terraform
+  terraform test
   ```
 
-- [ ] Review AWS Cost Explorer for initial costs
+## 13. Decommissioning
 
-- [ ] Verify NAT Gateway traffic (consider VPC endpoints for S3)
-
-- [ ] Check Kinesis shard hours usage
-
-- [ ] Monitor Lambda invocation costs
-
-## Security Review
-
-- [ ] Verify S3 buckets have public access blocked
-- [ ] Confirm RDS is not publicly accessible
-- [ ] Verify Secrets Manager rotation is configured (optional)
-- [ ] Review IAM policies for least-privilege compliance
-- [ ] Check security groups for overly permissive rules
-- [ ] Enable CloudTrail for audit logging (if not already enabled)
-- [ ] Review VPC Flow Logs configuration (optional)
-
-## Cleanup Checklist (When Decommissioning)
-
-- [ ] Stop DMS replication task
+- [ ] Stop DMS tasks
   ```bash
-  aws dms stop-replication-task \
-    --replication-task-arn $(terraform output -raw dms_replication_task_arn)
+  aws dms stop-replication-task --replication-task-arn $(terraform output -raw dms_replication_task_arn)
+  aws dms stop-replication-task --replication-task-arn $(terraform output -raw dms_finance_replication_task_arn)
   ```
-
-- [ ] Export any critical data from S3
-  ```bash
-  aws s3 sync s3://$(terraform output -raw data_lake_bucket_name) ./backup/
-  ```
-
 - [ ] Empty S3 buckets
   ```bash
   aws s3 rm s3://$(terraform output -raw data_lake_bucket_name) --recursive
   aws s3 rm s3://$(terraform output -raw athena_results_bucket_name) --recursive
   ```
-
-- [ ] Run Terraform destroy
+- [ ] Run destroy
   ```bash
   terraform destroy
   ```
 
-- [ ] Verify all resources deleted in AWS Console
+## Deployment Notes
 
-- [ ] Remove Terraform state files from local machine (if not using remote state)
-
-## Troubleshooting Reference
-
-| Issue | Solution |
-|-------|----------|
-| DMS task won't start | Check RDS logical replication, security groups, credentials |
-| Lambda not triggered | Verify S3 event notification, Lambda permissions |
-| Glue crawler finds no tables | Check S3 data exists, correct format, crawler permissions |
-| High Kinesis iterator age | Increase Firehose buffer, add consumers, reduce retention |
-| Athena query fails | Verify Glue table schema, check S3 data format |
-| High costs | Check NAT Gateway usage, Kinesis shard hours, data retention |
-
-## Notes
-
-- [ ] Record deployment date: _______________
-- [ ] Record deployed by: _______________
-- [ ] Record AWS account ID: _______________
-- [ ] Record deployment region: eu-north-1
-- [ ] Record any deployment issues: _______________
-
----
-
-**Deployment Status**: ☐ Not Started | ☐ In Progress | ☐ Completed | ☐ Failed
-
-**Sign-off**: _______________ Date: _______________
+- Deployment date:
+- Deployed by:
+- Workspace:
+- Target mode:
+- Region:
+- Issues observed:

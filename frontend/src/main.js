@@ -19,7 +19,9 @@ const authSubtitle = document.getElementById("auth-subtitle");
 const authSubmitBtn = document.getElementById("auth-submit-btn");
 const authToggleBtn = document.getElementById("auth-toggle-btn");
 const signupNameGroup = document.getElementById("signup-name-group");
+const signupInviteGroup = document.getElementById("signup-invite-group");
 const displayNameInput = document.getElementById("display-name");
+const inviteCodeInput = document.getElementById("invite-code");
 const sidebar = document.getElementById("sidebar");
 const sidebarToggle = document.getElementById("sidebar-toggle");
 const logoutButton = document.getElementById("logout-btn");
@@ -147,13 +149,15 @@ function setAuthMode(signupMode) {
   isSignupMode = signupMode;
   loginError.textContent = "";
   signupNameGroup.classList.toggle("is-hidden", !signupMode);
+  signupInviteGroup.classList.toggle("is-hidden", !signupMode);
 
   if (signupMode) {
     authTitle.textContent = "Create account";
-    authSubtitle.textContent = "Create your SmartStream account to access live analytics.";
+    authSubtitle.textContent = "Create your SmartStream account with an invite code.";
     authSubmitBtn.textContent = "Create Account";
     authToggleBtn.textContent = "Already have an account? Sign in";
     displayNameInput.setAttribute("required", "required");
+    inviteCodeInput.setAttribute("required", "required");
   } else {
     authTitle.textContent = "Sign in";
     authSubtitle.textContent = "Access clear spending and workforce insights in one workspace.";
@@ -161,6 +165,8 @@ function setAuthMode(signupMode) {
     authToggleBtn.textContent = "Need an account? Create one";
     displayNameInput.removeAttribute("required");
     displayNameInput.value = "";
+    inviteCodeInput.removeAttribute("required");
+    inviteCodeInput.value = "";
   }
 }
 
@@ -208,6 +214,7 @@ loginForm.addEventListener("submit", async (event) => {
   const email = String(formData.get("email") || "").trim();
   const password = String(formData.get("password") || "").trim();
   const displayName = String(formData.get("display_name") || "").trim();
+  const inviteCode = String(formData.get("invite_code") || "").trim();
 
   if (!email || !password) {
     loginError.textContent = "Please enter both email and password.";
@@ -216,6 +223,10 @@ loginForm.addEventListener("submit", async (event) => {
 
   if (isSignupMode && !displayName) {
     loginError.textContent = "Please provide a display name.";
+    return;
+  }
+  if (isSignupMode && !inviteCode) {
+    loginError.textContent = "Please provide your invite code.";
     return;
   }
 
@@ -227,11 +238,19 @@ loginForm.addEventListener("submit", async (event) => {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        email,
-        password,
-        display_name: displayName
-      })
+      body: JSON.stringify(
+        isSignupMode
+          ? {
+              email,
+              password,
+              display_name: displayName,
+              invite_code: inviteCode
+            }
+          : {
+              email,
+              password
+            }
+      )
     });
 
     if (!payload?.token) {

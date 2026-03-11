@@ -19,10 +19,10 @@ resource "aws_lambda_function" "anomaly" {
   environment {
     variables = {
       DATA_LAKE_BUCKET                     = aws_s3_bucket.data_lake.id
-      TRUSTED_PREFIX                       = local.s3_trusted_prefix
-      EMPLOYEES_PREFIX                     = var.trusted_prefix_employees
-      TRANSACTIONS_PREFIX                  = var.trusted_prefix_finance_transactions
-      ANALYTICS_PREFIX                     = var.trusted_prefix_anomalies
+      TRUSTED_PREFIX                       = "${local.s3_trusted_prefix}${local.name_prefix}/"
+      EMPLOYEES_PREFIX                     = "${local.s3_trusted_prefix}${local.name_prefix}/employees/"
+      TRANSACTIONS_PREFIX                  = "${local.s3_trusted_prefix}${local.name_prefix}/finance/transactions/"
+      ANALYTICS_PREFIX                     = "${local.s3_trusted_analytics_prefix}${local.name_prefix}/anomalies/"
       MAX_INPUT_FILES                      = tostring(var.anomaly_max_input_files)
       SALARY_OUTLIER_ZSCORE_THRESHOLD      = tostring(var.salary_outlier_zscore_threshold)
       DUPLICATE_TRANSACTION_WINDOW_MINUTES = tostring(var.duplicate_transaction_window_minutes)

@@ -3,15 +3,15 @@ export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\
 export const QUERY_SINGLE_TABLE = "trusted";
 export const QUERY_TABLE_OPTIONS = [
   { value: QUERY_SINGLE_TABLE, label: "trusted (all tables)" },
-  { value: "employees", label: "employees (path: trusted/employees)" },
-  { value: "transactions", label: "transactions (path: trusted/finance/transactions)" },
-  { value: "accounts", label: "accounts (path: trusted/finance/accounts)" }
+  { value: "employees", label: "employees (path: trusted/{company_id}/employees)" },
+  { value: "transactions", label: "transactions (path: trusted/{company_id}/finance/transactions)" },
+  { value: "accounts", label: "accounts (path: trusted/{company_id}/finance/accounts)" }
 ];
 
 export const QUERY_TABLE_PATH_FILTERS = {
-  employees: "trusted/employees/",
-  transactions: "trusted/finance/transactions/",
-  accounts: "trusted/finance/accounts/"
+  employees: "trusted/%/employees/",
+  transactions: "trusted/%/finance/transactions/",
+  accounts: "trusted/%/finance/accounts/"
 };
 
 export const QUERY_LIMIT_OPTIONS = ["20", "50", "100", "200"];

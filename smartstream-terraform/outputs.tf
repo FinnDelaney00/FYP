@@ -246,6 +246,11 @@ output "live_api_auth_me_endpoint" {
   value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/auth/me"
 }
 
+output "live_api_admin_invites_endpoint" {
+  description = "Live API admin invite creation endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/admin/invites"
+}
+
 output "accounts_table_name" {
   description = "DynamoDB table storing frontend user accounts"
   value       = aws_dynamodb_table.accounts.name
@@ -254,6 +259,16 @@ output "accounts_table_name" {
 output "anomaly_reviews_table_name" {
   description = "DynamoDB table storing anomaly review actions and audit trail"
   value       = aws_dynamodb_table.anomaly_reviews.name
+}
+
+output "companies_table_name" {
+  description = "DynamoDB table storing company tenancy metadata"
+  value       = aws_dynamodb_table.companies.name
+}
+
+output "invites_table_name" {
+  description = "DynamoDB table storing signup invite codes"
+  value       = aws_dynamodb_table.invites.name
 }
 
 # =============================================================================

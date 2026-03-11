@@ -14,6 +14,9 @@ class TransformLambdaTests(unittest.TestCase):
             module_name="transform_lambda_under_test",
             fake_s3_client=cls.fake_s3,
             env={
+                "RAW_PREFIX": "raw/",
+                "TRUSTED_PREFIX": "trusted/",
+                "PIPELINE_COMPANY_ID": "smartstream-dev",
                 "FINANCE_SCHEMA_NAME": "finance",
                 "FINANCE_TABLE_LIST": "transactions,accounts",
             },
@@ -41,7 +44,7 @@ class TransformLambdaTests(unittest.TestCase):
         )
         self.assertEqual(
             key,
-            "trusted/finance/transactions/2026/02/24/firehose_record.json",
+            "trusted/smartstream-dev/finance/transactions/2026/02/24/firehose_record.json",
         )
 
     def test_read_s3_object_supports_plain_and_gzip(self):
@@ -132,7 +135,7 @@ class TransformLambdaTests(unittest.TestCase):
             patch.object(
                 self.module,
                 "generate_trusted_key",
-                return_value="trusted/employees/employees/2026/02/24/file.json",
+                return_value="trusted/smartstream-dev/employees/employees/2026/02/24/file.json",
             ) as key_mock,
             patch.object(self.module, "write_to_trusted") as write_mock,
         ):
@@ -144,7 +147,7 @@ class TransformLambdaTests(unittest.TestCase):
         key_mock.assert_called_once()
         write_mock.assert_called_once_with(
             "demo",
-            "trusted/employees/employees/2026/02/24/file.json",
+            "trusted/smartstream-dev/employees/employees/2026/02/24/file.json",
             '{"id": 1}',
         )
 

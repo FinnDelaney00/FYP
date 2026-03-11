@@ -9,8 +9,8 @@ This function:
 5. Removes duplicates and null/empty fields
 6. Standardizes timestamp formats
 7. Writes cleaned data to S3 trusted zone with deterministic keys:
-   - trusted/employees/<table>/...
-   - trusted/finance/<table>/...
+   - trusted/<company_id>/employees/<table>/...
+   - trusted/<company_id>/finance/<table>/...
 """
 
 import json
@@ -23,12 +23,30 @@ from urllib.parse import unquote_plus
 from io import BytesIO
 
 s3_client = boto3.client("s3")
+
+
+def _normalize_prefix(prefix, default):
+    value = (prefix or default).strip().lstrip("/")
+    if not value:
+        value = default
+    if not value.endswith("/"):
+        value = f"{value}/"
+    return value
+
+
+def _normalize_company_id(value):
+    return str(value or "").strip().lower()
+
+
 FINANCE_SCHEMA_NAME = os.environ.get("FINANCE_SCHEMA_NAME", "finance").lower()
 FINANCE_TABLE_LIST = {
     t.strip().lower()
     for t in os.environ.get("FINANCE_TABLE_LIST", "transactions,accounts").split(",")
     if t.strip()
 }
+RAW_PREFIX = _normalize_prefix(os.environ.get("RAW_PREFIX"), "raw/")
+TRUSTED_PREFIX = _normalize_prefix(os.environ.get("TRUSTED_PREFIX"), "trusted/")
+PIPELINE_COMPANY_ID = _normalize_company_id(os.environ.get("PIPELINE_COMPANY_ID"))
 
 
 def lambda_handler(event, context):
@@ -55,7 +73,7 @@ def lambda_handler(event, context):
             print(f"Processing file: s3://{bucket}/{key}")
 
             # Only process raw zone inputs
-            if not key.startswith("raw/"):
+            if not key.startswith(RAW_PREFIX):
                 print(f"Skipping non-raw file: {key}")
                 continue
 
@@ -225,14 +243,14 @@ def standardize_timestamps(record):
     return record
 
 
-def generate_trusted_key(raw_key, route_key):
+def generate_trusted_key(raw_key, route_key, company_id=None):
     """
     Generate deterministic S3 key for trusted zone.
 
     Example:
-    raw/2026/02/07/file.gz -> trusted/finance/transactions/2026/02/07/file.json
+    raw/2026/02/07/file.gz -> trusted/company-a/finance/transactions/2026/02/07/file.json
     """
-    key_parts = raw_key.replace("raw/", "", 1)
+    key_parts = raw_key.replace(RAW_PREFIX, "", 1)
 
     # Remove gzip extension if present
     if key_parts.endswith(".gz"):
@@ -242,7 +260,10 @@ def generate_trusted_key(raw_key, route_key):
     if not key_parts.endswith(".json"):
         key_parts += ".json"
 
-    return f"trusted/{route_key}/{key_parts}"
+    normalized_company_id = _normalize_company_id(company_id or PIPELINE_COMPANY_ID)
+    if normalized_company_id:
+        return f"{TRUSTED_PREFIX}{normalized_company_id}/{route_key}/{key_parts}"
+    return f"{TRUSTED_PREFIX}{route_key}/{key_parts}"
 
 
 def write_to_trusted(bucket, key, data):

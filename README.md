@@ -1,179 +1,125 @@
-﻿# SmartStream: End-to-End Data Pipeline and Live Analytics
+# SmartStream Workspace
 
-SmartStream is a full-stack AWS data platform prototype. It streams source data from PostgreSQL, transforms it into a trusted data lake zone, generates forecast insights, and serves an authenticated live analytics API for a browser dashboard.
+SmartStream is a full-stack AWS data platform prototype in a single repository.
 
-This repository is the top-level project workspace. It contains:
+This workspace contains:
 
-- Terraform infrastructure (`smartstream-terraform/`)
-- Lambda application code (transform, ML inference, live API)
-- Frontend dashboard (`frontend/`)
-- Python unit tests (`tests/`)
+- Terraform infrastructure in `smartstream-terraform/`
+- Lambda application code for transform, ML forecasting, anomaly detection, and live API
+- Frontend dashboard in `frontend/` (Vite + vanilla JS/HTML/CSS)
+- Python unit tests in `tests/`
 
-## Architecture at a Glance
+## Current Architecture
 
 ```text
-PostgreSQL (RDS)
-  -> DMS (CDC)
+RDS PostgreSQL
+  -> DMS (task 1: public schema, task 2: finance schema tables)
   -> Kinesis Data Stream
   -> Firehose
   -> S3 raw/
   -> Transform Lambda
-  -> S3 trusted/{employees|finance}/...
-  -> ML Inference Lambda (scheduled)
-  -> S3 trusted-analytics/predictions/
-  -> Anomaly Detection Lambda (scheduled)
-  -> S3 trusted-analytics/anomalies/
-  -> Live API Lambda + API Gateway
-  -> Frontend dashboard (Vite app, deployable to S3)
+  -> S3 trusted/{company_id}/employees/... and trusted/{company_id}/finance/...
+  -> ML Lambda (scheduled)
+  -> S3 trusted-analytics/{company_id}/predictions/...
+  -> Anomaly Lambda (scheduled)
+  -> S3 trusted-analytics/{company_id}/anomalies/...
+  -> Live API Lambda + API Gateway HTTP API
+  -> Frontend dashboard
 ```
 
-Glue crawlers and Athena are provisioned for cataloging and SQL analytics.
+Glue crawlers and Athena are provisioned for cataloging and SQL query access.
 
 ## Repository Structure
 
 ```text
 .
 |-- README.md
+|-- Jenkinsfile
 |-- tests/
 |   |-- test_transform_lambda.py
 |   |-- test_ml_inference_lambda.py
+|   |-- test_anomaly_lambda.py
 |   `-- test_live_api_lambda.py
 |-- frontend/
+|   |-- README.md
 |   |-- package.json
 |   |-- index.html
 |   `-- src/
 `-- smartstream-terraform/
+    |-- README.md
+    |-- DEPLOYMENT_CHECKLIST.md
+    |-- QUICK_REFERENCE.md
+    |-- PROJECT_SUMMARY.md
+    |-- IAM_PERMISSIONS.md
     |-- *.tf
     `-- lambdas/
-        |-- transform/lambda_function.py
-        |-- ml/lambda_function.py
-        `-- live_api/lambda_function.py
 ```
 
-## Key Components
+## Live API Surface
 
-### Transform Lambda
+Provisioned routes (API Gateway -> `lambdas/live_api/lambda_function.py`):
 
-File: `smartstream-terraform/lambdas/transform/lambda_function.py`
+- `POST /auth/signup`
+- `POST /auth/login`
+- `GET /auth/me`
+- `POST /admin/invites` (admin only)
+- `GET /latest`
+- `GET /dashboard`
+- `GET /forecasts`
+- `GET /anomalies`
+- `GET /anomalies/{id}`
+- `POST /anomalies/{id}/actions`
+- `POST /query`
 
-- Triggered by S3 `ObjectCreated` events on `raw/`
-- Reads JSON/JSONL (including `.gz`)
-- Filters DMS control records and unsupported tables
-- Routes records to:
-  - `trusted/employees/<table>/...`
-  - `trusted/finance/<table>/...`
-- Removes null/empty fields, normalizes timestamps, de-duplicates rows
+Key behaviors in the current implementation:
 
-### ML Inference Lambda
+- Invite-based signup (`invite_code` required).
+- Auth tokens include `company_id` and `role`.
+- Protected routes enforce company isolation from auth context.
+- `/query` only allows read-only, single-statement, simple `SELECT ... FROM trusted ...` queries and resolves the authenticated tenant's Glue table server-side.
 
-File: `smartstream-terraform/lambdas/ml/lambda_function.py`
+## Deployment Modes (Terraform)
 
-- Reads recent trusted employee and finance files
-- Builds:
-  - employee headcount trend + forecast
-  - revenue and expenditure trend + forecast
-- Writes output JSON to:
-  - `trusted-analytics/predictions/YYYY/MM/DD/predictions_<timestamp>.json`
+The Terraform stack supports two modes:
 
-### Anomaly Detection Lambda
+1. Legacy/shared workspace bootstrap:
+- `enable_tenant_prefix=false`
+- `create_shared_iam=true`
+- workspace defaults to `newaccount`
 
-File: `smartstream-terraform/lambdas/anomaly/lambda_function.py`
+2. Tenant/company workspace:
+- `enable_tenant_prefix=true`
+- `company_name=<company>`
+- `environment=dev|test|prod`
+- `create_shared_iam=false`
+- workspace must match normalized `company_name`
 
-- Runs on EventBridge schedule (`anomaly_schedule_expression`, default `rate(2 hours)`)
-- Reads trusted employee and finance transaction data
-- Detects:
-  - salary outliers
-  - duplicate hires / likely duplicate employees
-  - duplicate transactions
-  - unusually large transactions
-  - unusually small suspicious transactions
-- Writes anomaly JSON to:
-  - `trusted-analytics/anomalies/YYYY/MM/DD/anomalies_<timestamp>.json`
+Guardrails in `guardrails.tf` enforce safe combinations.
 
-### Live API Lambda
+## Quick Start
 
-File: `smartstream-terraform/lambdas/live_api/lambda_function.py`
-
-- HTTP API (API Gateway v2) endpoints:
-  - `POST /auth/signup`
-  - `POST /auth/login`
-  - `GET /auth/me`
-  - `GET /latest`
-  - `GET /dashboard`
-  - `GET /forecasts`
-  - `GET /anomalies`
-  - `GET /anomalies/{id}`
-  - `POST /anomalies/{id}/actions`
-  - `POST /query`
-- Uses DynamoDB for user accounts and anomaly review/audit state
-- Uses Athena for read-only SQL queries (`SELECT`/`WITH` only)
-- Requires bearer token auth on non-auth routes
-
-## Prerequisites
-
-- AWS account with permissions to create networking, compute, storage, IAM, and analytics resources
-- Terraform >= 1.5
-- AWS CLI configured (`aws configure`)
-- Python 3.11+ (for local tests)
-- Node.js 20+ and npm (for frontend)
-
-## Quick Start (Infrastructure)
+### 1. Deploy infrastructure
 
 ```bash
 cd smartstream-terraform
 terraform init
 cp terraform.tfvars.example terraform.tfvars
-```
-
-Edit `terraform.tfvars` for your environment, then:
-
-```bash
 terraform plan
 terraform apply
 ```
 
-Get important outputs:
+### 2. Check key outputs
 
 ```bash
-terraform output
 terraform output -raw live_api_base_url
 terraform output -raw data_lake_bucket_name
+terraform output -raw web_bucket_name
 ```
 
-## Seed Source Data (Minimum)
-
-After deployment, connect to RDS and create the source tables expected by the pipeline:
-
-```sql
-CREATE SCHEMA IF NOT EXISTS finance;
-
-CREATE TABLE IF NOT EXISTS public.employees (
-  id SERIAL PRIMARY KEY,
-  department TEXT,
-  employment_status TEXT,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS finance.transactions (
-  id SERIAL PRIMARY KEY,
-  employee_id INT,
-  transaction_date DATE,
-  amount NUMERIC(12,2),
-  type TEXT,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-Insert sample rows into both tables and verify files appear under:
-
-- `s3://<data-lake-bucket>/raw/`
-- `s3://<data-lake-bucket>/trusted/`
-- `s3://<data-lake-bucket>/trusted-analytics/predictions/`
-
-## Frontend Local Development
+### 3. Run frontend locally
 
 ```bash
-cd frontend
+cd ../frontend
 npm ci
 ```
 
@@ -181,70 +127,41 @@ Create `frontend/.env.local`:
 
 ```env
 VITE_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com
-VITE_POLL_INTERVAL_MS=3000
 ```
 
-Run locally:
+Run:
 
 ```bash
 npm run dev
 ```
 
-Build for deployment:
+## Tests
 
-```bash
-npm run build
-```
-
-## Frontend Deployment (S3/CloudFront)
-
-The Terraform outputs include helper commands:
-
-```bash
-cd smartstream-terraform
-terraform output frontend_deploy_commands
-```
-
-Typical flow:
-
-```bash
-cd frontend
-npm ci && npm run build
-aws s3 sync dist s3://<web_bucket_name> --delete
-aws cloudfront create-invalidation --distribution-id <distribution_id> --paths "/*"
-```
-
-Note: `smartstream-terraform/cloudfront.tf` currently sets `enabled = false`. If you want public CDN delivery, set it to `true` and re-apply Terraform.
-
-## Testing and Validation
-
-Run Python unit tests from repo root:
+From repository root:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Run frontend lint:
+Frontend lint:
 
 ```bash
 cd frontend
 npm run lint
 ```
 
-Run Terraform formatting check:
+## Current Notes
 
-```bash
-terraform -chdir=smartstream-terraform fmt -check -recursive
-```
+- CloudFront is provisioned but currently disabled by default (`smartstream-terraform/cloudfront.tf` has `enabled = false`).
+- Pipeline components are configured to write and read tenant-aware prefixes (`trusted/{company_id}/...`, `trusted-analytics/{company_id}/...`).
+- Existing objects left in legacy shared prefixes remain invisible to tenant-scoped API endpoints until they are copied or regenerated under the tenant path.
+- New source inserts only show up automatically after the updated Lambda/Terraform changes are deployed to the target stack.
 
-## Useful Terraform Docs in This Repo
+## Project Docs
 
 - `smartstream-terraform/README.md`
 - `smartstream-terraform/DEPLOYMENT_CHECKLIST.md`
 - `smartstream-terraform/QUICK_REFERENCE.md`
 - `smartstream-terraform/PROJECT_SUMMARY.md`
-
-## Notes
-
-- This repo contains implementation code and tests for pipeline behavior; it is not just infrastructure.
-- The live API uses a lightweight custom token flow for prototype use. For production, integrate a managed identity provider and hardened auth controls.
+- `smartstream-terraform/IAM_PERMISSIONS.md`
+- `frontend/README.md`

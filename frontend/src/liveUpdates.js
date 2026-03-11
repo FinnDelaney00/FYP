@@ -6,7 +6,7 @@
 const DEFAULT_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const DEFAULT_POLL_INTERVAL_MS = 60000;
 const MAX_QUERY_ROWS = 1000;
-const FINANCE_PATH_FILTER = "trusted/finance/transactions/";
+const FINANCE_PATH_FILTER = "trusted/%/finance/transactions/";
 const MIN_CHART_WIDTH = 680;
 const MAX_CHART_WIDTH = 1180;
 const MIN_CHART_HEIGHT = 250;

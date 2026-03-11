@@ -1,501 +1,115 @@
-# Required IAM Permissions for SmartStream Deployment
+# IAM Permissions for SmartStream Terraform
 
-## Current Issue
+This file describes the deployer permissions needed for the current Terraform stack.
 
-Your AWS user (`arn:aws:iam::378192010843:user/C22392083`) is missing the `ec2:DescribeAvailabilityZones` permission.
+## Deployment Profiles
 
-## Workaround Applied
+There are two practical permission profiles.
 
-I've **hardcoded the availability zones** for `eu-north-1` in the Terraform code, so you no longer need the `ec2:DescribeAvailabilityZones` permission for this specific deployment.
+### 1. Legacy bootstrap deployment (shared IAM creation)
 
-**If you deploy to a different region**, you'll need to update the `availability_zones` list in `networking.tf`.
+Use when running with:
 
-## Full List of Required IAM Permissions
+- `enable_tenant_prefix=false`
+- `create_shared_iam=true`
 
-For a complete deployment of the SmartStream pipeline, your IAM user/role needs the following permissions:
+You need full create/update/delete permissions for:
 
-### EC2/VPC (Networking)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ec2:CreateVpc",
-        "ec2:DeleteVpc",
-        "ec2:DescribeVpcs",
-        "ec2:ModifyVpcAttribute",
-        "ec2:CreateSubnet",
-        "ec2:DeleteSubnet",
-        "ec2:DescribeSubnets",
-        "ec2:CreateInternetGateway",
-        "ec2:DeleteInternetGateway",
-        "ec2:AttachInternetGateway",
-        "ec2:DetachInternetGateway",
-        "ec2:DescribeInternetGateways",
-        "ec2:CreateNatGateway",
-        "ec2:DeleteNatGateway",
-        "ec2:DescribeNatGateways",
-        "ec2:AllocateAddress",
-        "ec2:ReleaseAddress",
-        "ec2:DescribeAddresses",
-        "ec2:CreateRouteTable",
-        "ec2:DeleteRouteTable",
-        "ec2:DescribeRouteTables",
-        "ec2:CreateRoute",
-        "ec2:DeleteRoute",
-        "ec2:AssociateRouteTable",
-        "ec2:DisassociateRouteTable",
-        "ec2:CreateSecurityGroup",
-        "ec2:DeleteSecurityGroup",
-        "ec2:DescribeSecurityGroups",
-        "ec2:AuthorizeSecurityGroupIngress",
-        "ec2:AuthorizeSecurityGroupEgress",
-        "ec2:RevokeSecurityGroupIngress",
-        "ec2:RevokeSecurityGroupEgress",
-        "ec2:CreateVpcEndpoint",
-        "ec2:DeleteVpcEndpoint",
-        "ec2:DescribeVpcEndpoints",
-        "ec2:ModifyVpcEndpoint",
-        "ec2:CreateTags",
-        "ec2:DeleteTags",
-        "ec2:DescribeTags"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+- EC2/VPC
+- RDS
+- DMS
+- Kinesis and Firehose
+- S3
+- Lambda
+- IAM (roles, policies, policy attachments, pass role)
+- Glue
+- Athena
+- CloudWatch + Logs
+- SNS
+- EventBridge
+- Secrets Manager
+- DynamoDB
+- CloudFront
 
-### RDS (PostgreSQL Database)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "rds:CreateDBInstance",
-        "rds:DeleteDBInstance",
-        "rds:DescribeDBInstances",
-        "rds:ModifyDBInstance",
-        "rds:CreateDBSubnetGroup",
-        "rds:DeleteDBSubnetGroup",
-        "rds:DescribeDBSubnetGroups",
-        "rds:CreateDBParameterGroup",
-        "rds:DeleteDBParameterGroup",
-        "rds:DescribeDBParameterGroups",
-        "rds:ModifyDBParameterGroup",
-        "rds:AddTagsToResource",
-        "rds:RemoveTagsFromResource",
-        "rds:ListTagsForResource"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+### 2. Tenant deployment (shared IAM reuse)
 
-### DMS (Database Migration Service)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "dms:CreateReplicationInstance",
-        "dms:DeleteReplicationInstance",
-        "dms:DescribeReplicationInstances",
-        "dms:ModifyReplicationInstance",
-        "dms:CreateReplicationSubnetGroup",
-        "dms:DeleteReplicationSubnetGroup",
-        "dms:DescribeReplicationSubnetGroups",
-        "dms:CreateEndpoint",
-        "dms:DeleteEndpoint",
-        "dms:DescribeEndpoints",
-        "dms:ModifyEndpoint",
-        "dms:TestConnection",
-        "dms:CreateReplicationTask",
-        "dms:DeleteReplicationTask",
-        "dms:DescribeReplicationTasks",
-        "dms:ModifyReplicationTask",
-        "dms:StartReplicationTask",
-        "dms:StopReplicationTask",
-        "dms:AddTagsToResource",
-        "dms:RemoveTagsFromResource",
-        "dms:ListTagsForResource"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+Use when running with:
 
-### Kinesis (Data Streams & Firehose)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "kinesis:CreateStream",
-        "kinesis:DeleteStream",
-        "kinesis:DescribeStream",
-        "kinesis:DescribeStreamSummary",
-        "kinesis:ListStreams",
-        "kinesis:UpdateShardCount",
-        "kinesis:AddTagsToStream",
-        "kinesis:RemoveTagsFromStream",
-        "kinesis:ListTagsForStream",
-        "firehose:CreateDeliveryStream",
-        "firehose:DeleteDeliveryStream",
-        "firehose:DescribeDeliveryStream",
-        "firehose:UpdateDestination",
-        "firehose:TagDeliveryStream",
-        "firehose:UntagDeliveryStream",
-        "firehose:ListTagsForDeliveryStream"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+- `enable_tenant_prefix=true`
+- `create_shared_iam=false`
 
-### S3 (Data Lake & Athena Results)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:CreateBucket",
-        "s3:DeleteBucket",
-        "s3:ListBucket",
-        "s3:GetBucketLocation",
-        "s3:GetBucketVersioning",
-        "s3:PutBucketVersioning",
-        "s3:GetBucketPublicAccessBlock",
-        "s3:PutBucketPublicAccessBlock",
-        "s3:GetEncryptionConfiguration",
-        "s3:PutEncryptionConfiguration",
-        "s3:GetLifecycleConfiguration",
-        "s3:PutLifecycleConfiguration",
-        "s3:PutBucketNotification",
-        "s3:GetBucketNotification",
-        "s3:PutBucketTagging",
-        "s3:GetBucketTagging",
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:DeleteObject"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+Required differences:
 
-### Lambda (Transform & ML Functions)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "lambda:CreateFunction",
-        "lambda:DeleteFunction",
-        "lambda:GetFunction",
-        "lambda:UpdateFunctionCode",
-        "lambda:UpdateFunctionConfiguration",
-        "lambda:AddPermission",
-        "lambda:RemovePermission",
-        "lambda:GetPolicy",
-        "lambda:InvokeFunction",
-        "lambda:TagResource",
-        "lambda:UntagResource",
-        "lambda:ListTags"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+- IAM role/policy creation is not required.
+- You still need IAM discovery and pass-role capabilities:
+  - `iam:ListRoles`
+  - `iam:GetRole`
+  - `iam:PassRole`
 
-### IAM (Role & Policy Management)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "iam:CreateRole",
-        "iam:DeleteRole",
-        "iam:GetRole",
-        "iam:UpdateRole",
-        "iam:PassRole",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
-        "iam:PutRolePolicy",
-        "iam:DeleteRolePolicy",
-        "iam:GetRolePolicy",
-        "iam:CreatePolicy",
-        "iam:DeletePolicy",
-        "iam:GetPolicy",
-        "iam:TagRole",
-        "iam:UntagRole",
-        "iam:TagPolicy",
-        "iam:UntagPolicy"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+Plus create/update/delete permissions for tenant resources across the non-IAM services listed above.
 
-### Glue (Data Catalog & Crawlers)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "glue:CreateDatabase",
-        "glue:DeleteDatabase",
-        "glue:GetDatabase",
-        "glue:UpdateDatabase",
-        "glue:CreateCrawler",
-        "glue:DeleteCrawler",
-        "glue:GetCrawler",
-        "glue:UpdateCrawler",
-        "glue:StartCrawler",
-        "glue:StopCrawler",
-        "glue:GetTables",
-        "glue:TagResource",
-        "glue:UntagResource"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+## Recommended Managed Policy Approach
 
-### Athena (Query Workgroup)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "athena:CreateWorkGroup",
-        "athena:DeleteWorkGroup",
-        "athena:GetWorkGroup",
-        "athena:UpdateWorkGroup",
-        "athena:CreateNamedQuery",
-        "athena:DeleteNamedQuery",
-        "athena:GetNamedQuery",
-        "athena:TagResource",
-        "athena:UntagResource"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+For development and initial setup, the quickest path is:
 
-### CloudWatch (Logs, Alarms, Dashboard)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogGroup",
-        "logs:DeleteLogGroup",
-        "logs:DescribeLogGroups",
-        "logs:PutRetentionPolicy",
-        "logs:CreateLogStream",
-        "logs:DeleteLogStream",
-        "logs:PutMetricFilter",
-        "logs:DeleteMetricFilter",
-        "logs:TagLogGroup",
-        "cloudwatch:PutMetricAlarm",
-        "cloudwatch:DeleteAlarms",
-        "cloudwatch:DescribeAlarms",
-        "cloudwatch:PutCompositeAlarm",
-        "cloudwatch:PutDashboard",
-        "cloudwatch:DeleteDashboards",
-        "cloudwatch:GetDashboard"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+- `AdministratorAccess`
 
-### EventBridge (Lambda Scheduling)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "events:PutRule",
-        "events:DeleteRule",
-        "events:DescribeRule",
-        "events:PutTargets",
-        "events:RemoveTargets",
-        "events:ListTargetsByRule",
-        "events:TagResource",
-        "events:UntagResource"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+If tighter controls are required, use:
 
-### Secrets Manager (RDS Credentials)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:CreateSecret",
-        "secretsmanager:DeleteSecret",
-        "secretsmanager:DescribeSecret",
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:PutSecretValue",
-        "secretsmanager:UpdateSecret",
-        "secretsmanager:TagResource",
-        "secretsmanager:UntagResource"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+- `PowerUserAccess`
+- plus explicit IAM permissions for the required IAM actions (`CreateRole`, `PutRolePolicy`, `AttachRolePolicy`, `PassRole`, `ListRoles`, `GetRole`, etc.)
 
-### SNS (Alerts)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "sns:CreateTopic",
-        "sns:DeleteTopic",
-        "sns:GetTopicAttributes",
-        "sns:SetTopicAttributes",
-        "sns:Subscribe",
-        "sns:Unsubscribe",
-        "sns:TagResource",
-        "sns:UntagResource"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+## Service-Level Action Checklist
 
-### KMS (Optional - if using KMS encryption)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "kms:DescribeKey",
-        "kms:ListAliases"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+Minimum action families needed by Terraform across this codebase:
 
-## Simplified Option: Use AWS Managed Policies
+- EC2/VPC: `Create*`, `Delete*`, `Describe*`, `Modify*`, route table/security group/tag operations
+- RDS: `CreateDBInstance`, `ModifyDBInstance`, `DeleteDBInstance`, subnet/parameter group actions, tagging
+- DMS: replication instance/endpoint/task create-modify-delete-start-stop-describe actions
+- Kinesis: stream create-update-delete-describe/list/tag actions
+- Firehose: delivery stream create-update-delete-describe/tag actions
+- S3: bucket create/delete/configuration actions, object list/get/put/delete
+- Lambda: create/update/delete/get/invoke and permission management
+- IAM (legacy mode): role/policy create/update/delete/get/attach/detach/pass/list
+- Glue: database/crawler create-update-delete/get/start/stop/list/tag actions
+- Athena: workgroup and named query create-update-delete/get actions
+- CloudWatch/Logs: dashboard/alarm/log-group/log-stream/metric-filter actions
+- EventBridge: rule/target create-update-delete/list/tag actions
+- Secrets Manager: secret create/update/delete/get/describe/tag
+- SNS: topic create/update/delete/get/subscribe/unsubscribe
+- DynamoDB: table create/update/delete/describe/tag and item operations used by runtime
+- CloudFront: distribution/OAC create-update-delete/get/tag actions
 
-Instead of creating custom policies, you can request attachment of these AWS-managed policies:
+## Runtime vs Deployer Permissions
 
-1. **AdministratorAccess** (full access - easiest for testing)
-2. **PowerUserAccess** (almost full access, but can't manage IAM)
+Terraform creates runtime IAM roles for DMS, Firehose, Lambda, and Glue in legacy mode.
 
-Or combine these managed policies for more granular control:
-- `AmazonVPCFullAccess`
-- `AmazonRDSFullAccess`
-- `AWSGlueConsoleFullAccess`
-- `AmazonAthenaFullAccess`
-- `AmazonKinesisFullAccess`
-- `AmazonS3FullAccess`
-- `AWSLambda_FullAccess`
-- `CloudWatchFullAccess`
-- Plus custom policy for DMS, IAM, Secrets Manager
+- Deployer permissions are for provisioning infrastructure.
+- Runtime permissions are encoded in Terraform IAM policies attached to service roles.
 
-## How to Request Permissions
+In tenant mode, runtime roles are expected to exist already and are discovered/reused.
 
-**Option 1: Contact your AWS administrator**
-```
-Subject: IAM Permissions Request for SmartStream Deployment
+## Region Notes
 
-Hi [Admin Name],
+- Networking currently hardcodes availability zones for `eu-north-1` in `networking.tf`.
+- This avoids requiring `ec2:DescribeAvailabilityZones` in this specific region setup.
+- If you change region and move back to dynamic AZ discovery, `DescribeAvailabilityZones` may be needed.
 
-I need additional IAM permissions to deploy the SmartStream data pipeline using Terraform.
+## Permission Validation Commands
 
-Please grant my user (arn:aws:iam::378192010843:user/C22392083) the following:
-- PowerUserAccess managed policy (recommended for development)
-
-OR attach the individual service policies listed in the attached IAM_PERMISSIONS.md file.
-
-This is needed to deploy: VPC, RDS, DMS, Kinesis, Firehose, Lambda, Glue, Athena, S3, CloudWatch, and associated IAM roles.
-
-Thank you!
-```
-
-**Option 2: If you have console access**
-1. Go to IAM Console → Users → C22392083
-2. Click "Add permissions"
-3. Attach policies (search for "PowerUserAccess" or individual service policies)
-
-## Testing Your Permissions
-
-After getting new permissions, test with:
 ```bash
-# Test EC2 permissions
-aws ec2 describe-availability-zones --region eu-north-1
-
-# Test S3 permissions
-aws s3 ls
-
-# Test IAM permissions
-aws iam get-user
-
-# Test Lambda permissions
+aws sts get-caller-identity
+aws iam list-roles --max-items 5
+aws ec2 describe-vpcs --region eu-north-1
 aws lambda list-functions --region eu-north-1
+aws dms describe-replication-instances --region eu-north-1
+aws cloudfront list-distributions
 ```
 
-## Current Workaround Status
+## Common Failure Patterns
 
-✅ **Fixed**: Availability Zones are now hardcoded for `eu-north-1`
-✅ **Fixed**: S3 lifecycle configuration syntax corrected
-
-You can now run `terraform apply` with your current permissions, but you may encounter additional permission errors for other services during deployment.
-
----
-
-**Next Steps:**
-1. Request the necessary IAM permissions from your AWS administrator
-2. Re-run `terraform apply` once permissions are granted
-3. Or proceed with current permissions and address permission errors as they arise
+- `AccessDenied` on IAM role lookup in tenant mode:
+  - missing `iam:ListRoles` or `iam:GetRole`
+- `iam:PassRole` denied when creating Lambda/DMS/Firehose resources
+- CloudFront permission gaps during web distribution creation/update
+- DMS endpoint/task creation denied due missing DMS API permissions

@@ -426,7 +426,8 @@ resource "aws_iam_role_policy" "lambda_ml_s3" {
           StringLike = {
             "s3:prefix" = [
               "${local.s3_trusted_prefix}*",
-              "${local.s3_trusted_analytics_prefix}predictions/*"
+              "${local.s3_trusted_analytics_prefix}predictions/*",
+              "${local.s3_trusted_analytics_prefix}${local.name_prefix}/predictions/*"
             ]
           }
         }
@@ -445,7 +446,12 @@ resource "aws_iam_role_policy" "lambda_ml_s3" {
         Action = [
           "s3:PutObject"
         ]
-        Resource = [for bucket_arn in local.data_lake_bucket_arn_patterns : "${bucket_arn}/${local.s3_trusted_analytics_prefix}predictions/*"]
+        Resource = flatten([
+          for bucket_arn in local.data_lake_bucket_arn_patterns : [
+            "${bucket_arn}/${local.s3_trusted_analytics_prefix}predictions/*",
+            "${bucket_arn}/${local.s3_trusted_analytics_prefix}${local.name_prefix}/predictions/*"
+          ]
+        ])
       }
     ]
   })
@@ -502,7 +508,8 @@ resource "aws_iam_role_policy" "lambda_anomaly_s3" {
           StringLike = {
             "s3:prefix" = [
               "${local.s3_trusted_prefix}*",
-              "${var.trusted_prefix_anomalies}*"
+              "${var.trusted_prefix_anomalies}*",
+              "${local.s3_trusted_analytics_prefix}${local.name_prefix}/anomalies/*"
             ]
           }
         }
@@ -521,7 +528,12 @@ resource "aws_iam_role_policy" "lambda_anomaly_s3" {
         Action = [
           "s3:PutObject"
         ]
-        Resource = [for bucket_arn in local.data_lake_bucket_arn_patterns : "${bucket_arn}/${var.trusted_prefix_anomalies}*"]
+        Resource = flatten([
+          for bucket_arn in local.data_lake_bucket_arn_patterns : [
+            "${bucket_arn}/${var.trusted_prefix_anomalies}*",
+            "${bucket_arn}/${local.s3_trusted_analytics_prefix}${local.name_prefix}/anomalies/*"
+          ]
+        ])
       }
     ]
   })

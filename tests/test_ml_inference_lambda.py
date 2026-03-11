@@ -15,8 +15,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
             fake_s3_client=cls.fake_s3,
             env={
                 "DATA_LAKE_BUCKET": "test-data-lake",
-                "TRUSTED_PREFIX": "trusted/",
-                "ANALYTICS_PREFIX": "trusted-analytics/predictions/",
+                "TRUSTED_PREFIX": "trusted/smartstream-dev/",
+                "ANALYTICS_PREFIX": "trusted-analytics/smartstream-dev/predictions/",
                 "MAX_INPUT_FILES": "20",
                 "FORECAST_DAYS": "7",
             },
@@ -52,15 +52,15 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(date_only.tzinfo, timezone.utc)
 
     def test_extract_date_from_key_parses_partitioned_paths(self):
-        parsed = self.module.extract_date_from_key("trusted/employees/table/2026/02/24/file.json")
-        missing = self.module.extract_date_from_key("trusted/employees/table/no-date/file.json")
+        parsed = self.module.extract_date_from_key("trusted/smartstream-dev/employees/table/2026/02/24/file.json")
+        missing = self.module.extract_date_from_key("trusted/smartstream-dev/employees/table/no-date/file.json")
         self.assertEqual(parsed, date(2026, 2, 24))
         self.assertIsNone(missing)
 
     def test_extract_record_datetime_uses_fallbacks(self):
         from_timestamp_field = self.module.extract_record_datetime({"updated_at": "2026-03-01T00:00:00Z"})
         from_source_key = self.module.extract_record_datetime(
-            {"_source_key": "trusted/employees/x/2026/03/02/object.json"}
+            {"_source_key": "trusted/smartstream-dev/employees/x/2026/03/02/object.json"}
         )
         from_modified = self.module.extract_record_datetime(
             {"_source_last_modified": "2026-03-03T09:00:00+00:00"}
@@ -184,8 +184,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(result["expenditure"]["history"], [])
 
     def test_lambda_handler_end_to_end_writes_prediction_payload(self):
-        employees_key = "trusted/employees/employees/2026/02/24/employees.json"
-        finance_key = "trusted/finance/transactions/2026/02/24/transactions.json"
+        employees_key = "trusted/smartstream-dev/employees/employees/2026/02/24/employees.json"
+        finance_key = "trusted/smartstream-dev/finance/transactions/2026/02/24/transactions.json"
 
         self.fake_s3.pages = [
             {
@@ -223,7 +223,9 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertIn("output_key", body)
         self.assertEqual(len(self.fake_s3.put_calls), 1)
         self.assertEqual(self.fake_s3.put_calls[0]["Bucket"], "test-data-lake")
-        self.assertTrue(self.fake_s3.put_calls[0]["Key"].startswith("trusted-analytics/predictions/"))
+        self.assertTrue(
+            self.fake_s3.put_calls[0]["Key"].startswith("trusted-analytics/smartstream-dev/predictions/")
+        )
 
 
 if __name__ == "__main__":
