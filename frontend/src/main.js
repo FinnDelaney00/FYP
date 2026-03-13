@@ -1,14 +1,23 @@
 /**
  * File purpose:
- * Bootstraps frontend display behavior: authentication flow, view/page navigation,
- * session restoration, and startup/cleanup of live data and insights rendering modules.
+ * Bootstraps authentication, browser-route navigation, workspace lifecycle,
+ * user/company context, and the dedicated settings experience.
  */
-import { startLiveUpdates } from "./liveUpdates";
-import { initInsightsData } from "./insightsData";
-import { initAnomaliesData } from "./anomaliesData";
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const AUTH_TOKEN_KEY = "smartstream_auth_token";
+import { initAnomaliesData } from "./anomaliesData.js";
+import { initInsightsData } from "./insightsData.js";
+import { startLiveUpdates } from "./liveUpdates.js";
+import {
+  authenticate,
+  getSessionState,
+  getStoredToken,
+  logoutSession,
+  restoreSession,
+  subscribeSession,
+  syncSessionFromServer
+} from "./services/authService.js";
+import { createPreferencesStore } from "./preferences/preferencesManager.js";
+import { getPathForPage, getRouteByPageName, resolveRoute } from "./routes.js";
+import { createSettingsPage } from "./settings/settingsPage.js";
 
 const loginView = document.getElementById("login-view");
 const workspaceView = document.getElementById("workspace-view");
@@ -22,46 +31,39 @@ const signupNameGroup = document.getElementById("signup-name-group");
 const signupInviteGroup = document.getElementById("signup-invite-group");
 const displayNameInput = document.getElementById("display-name");
 const inviteCodeInput = document.getElementById("invite-code");
+const emailInput = document.getElementById("email");
 const sidebar = document.getElementById("sidebar");
 const sidebarToggle = document.getElementById("sidebar-toggle");
 const logoutButton = document.getElementById("logout-btn");
-
 const pageTitle = document.getElementById("page-title");
 const pageSubtitle = document.getElementById("page-subtitle");
-const navLinks = Array.from(document.querySelectorAll(".nav-link"));
-const pages = Array.from(document.querySelectorAll(".page"));
 const liveStatusPill = document.getElementById("live-status-pill");
 const liveFeedMeta = document.getElementById("live-feed-meta");
 const liveFeedChart = document.getElementById("live-feed-chart");
-const emailInput = document.getElementById("email");
+const workspaceCompanyChip = document.getElementById("workspace-company-chip");
+const sidebarUserName = document.getElementById("sidebar-user-name");
+const sidebarUserMeta = document.getElementById("sidebar-user-meta");
+const settingsPageRoot = document.getElementById("settings-page-root");
+
+const navLinks = Array.from(document.querySelectorAll(".nav-link"));
+const pages = Array.from(document.querySelectorAll(".page"));
+
+const preferencesStore = createPreferencesStore();
 
 let isSignupMode = false;
+let pendingProtectedPage = null;
 let stopLiveUpdates = null;
 let stopInsights = null;
 let stopAnomalies = null;
+let workspaceDataStarted = false;
 
-const pageMeta = {
-  dashboard: {
-    title: "Spending Overview",
-    subtitle: "A plain-English view of company spend, hiring, and team mix"
-  },
-  "create-graph": {
-    title: "Custom Charts",
-    subtitle: "Build a simple view of the business metric you want to track"
-  },
-  query: {
-    title: "Explore Data",
-    subtitle: "Look deeper into the raw company data when you need detail"
-  },
-  anomalies: {
-    title: "Alerts",
-    subtitle: "Review unusual cost patterns and other items that need attention"
-  },
-  forecasts: {
-    title: "Forecasts",
-    subtitle: "Business-ready outlook for future spend, hiring, and planning risk"
-  }
-};
+const settingsPage = createSettingsPage({
+  rootElement: settingsPageRoot,
+  preferencesStore,
+  getSessionState,
+  syncSessionFromServer,
+  getAuthToken: getStoredToken
+});
 
 function openWorkspace() {
   loginView.classList.remove("view-active");
@@ -72,45 +74,6 @@ function openLogin() {
   workspaceView.classList.remove("view-active");
   loginView.classList.add("view-active");
   sidebar.classList.remove("open");
-}
-
-function getStoredToken() {
-  return localStorage.getItem(AUTH_TOKEN_KEY) || "";
-}
-
-function setStoredToken(token) {
-  localStorage.setItem(AUTH_TOKEN_KEY, token);
-}
-
-function clearStoredToken() {
-  localStorage.removeItem(AUTH_TOKEN_KEY);
-}
-
-function getAuthHeaders() {
-  const token = getStoredToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-async function apiRequest(path, options = {}) {
-  if (!API_BASE_URL) {
-    throw new Error("VITE_API_BASE_URL is not configured.");
-  }
-
-  const headers = {
-    ...(options.headers || {}),
-    ...getAuthHeaders()
-  };
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.message || `HTTP ${response.status}`);
-  }
-  return payload;
 }
 
 function stopWorkspaceData() {
@@ -126,10 +89,14 @@ function stopWorkspaceData() {
     stopAnomalies();
     stopAnomalies = null;
   }
+  workspaceDataStarted = false;
 }
 
 function startWorkspaceData() {
-  stopWorkspaceData();
+  if (workspaceDataStarted) {
+    return;
+  }
+
   stopLiveUpdates = startLiveUpdates({
     chartElement: liveFeedChart,
     metaElement: liveFeedMeta,
@@ -143,6 +110,7 @@ function startWorkspaceData() {
   stopAnomalies = initAnomaliesData({
     getAuthToken: getStoredToken
   });
+  workspaceDataStarted = true;
 }
 
 function setAuthMode(signupMode) {
@@ -170,25 +138,47 @@ function setAuthMode(signupMode) {
   }
 }
 
-async function verifyStoredSession() {
-  const token = getStoredToken();
-  if (!token) {
-    return false;
+function humanizeRole(role) {
+  const normalized = String(role || "").trim().replaceAll("_", " ");
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Member";
+}
+
+function updateWorkspaceIdentity(sessionState) {
+  if (sessionState.status !== "authenticated") {
+    if (workspaceCompanyChip) {
+      workspaceCompanyChip.textContent = "Secure workspace";
+    }
+    if (sidebarUserName) {
+      sidebarUserName.textContent = "SmartStream";
+    }
+    if (sidebarUserMeta) {
+      sidebarUserMeta.textContent = "Business Insights";
+    }
+    return;
   }
 
-  try {
-    await apiRequest("/auth/me");
-    return true;
-  } catch {
-    clearStoredToken();
-    return false;
+  const companyName = sessionState.company?.name || "Company workspace";
+  const companyId = sessionState.company?.id || sessionState.user?.companyId || "company";
+  const role = humanizeRole(sessionState.user?.role);
+
+  if (workspaceCompanyChip) {
+    workspaceCompanyChip.textContent = `${companyName} | ${role}`;
+  }
+  if (sidebarUserName) {
+    sidebarUserName.textContent = sessionState.user?.name || "SmartStream user";
+  }
+  if (sidebarUserMeta) {
+    sidebarUserMeta.textContent = `${sessionState.user?.email || "No email"} | ${companyId}`;
   }
 }
 
 function setActivePage(pageName) {
+  const route = getRouteByPageName(pageName);
+
   navLinks.forEach((link) => {
     const isSelected = link.dataset.pageTarget === pageName;
     link.classList.toggle("is-active", isSelected);
+    link.setAttribute("aria-current", isSelected ? "page" : "false");
   });
 
   pages.forEach((page) => {
@@ -196,15 +186,80 @@ function setActivePage(pageName) {
     page.classList.toggle("page-active", isSelected);
   });
 
-  const meta = pageMeta[pageName];
-  if (meta) {
-    pageTitle.textContent = meta.title;
-    pageSubtitle.textContent = meta.subtitle;
+  if (pageTitle) {
+    pageTitle.textContent = route.title;
+  }
+  if (pageSubtitle) {
+    pageSubtitle.textContent = route.subtitle;
+  }
+
+  if (pageName === "settings") {
+    settingsPage.render();
+    settingsPage.syncPageContext();
   }
 
   if (window.innerWidth <= 980) {
     sidebar.classList.remove("open");
   }
+}
+
+function navigateToPage(pageName, { replace = false } = {}) {
+  const path = getPathForPage(pageName);
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({}, "", path);
+  syncViewToRoute();
+}
+
+function navigateToLogin({ replace = false } = {}) {
+  navigateToPage("login", { replace });
+}
+
+function resolveAuthenticatedLanding(route) {
+  if (route.pageName === "login") {
+    return pendingProtectedPage || preferencesStore.getState().landingPage || "dashboard";
+  }
+  if (route.isRootAlias) {
+    return preferencesStore.getState().landingPage || "dashboard";
+  }
+  return route.pageName;
+}
+
+function syncViewToRoute() {
+  const route = resolveRoute(window.location.pathname);
+  const sessionState = getSessionState();
+  const isAuthenticated = sessionState.status === "authenticated";
+
+  if (!isAuthenticated) {
+    if (route.authRequired) {
+      pendingProtectedPage = route.pageName;
+      const loginPath = getPathForPage("login");
+      if (window.location.pathname !== loginPath) {
+        window.history.replaceState({}, "", loginPath);
+      }
+    }
+    openLogin();
+    return;
+  }
+
+  openWorkspace();
+
+  if (route.isUnknown) {
+    window.history.replaceState({}, "", getPathForPage("dashboard"));
+    setActivePage("dashboard");
+    return;
+  }
+
+  const nextPage = resolveAuthenticatedLanding(route);
+  pendingProtectedPage = null;
+
+  if (nextPage !== route.pageName || route.isRootAlias) {
+    const nextPath = getPathForPage(nextPage);
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState({}, "", nextPath);
+    }
+  }
+
+  setActivePage(nextPage);
 }
 
 loginForm.addEventListener("submit", async (event) => {
@@ -220,7 +275,6 @@ loginForm.addEventListener("submit", async (event) => {
     loginError.textContent = "Please enter both email and password.";
     return;
   }
-
   if (isSignupMode && !displayName) {
     loginError.textContent = "Please provide a display name.";
     return;
@@ -233,36 +287,19 @@ loginForm.addEventListener("submit", async (event) => {
   try {
     loginError.textContent = "";
     authSubmitBtn.disabled = true;
-    const payload = await apiRequest(isSignupMode ? "/auth/signup" : "/auth/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(
-        isSignupMode
-          ? {
-              email,
-              password,
-              display_name: displayName,
-              invite_code: inviteCode
-            }
-          : {
-              email,
-              password
-            }
-      )
+    await authenticate({
+      signupMode: isSignupMode,
+      email,
+      password,
+      displayName,
+      inviteCode
     });
-
-    if (!payload?.token) {
-      throw new Error("Authentication succeeded but no token was returned.");
-    }
-
-    setStoredToken(payload.token);
-    openWorkspace();
-    setActivePage("dashboard");
     startWorkspaceData();
+    navigateToPage(pendingProtectedPage || preferencesStore.getState().landingPage || "dashboard", {
+      replace: true
+    });
   } catch (error) {
-    loginError.textContent = error.message;
+    loginError.textContent = error.message || "Authentication failed.";
   } finally {
     authSubmitBtn.disabled = false;
   }
@@ -272,17 +309,17 @@ navLinks.forEach((link) => {
   link.addEventListener("click", () => {
     const pageName = link.dataset.pageTarget;
     if (pageName) {
-      setActivePage(pageName);
+      navigateToPage(pageName);
     }
   });
 });
 
 logoutButton.addEventListener("click", () => {
   stopWorkspaceData();
-  clearStoredToken();
+  logoutSession();
   loginForm.reset();
-  openLogin();
   setAuthMode(false);
+  navigateToLogin({ replace: true });
 });
 
 sidebarToggle.addEventListener("click", () => {
@@ -295,20 +332,32 @@ window.addEventListener("resize", () => {
   }
 });
 
+window.addEventListener("popstate", () => {
+  syncViewToRoute();
+});
+
 authToggleBtn.addEventListener("click", () => {
   setAuthMode(!isSignupMode);
 });
 
+subscribeSession((sessionState) => {
+  updateWorkspaceIdentity(sessionState);
+  if (sessionState.status === "authenticated") {
+    settingsPage.render();
+    settingsPage.syncPageContext();
+  }
+});
+
 setAuthMode(false);
 
-verifyStoredSession().then((isValid) => {
-  if (isValid) {
-    openWorkspace();
-    setActivePage("dashboard");
+restoreSession().then((sessionState) => {
+  if (sessionState.status === "authenticated") {
     startWorkspaceData();
+    syncViewToRoute();
     return;
   }
 
   openLogin();
   emailInput.focus();
+  syncViewToRoute();
 });

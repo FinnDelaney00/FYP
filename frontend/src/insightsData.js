@@ -1275,6 +1275,14 @@ export function initInsightsData({ getAuthToken = () => "" } = {}) {
       renderForecasts(latestForecastPayload);
     }
   };
+  const handlePreferencesUpdated = () => {
+    if (latestDashboardPayload) {
+      renderDashboard(latestDashboardPayload);
+    }
+    if (latestForecastPayload) {
+      renderForecasts(latestForecastPayload);
+    }
+  };
 
   if (queryButton) {
     queryButton.addEventListener("click", () => {
@@ -1298,6 +1306,7 @@ export function initInsightsData({ getAuthToken = () => "" } = {}) {
     latestFinanceRowsState = window.__smartstreamFinanceRowsState;
   }
   window.addEventListener("smartstream:finance-rows-updated", handleFinanceRowsUpdated);
+  window.addEventListener("smartstream:preferences-changed", handlePreferencesUpdated);
   initializeForecastControls();
 
   refreshAll();
@@ -1309,6 +1318,7 @@ export function initInsightsData({ getAuthToken = () => "" } = {}) {
   return () => {
     window.clearInterval(timer);
     window.removeEventListener("smartstream:finance-rows-updated", handleFinanceRowsUpdated);
+    window.removeEventListener("smartstream:preferences-changed", handlePreferencesUpdated);
   };
 }
 

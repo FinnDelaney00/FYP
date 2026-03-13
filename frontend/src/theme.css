@@ -1,0 +1,683 @@
+:root {
+  --app-background:
+    radial-gradient(circle at 12% 18%, rgba(59, 130, 246, 0.16) 0%, transparent 32%),
+    radial-gradient(circle at 86% 14%, rgba(14, 165, 233, 0.12) 0%, transparent 28%),
+    radial-gradient(circle at 78% 86%, rgba(15, 118, 110, 0.1) 0%, transparent 26%),
+    linear-gradient(180deg, #f7fafc 0%, #edf4fb 100%);
+  --orb-a-color: #93c5fd;
+  --orb-b-color: #99f6e4;
+  --orb-c-color: #fca5a5;
+  --surface-sidebar: rgba(255, 255, 255, 0.88);
+  --surface-topbar: rgba(255, 255, 255, 0.78);
+  --surface-panel: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 251, 0.95));
+  --surface-panel-soft: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.92));
+  --surface-panel-muted: rgba(248, 250, 252, 0.82);
+  --surface-elevated:
+    radial-gradient(circle at 12% 16%, rgba(37, 99, 235, 0.08), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 255, 0.98));
+  --surface-chip: rgba(148, 163, 184, 0.16);
+  --surface-chip-text: #51627f;
+  --surface-table-head: rgba(246, 250, 255, 0.98);
+  --surface-table-alt: rgba(248, 250, 252, 0.72);
+  --surface-table-hover: rgba(37, 99, 235, 0.06);
+  --surface-input: #ffffff;
+  --surface-input-muted: rgba(255, 255, 255, 0.95);
+  --border-soft: rgba(148, 163, 184, 0.18);
+  --border-strong: rgba(59, 130, 246, 0.14);
+  --border-input: #c8d8ee;
+  --text-primary: #10213f;
+  --text-secondary: #60708d;
+  --text-heading: #0f2348;
+  --text-label: #35507f;
+  --text-inverse: #ffffff;
+  --text-muted-strong: #4b6388;
+  --focus-ring: rgba(37, 99, 235, 0.25);
+  --nav-text: #243e70;
+  --nav-hover: rgba(29, 78, 216, 0.08);
+  --warning-surface: rgba(255, 247, 237, 0.95);
+  --warning-border: rgba(217, 119, 6, 0.22);
+  --warning-text: #9a3412;
+  --positive-surface: rgba(240, 253, 250, 0.96);
+  --positive-border: rgba(15, 118, 110, 0.18);
+  --positive-text: #0f766e;
+  --danger-surface: rgba(254, 242, 242, 0.95);
+  --danger-border: rgba(220, 38, 38, 0.3);
+  --danger-text: #991b1b;
+  --chart-grid: rgba(71, 103, 146, 0.14);
+  --chart-primary: #2563eb;
+  --chart-primary-soft: rgba(37, 99, 235, 0.12);
+  --chart-secondary: #0891b2;
+  --chart-secondary-soft: rgba(6, 182, 212, 0.16);
+  --chart-teal: #0f766e;
+  --chart-teal-soft: rgba(15, 118, 110, 0.14);
+  --chart-teal-alt: #14b8a6;
+  --chart-warning: #d97706;
+  --chart-warning-soft: rgba(217, 119, 6, 0.14);
+  --chart-donut-1: #2563eb;
+  --chart-donut-2: #7c3aed;
+  --chart-donut-3: #e11d48;
+  --chart-donut-4: #0ea5e9;
+  --chart-donut-5: #0f766e;
+  --chart-donut-6: #f59e0b;
+  --skeleton-surface: linear-gradient(90deg, rgba(226, 232, 240, 0.65), rgba(241, 245, 249, 0.95), rgba(226, 232, 240, 0.65));
+}
+
+:root[data-theme-resolved="dark"] {
+  --bg-deep: #08111f;
+  --bg-mid: #0f1d36;
+  --bg-light: #0d182c;
+  --panel: rgba(11, 23, 43, 0.92);
+  --panel-soft: rgba(8, 19, 37, 0.9);
+  --border: rgba(148, 163, 184, 0.18);
+  --ink: #e5edf8;
+  --muted: #9cafc9;
+  --shadow: 0 24px 50px rgba(2, 6, 23, 0.45);
+  --shadow-soft: 0 12px 28px rgba(2, 6, 23, 0.34);
+  --app-background:
+    radial-gradient(circle at 14% 18%, rgba(37, 99, 235, 0.2) 0%, transparent 30%),
+    radial-gradient(circle at 84% 12%, rgba(20, 184, 166, 0.14) 0%, transparent 26%),
+    radial-gradient(circle at 76% 84%, rgba(217, 119, 6, 0.1) 0%, transparent 22%),
+    linear-gradient(180deg, #06101f 0%, #0b162b 100%);
+  --orb-a-color: rgba(59, 130, 246, 0.48);
+  --orb-b-color: rgba(45, 212, 191, 0.32);
+  --orb-c-color: rgba(249, 115, 22, 0.24);
+  --surface-sidebar: rgba(8, 19, 37, 0.94);
+  --surface-topbar: rgba(10, 21, 39, 0.88);
+  --surface-panel: linear-gradient(180deg, rgba(17, 28, 49, 0.98), rgba(11, 20, 37, 0.96));
+  --surface-panel-soft: linear-gradient(180deg, rgba(14, 24, 43, 0.96), rgba(9, 17, 31, 0.94));
+  --surface-panel-muted: rgba(15, 23, 42, 0.78);
+  --surface-elevated:
+    radial-gradient(circle at 12% 16%, rgba(37, 99, 235, 0.12), transparent 42%),
+    linear-gradient(180deg, rgba(11, 23, 43, 0.96), rgba(8, 17, 31, 0.98));
+  --surface-chip: rgba(148, 163, 184, 0.14);
+  --surface-chip-text: #d1d9e7;
+  --surface-table-head: rgba(11, 23, 43, 0.98);
+  --surface-table-alt: rgba(15, 23, 42, 0.7);
+  --surface-table-hover: rgba(37, 99, 235, 0.16);
+  --surface-input: #0b172a;
+  --surface-input-muted: rgba(11, 23, 43, 0.94);
+  --border-soft: rgba(148, 163, 184, 0.18);
+  --border-strong: rgba(96, 165, 250, 0.24);
+  --border-input: rgba(148, 163, 184, 0.26);
+  --text-primary: #e5edf8;
+  --text-secondary: #9cafc9;
+  --text-heading: #f8fbff;
+  --text-label: #bfd1ee;
+  --text-muted-strong: #cdd9ea;
+  --nav-text: #d7e4fb;
+  --nav-hover: rgba(59, 130, 246, 0.16);
+  --warning-surface: rgba(67, 31, 7, 0.58);
+  --warning-border: rgba(249, 115, 22, 0.28);
+  --warning-text: #fdba74;
+  --positive-surface: rgba(6, 78, 59, 0.42);
+  --positive-border: rgba(45, 212, 191, 0.26);
+  --positive-text: #99f6e4;
+  --danger-surface: rgba(69, 10, 10, 0.58);
+  --danger-border: rgba(248, 113, 113, 0.28);
+  --danger-text: #fecaca;
+  --chart-grid: rgba(148, 163, 184, 0.22);
+  --chart-primary: #60a5fa;
+  --chart-primary-soft: rgba(96, 165, 250, 0.16);
+  --chart-secondary: #38bdf8;
+  --chart-secondary-soft: rgba(56, 189, 248, 0.18);
+  --chart-teal: #2dd4bf;
+  --chart-teal-soft: rgba(45, 212, 191, 0.16);
+  --chart-teal-alt: #5eead4;
+  --chart-warning: #f59e0b;
+  --chart-warning-soft: rgba(245, 158, 11, 0.18);
+  --chart-donut-1: #60a5fa;
+  --chart-donut-2: #a78bfa;
+  --chart-donut-3: #fb7185;
+  --chart-donut-4: #38bdf8;
+  --chart-donut-5: #2dd4bf;
+  --chart-donut-6: #fbbf24;
+  --skeleton-surface: linear-gradient(90deg, rgba(30, 41, 59, 0.86), rgba(51, 65, 85, 0.96), rgba(30, 41, 59, 0.86));
+}
+
+:root[data-high-contrast="true"] {
+  --border-soft: rgba(148, 163, 184, 0.44);
+  --border-strong: rgba(96, 165, 250, 0.5);
+  --border-input: rgba(96, 165, 250, 0.55);
+  --text-secondary: var(--text-primary);
+  --text-label: var(--text-primary);
+  --surface-chip: rgba(30, 64, 175, 0.22);
+  --surface-chip-text: var(--text-primary);
+  --nav-hover: rgba(59, 130, 246, 0.26);
+  --chart-grid: rgba(148, 163, 184, 0.44);
+}
+
+:root[data-font-size="small"] {
+  font-size: 15px;
+}
+
+:root[data-font-size="default"] {
+  font-size: 16px;
+}
+
+:root[data-font-size="large"] {
+  font-size: 18px;
+}
+
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+body {
+  background: var(--app-background);
+  color: var(--text-primary);
+}
+
+.orb-a {
+  background: var(--orb-a-color);
+}
+
+.orb-b {
+  background: var(--orb-b-color);
+}
+
+.orb-c {
+  background: var(--orb-c-color);
+}
+
+.login-brand {
+  color: var(--text-inverse);
+}
+
+.brand-eyebrow {
+  color: rgba(239, 246, 255, 0.8);
+}
+
+.sidebar,
+.topbar {
+  border-color: var(--border-soft);
+}
+
+.sidebar {
+  background: var(--surface-sidebar);
+}
+
+.topbar {
+  background: var(--surface-topbar);
+}
+
+.topbar-status-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.sidebar-account {
+  margin-top: 0.4rem;
+  padding: 0.9rem;
+  border-radius: 14px;
+  background: var(--surface-panel-soft);
+  border: 1px solid var(--border-soft);
+  display: grid;
+  gap: 0.22rem;
+}
+
+.sidebar-account-label {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sidebar-account strong,
+.sidebar-account p {
+  color: var(--text-primary);
+}
+
+.sidebar-account p {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.status-pill-secondary {
+  background: var(--surface-chip);
+  color: var(--surface-chip-text);
+}
+
+.nav-link {
+  color: var(--nav-text);
+}
+
+.nav-link:hover {
+  background: var(--nav-hover);
+}
+
+.login-card,
+.panel,
+.mini-panel,
+.metric-card-business,
+.query-head-note,
+.query-note-item,
+.insight-item,
+.alert-item,
+.breakdown-row,
+.breakdown-empty,
+.split-summary-card,
+.forecast-note-item,
+.forecast-trust-row,
+.forecast-stat-card,
+.forecast-empty-state,
+.graph-state,
+.graph-insight-card,
+.anomaly-item,
+.anomaly-detail-panel,
+.anomaly-metric-box,
+.anomaly-audit-item {
+  border-color: var(--border-soft);
+  box-shadow: var(--shadow-soft);
+}
+
+.login-card,
+.panel,
+.mini-panel,
+.metric-card-business,
+.query-head-note,
+.query-note-item,
+.insight-item,
+.breakdown-row,
+.split-summary-card,
+.forecast-note-item,
+.forecast-trust-row,
+.forecast-stat-card,
+.graph-state,
+.anomaly-item,
+.anomaly-detail-panel,
+.anomaly-metric-box,
+.anomaly-audit-item {
+  background: var(--surface-panel);
+}
+
+.alert-item,
+.breakdown-empty,
+.forecast-empty-state {
+  background: var(--surface-panel-soft);
+}
+
+.query-page-head,
+.forecast-page-head,
+.live-feed-chart,
+.query-results-wrap,
+.graph-chart-frame,
+.query-sql-preview,
+.forecast-chart-card,
+.forecast-chart-inner {
+  background: var(--surface-elevated);
+}
+
+.query-results-wrap,
+.graph-chart-frame,
+.forecast-chart-card,
+.live-feed-chart,
+.query-page-head,
+.forecast-page-head {
+  border-color: var(--border-soft);
+}
+
+.login-card label,
+.inline-form label,
+.settings-field-label,
+.query-head-note span,
+.query-note-item span,
+.mini-panel-label,
+.forecast-department-copy span,
+.section-kicker {
+  color: var(--text-label);
+}
+
+.topbar h1,
+.panel > header h3,
+.query-page-head h2,
+.dashboard-section-head h2,
+.dashboard-intro h2,
+.query-head-note strong,
+.graph-state h4,
+.forecast-note-item h4,
+.forecast-empty-state h4,
+.mini-panel strong,
+.settings-page-header h2,
+.settings-card-header h3 {
+  color: var(--text-heading);
+}
+
+.topbar p,
+.panel > header p,
+.login-card p,
+.dashboard-summary,
+.mini-panel p,
+.metric-card-business p,
+.insight-item p,
+.alert-item p,
+.query-head-note p,
+.query-note-item p,
+.graph-state p,
+.graph-footnote,
+.forecast-note-item p,
+.forecast-trust-row p,
+.forecast-stat-card p,
+.forecast-department-copy p,
+.breakdown-copy span,
+.split-summary-card p {
+  color: var(--text-secondary);
+}
+
+.login-card input,
+.inline-form select,
+textarea,
+.settings-input,
+.settings-select {
+  background: var(--surface-input);
+  color: var(--text-primary);
+  border-color: var(--border-input);
+}
+
+.login-card input:focus-visible,
+.inline-form select:focus-visible,
+textarea:focus-visible,
+.settings-input:focus-visible,
+.settings-select:focus-visible,
+.settings-switch-input:focus-visible + .settings-switch-ui {
+  outline: 2px solid var(--focus-ring);
+  border-color: var(--chart-primary);
+}
+
+.query-results-table th,
+.results-table th {
+  background: var(--surface-table-head);
+  color: var(--text-label);
+}
+
+.query-results-table td,
+.results-table td {
+  color: var(--text-primary);
+  border-color: var(--border-soft);
+}
+
+.query-results-table tbody tr:nth-child(even) {
+  background: var(--surface-table-alt);
+}
+
+.query-results-table tbody tr:hover {
+  background: var(--surface-table-hover);
+}
+
+.metric-trend,
+.graph-chip,
+.forecast-department-chip {
+  background: var(--surface-chip);
+  color: var(--surface-chip-text);
+}
+
+.segmented-control {
+  background: var(--surface-chip);
+}
+
+.segmented-btn {
+  color: var(--surface-chip-text);
+}
+
+.segmented-btn.is-active {
+  background: var(--surface-input-muted);
+  color: var(--chart-primary);
+}
+
+.live-chart-svg,
+.line-chart-wrap svg,
+.graph-chart-frame,
+.forecast-chart-inner {
+  border-color: var(--border-soft);
+}
+
+.live-chart-svg,
+.line-chart-wrap svg {
+  background:
+    linear-gradient(180deg, var(--chart-primary-soft), rgba(37, 99, 235, 0.01)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.15), rgba(247, 251, 255, 0));
+}
+
+.live-chart-grid-line,
+.line-grid-line,
+.graph-grid-line,
+.forecast-grid-line {
+  stroke: var(--chart-grid);
+}
+
+.live-chart-area,
+.line-fill,
+.graph-area-path,
+.forecast-actual-area {
+  fill: var(--chart-primary-soft);
+}
+
+.graph-chart-shell.is-area .graph-area-path,
+.forecast-confidence-band {
+  fill: var(--chart-teal-soft);
+}
+
+.live-chart-line,
+.line-stroke,
+.graph-line-path,
+.forecast-line.is-actual {
+  stroke: var(--chart-primary);
+}
+
+.graph-chart-shell.is-area .graph-line-path,
+.forecast-line.is-actual.is-headcount {
+  stroke: var(--chart-teal);
+}
+
+.forecast-line.is-projected,
+.line-point.is-forecast {
+  stroke: var(--chart-secondary);
+}
+
+.forecast-line.is-projected.is-headcount {
+  stroke: var(--chart-teal-alt);
+}
+
+.live-chart-point,
+.line-point,
+.graph-point-marker,
+.forecast-point.is-actual {
+  fill: var(--surface-input);
+  stroke: var(--chart-primary);
+}
+
+.graph-chart-shell.is-area .graph-point-marker,
+.forecast-point.is-headcount.is-actual {
+  stroke: var(--chart-teal);
+}
+
+.forecast-point.is-projected {
+  fill: var(--surface-input);
+  stroke: var(--chart-secondary);
+}
+
+.forecast-point.is-headcount.is-projected {
+  stroke: var(--chart-teal-alt);
+}
+
+.live-chart-anomaly {
+  fill: var(--chart-warning-soft);
+  stroke: var(--chart-warning);
+}
+
+.live-chart-axis,
+.x-axis,
+.graph-x-axis,
+.forecast-chart-axis,
+.live-chart-legend,
+.forecast-legend,
+.chart-legend {
+  color: var(--text-secondary);
+}
+
+.dot.spend,
+.dot.rev,
+.dot.eng,
+.graph-legend-dot.is-line,
+.forecast-legend-dot.actual {
+  background: var(--chart-primary);
+}
+
+.dot.exp,
+.graph-legend-dot.is-bar,
+.forecast-legend-dot.projected {
+  background: var(--chart-secondary);
+}
+
+.dot.alert,
+.forecast-legend-dot.range {
+  background: var(--chart-warning);
+  border-color: var(--chart-warning);
+}
+
+.dot.ops,
+.graph-legend-dot.is-area,
+.forecast-legend-dot.actual.headcount {
+  background: var(--chart-teal);
+}
+
+.forecast-legend-dot.projected.headcount {
+  background: var(--chart-teal-alt);
+}
+
+.breakdown-bar,
+.track {
+  background: rgba(96, 165, 250, 0.2);
+}
+
+.track.alt {
+  background: rgba(56, 189, 248, 0.16);
+}
+
+.track i,
+.breakdown-bar i {
+  background: linear-gradient(90deg, var(--chart-primary), #93c5fd);
+}
+
+.track.alt i {
+  background: linear-gradient(90deg, var(--chart-secondary), #67e8f9);
+}
+
+.split-bar-recurring {
+  background: linear-gradient(90deg, var(--chart-teal), var(--chart-teal-alt));
+}
+
+.split-bar-oneoff {
+  background: linear-gradient(90deg, var(--chart-warning), #fbbf24);
+}
+
+.donut::after {
+  background: var(--surface-input);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+
+.alert-item.is-warning,
+.forecast-note-item[data-tone="warning"],
+.settings-inline-status.is-warning {
+  background: var(--warning-surface);
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+
+.alert-item.is-warning span,
+.settings-inline-status.is-warning {
+  color: var(--warning-text);
+}
+
+.alert-item.is-neutral span,
+.metric-trend[data-tone="positive"],
+.forecast-note-item[data-tone="positive"],
+.settings-inline-status.is-success {
+  color: var(--positive-text);
+}
+
+.settings-inline-status.is-success {
+  background: var(--positive-surface);
+  border-color: var(--positive-border);
+}
+
+.metric-trend[data-tone="positive"] {
+  background: var(--positive-surface);
+}
+
+.metric-trend[data-tone="warning"] {
+  background: var(--warning-surface);
+  color: var(--warning-text);
+}
+
+.metric-trend[data-tone="muted"] {
+  background: var(--surface-chip);
+  color: var(--surface-chip-text);
+}
+
+.graph-state-loading {
+  background: var(--surface-panel-soft);
+  border-color: var(--border-strong);
+}
+
+.graph-state-error,
+.settings-inline-status.is-error {
+  background: var(--danger-surface);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+.skeleton::before,
+.skeleton-line::before,
+.skeleton-value::before,
+.skeleton-block::before {
+  background: var(--skeleton-surface);
+}
+
+:root[data-compact="true"] .page-shell {
+  padding: 1.1rem;
+}
+
+:root[data-compact="true"] .topbar {
+  min-height: 76px;
+  padding: 0.9rem 1.2rem;
+}
+
+:root[data-compact="true"] .panel,
+:root[data-compact="true"] .login-card,
+:root[data-compact="true"] .mini-panel,
+:root[data-compact="true"] .metric-card-business,
+:root[data-compact="true"] .sidebar-account {
+  padding: 0.85rem;
+}
+
+:root[data-compact="true"] .query-results-table th,
+:root[data-compact="true"] .query-results-table td,
+:root[data-compact="true"] .results-table th,
+:root[data-compact="true"] .results-table td {
+  padding: 0.56rem 0.58rem;
+}
+
+:root[data-compact="true"] .metrics-grid,
+:root[data-compact="true"] .panel-grid,
+:root[data-compact="true"] .dashboard-main-grid,
+:root[data-compact="true"] .dashboard-meta-grid {
+  gap: 0.75rem;
+}
+
+@media (max-width: 620px) {
+  .topbar-status-group {
+    width: 100%;
+  }
+
+  .sidebar-account {
+    margin-top: 0.5rem;
+  }
+}

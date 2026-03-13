@@ -22,6 +22,18 @@ function clearLoadingClasses(element) {
   element.classList.remove("skeleton", "skeleton-value", "skeleton-line");
 }
 
+function getThemeChartColors() {
+  const styles = getComputedStyle(document.documentElement);
+  return [
+    styles.getPropertyValue("--chart-donut-1").trim() || "#2563eb",
+    styles.getPropertyValue("--chart-donut-2").trim() || "#7c3aed",
+    styles.getPropertyValue("--chart-donut-3").trim() || "#e11d48",
+    styles.getPropertyValue("--chart-donut-4").trim() || "#0ea5e9",
+    styles.getPropertyValue("--chart-donut-5").trim() || "#0f766e",
+    styles.getPropertyValue("--chart-donut-6").trim() || "#f59e0b"
+  ];
+}
+
 export function createDashboardModule({ getLatestFinanceRowsState }) {
   const getElement = createElementCache();
 
@@ -125,12 +137,13 @@ export function createDashboardModule({ getLatestFinanceRowsState }) {
     }
 
     if (!Array.isArray(items) || items.length === 0) {
-      donut.style.background = "conic-gradient(#94a3b8 0 100%)";
-      list.innerHTML = "<li><span class=\"dot\" style=\"background:#94a3b8\"></span>No department data found</li>";
+      const fallbackColor = getComputedStyle(document.documentElement).getPropertyValue("--surface-chip-text").trim() || "#94a3b8";
+      donut.style.background = `conic-gradient(${fallbackColor} 0 100%)`;
+      list.innerHTML = `<li><span class="dot" style="background:${fallbackColor}"></span>No department data found</li>`;
       return;
     }
 
-    const colors = ["#2563eb", "#7c3aed", "#e11d48", "#0ea5e9", "#0f766e", "#f59e0b"];
+    const colors = getThemeChartColors();
     const total = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0) || 1;
     let offset = 0;
 

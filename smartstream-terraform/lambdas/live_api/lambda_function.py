@@ -171,12 +171,20 @@ def _is_active_status(value: Any) -> bool:
     return normalized in ACTIVE_STATUS_VALUES
 
 
-def _looks_company_scoped_prefix(prefix: str, company_id: str) -> bool:
-    return prefix.startswith(TRUSTED_ROOT_PREFIX) and f"/{company_id}/" in f"/{prefix}"
+def _looks_company_scoped_prefix(prefix: str) -> bool:
+    # Company table prefixes are server-side config; accept any non-root tenant path under trusted/.
+    normalized = _normalize_prefix(prefix, TRUSTED_ROOT_PREFIX)
+    if not normalized.startswith(TRUSTED_ROOT_PREFIX):
+        return False
+    return bool(normalized[len(TRUSTED_ROOT_PREFIX):].strip("/"))
 
 
-def _looks_company_scoped_analytics_prefix(prefix: str, company_id: str) -> bool:
-    return prefix.startswith(TRUSTED_ANALYTICS_ROOT_PREFIX) and f"/{company_id}/" in f"/{prefix}"
+def _looks_company_scoped_analytics_prefix(prefix: str) -> bool:
+    # Analytics prefixes follow the same pattern and may include env-specific deployment suffixes.
+    normalized = _normalize_prefix(prefix, TRUSTED_ANALYTICS_ROOT_PREFIX)
+    if not normalized.startswith(TRUSTED_ANALYTICS_ROOT_PREFIX):
+        return False
+    return bool(normalized[len(TRUSTED_ANALYTICS_ROOT_PREFIX):].strip("/"))
 
 
 def _company_prefixes(company_id: str, company: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -184,12 +192,12 @@ def _company_prefixes(company_id: str, company: Optional[Dict[str, Any]]) -> Dic
     analytics_base_default = f"{TRUSTED_ANALYTICS_ROOT_PREFIX}{company_id}/"
 
     trusted_base = _normalize_prefix(
-        (company or {}).get("trusted_prefix") if _looks_company_scoped_prefix(str((company or {}).get("trusted_prefix") or ""), company_id) else trusted_base_default,
+        (company or {}).get("trusted_prefix") if _looks_company_scoped_prefix(str((company or {}).get("trusted_prefix") or "")) else trusted_base_default,
         trusted_base_default,
     )
     analytics_base = _normalize_prefix(
         (company or {}).get("analytics_prefix")
-        if _looks_company_scoped_analytics_prefix(str((company or {}).get("analytics_prefix") or ""), company_id)
+        if _looks_company_scoped_analytics_prefix(str((company or {}).get("analytics_prefix") or ""))
         else analytics_base_default,
         analytics_base_default,
     )

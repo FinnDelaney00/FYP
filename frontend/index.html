@@ -9,7 +9,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SmartStream Business Dashboard</title>
+    <script>
+      (() => {
+        try {
+          const stored = JSON.parse(localStorage.getItem("smartstream_preferences") || "{}");
+          const themeMode = stored.theme || "system";
+          const resolvedTheme = themeMode === "system"
+            ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+            : themeMode;
+          const root = document.documentElement;
+          root.dataset.themeMode = themeMode;
+          root.dataset.themeResolved = resolvedTheme;
+          root.dataset.compact = stored.compactMode ? "true" : "false";
+          root.dataset.fontSize = stored.fontSize || "default";
+          root.dataset.reducedMotion = stored.reducedMotion ? "true" : "false";
+          root.dataset.highContrast = stored.highContrast ? "true" : "false";
+          root.style.colorScheme = resolvedTheme;
+        } catch {
+          document.documentElement.dataset.themeMode = "system";
+          document.documentElement.dataset.themeResolved = "light";
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/src/theme.css" />
+    <link rel="stylesheet" href="/src/settings.css" />
   </head>
   <body>
     <div class="bg-layer" aria-hidden="true">
@@ -66,12 +90,19 @@
         </div>
 
         <nav class="sidebar-nav">
-          <button class="nav-link is-active" data-page-target="dashboard">Overview</button>
+          <button class="nav-link is-active" data-page-target="dashboard" aria-current="page">Overview</button>
           <button class="nav-link" data-page-target="create-graph">Custom Charts</button>
           <button class="nav-link" data-page-target="query">Explore Data</button>
           <button class="nav-link" data-page-target="anomalies">Alerts</button>
           <button class="nav-link" data-page-target="forecasts">Forecasts</button>
+          <button class="nav-link" data-page-target="settings">Settings</button>
         </nav>
+
+        <section class="sidebar-account" aria-label="Signed-in account">
+          <span class="sidebar-account-label">Signed in as</span>
+          <strong id="sidebar-user-name">SmartStream</strong>
+          <p id="sidebar-user-meta">Business Insights</p>
+        </section>
 
         <button id="logout-btn" class="logout-btn" type="button">Log out</button>
       </aside>
@@ -83,7 +114,10 @@
             <h1 id="page-title">Spending Overview</h1>
             <p id="page-subtitle">A plain-English view of company spend, hiring, and team mix</p>
           </div>
-          <div id="live-status-pill" class="status-pill">Updating dashboard...</div>
+          <div class="topbar-status-group">
+            <div id="workspace-company-chip" class="status-pill status-pill-secondary">Secure workspace</div>
+            <div id="live-status-pill" class="status-pill">Updating dashboard...</div>
+          </div>
         </header>
 
         <main class="page-shell">
@@ -766,6 +800,10 @@
                 </article>
               </section>
             </div>
+          </section>
+
+          <section class="page" data-page="settings">
+            <div id="settings-page-root"></div>
           </section>
         </main>
       </div>

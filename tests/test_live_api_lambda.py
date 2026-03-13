@@ -224,14 +224,21 @@ class LiveApiLambdaTests(unittest.TestCase):
             event["queryStringParameters"] = dict(query)
         return event
 
-    def _create_company(self, company_id="acme", status="active", name="Acme Ltd"):
+    def _create_company(
+        self,
+        company_id="acme",
+        status="active",
+        name="Acme Ltd",
+        trusted_prefix=None,
+        analytics_prefix=None,
+    ):
         self._table("companies").put_item(
             Item={
                 "company_id": company_id,
                 "company_name": name,
                 "status": status,
-                "trusted_prefix": f"trusted/{company_id}/",
-                "analytics_prefix": f"trusted-analytics/{company_id}/",
+                "trusted_prefix": trusted_prefix if trusted_prefix is not None else f"trusted/{company_id}/",
+                "analytics_prefix": analytics_prefix if analytics_prefix is not None else f"trusted-analytics/{company_id}/",
             }
         )
 
@@ -606,6 +613,58 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(forecasts_body["source_key"], acme_prediction_key)
         self.assertEqual(anomalies_body["s3_key"], acme_anomaly_key)
         self.assertEqual(anomalies_body["items"][0]["anomaly_id"], "acme-a1")
+
+    def test_configured_company_prefixes_override_default_company_id_paths(self):
+        self._create_company(
+            "acme",
+            trusted_prefix="trusted/acme-dev/",
+            analytics_prefix="trusted-analytics/acme-dev/",
+        )
+        self._create_account("member@example.com", company_id="acme", role="member")
+
+        finance_key = "trusted/acme-dev/finance/transactions/2026/03/01/finance.json"
+        prediction_key = "trusted-analytics/acme-dev/predictions/2026/03/01/predictions.json"
+
+        self.fake_s3.pages = [
+            {
+                "Contents": [
+                    {"Key": finance_key, "LastModified": datetime(2026, 3, 1, 11, 0, tzinfo=timezone.utc)},
+                    {"Key": prediction_key, "LastModified": datetime(2026, 3, 1, 11, 5, tzinfo=timezone.utc)},
+                ]
+            }
+        ]
+        self.fake_s3.objects = {
+            finance_key: json.dumps([{"id": "fresh-finance"}]),
+            prediction_key: json.dumps(
+                {
+                    "status": "ok",
+                    "generated_at": "2026-03-01T11:05:00Z",
+                    "diagnostics": {"rows_processed": {"employees": 0, "finance": 1}},
+                    "insights": {
+                        "employee_growth": {"history": [], "forecast": []},
+                        "finance": {"revenue": {"history": [], "forecast": []}, "expenditure": {"history": [], "forecast": []}},
+                    },
+                }
+            ),
+        }
+
+        latest = self.module.lambda_handler(
+            self._event("GET", "/latest", headers=self._auth_headers("member@example.com")),
+            _context=None,
+        )
+        dashboard = self.module.lambda_handler(
+            self._event("GET", "/dashboard", headers=self._auth_headers("member@example.com")),
+            _context=None,
+        )
+
+        latest_body = json.loads(latest["body"])
+        dashboard_body = json.loads(dashboard["body"])
+
+        self.assertEqual(latest["statusCode"], 200)
+        self.assertEqual(latest_body["items"], [{"id": "fresh-finance"}])
+        self.assertEqual(dashboard["statusCode"], 200)
+        self.assertEqual(dashboard_body["sources"]["latest_finance_key"], finance_key)
+        self.assertEqual(dashboard_body["sources"]["trusted_prefix"], "trusted/acme-dev/")
 
 
 if __name__ == "__main__":

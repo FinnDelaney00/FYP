@@ -11,15 +11,15 @@ const MIN_CHART_WIDTH = 680;
 const MAX_CHART_WIDTH = 1180;
 const MIN_CHART_HEIGHT = 250;
 const MAX_CHART_HEIGHT = 320;
-const DATE_FIELDS = [
+// Use business transaction dates for spend trends to avoid grouping by ingestion timestamps.
+const FINANCE_DATE_FIELDS = [
   "transaction_date",
+  "txn_ts",
   "event_time",
   "event_timestamp",
   "timestamp",
   "datetime",
-  "date",
-  "created_at",
-  "updated_at"
+  "date"
 ];
 const AMOUNT_FIELDS = ["amount", "transaction_amount", "value", "total", "net_amount"];
 const CATEGORY_FIELDS = ["category", "transaction_type", "type", "entry_type"];
@@ -28,6 +28,7 @@ const DEPARTMENT_FIELDS = ["department", "dept", "team", "division"];
 const REVENUE_HINTS = ["revenue", "income", "credit", "sale", "sales", "deposit", "inflow", "received"];
 const EXPENDITURE_HINTS = ["expense", "expenditure", "debit", "cost", "purchase", "withdrawal", "outflow", "payment"];
 const WINDOW_OPTIONS = [7, 30, 90];
+const FINANCE_TREND_MISSING_DATE_MESSAGE = "Finance trend unavailable: no transaction date column found.";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -122,7 +123,7 @@ function extractField(record, fields, fallback = "") {
 }
 
 function extractDate(record) {
-  for (const field of DATE_FIELDS) {
+  for (const field of FINANCE_DATE_FIELDS) {
     const parsed = parseDate(record?.[field]);
     if (parsed) {
       return parsed;
@@ -196,7 +197,7 @@ function normalizeFinanceRows(rows) {
 function discoverFinanceColumns(columns) {
   const available = new Set(columns || []);
   return {
-    dateField: DATE_FIELDS.find((field) => available.has(field)) || "",
+    dateField: FINANCE_DATE_FIELDS.find((field) => available.has(field)) || "",
     amountFields: ["credit", "debit", ...AMOUNT_FIELDS].filter((field) => available.has(field)),
     categoryField: CATEGORY_FIELDS.find((field) => available.has(field)) || "",
     vendorField: VENDOR_FIELDS.find((field) => available.has(field)) || "",
@@ -206,6 +207,9 @@ function discoverFinanceColumns(columns) {
 
 function buildFinanceRowsQuery(columns, limit = MAX_QUERY_ROWS) {
   const { dateField, amountFields, categoryField, vendorField, departmentField } = discoverFinanceColumns(columns);
+  if (!dateField) {
+    return null;
+  }
   const projection = Array.from(
     new Set(
       [dateField, ...amountFields, categoryField, vendorField, departmentField]
@@ -229,15 +233,29 @@ async function fetchFinanceRows(getAuthToken) {
     financeColumnsCache = Array.isArray(discovery?.columns) ? discovery.columns : [];
   }
 
+  const { dateField } = discoverFinanceColumns(financeColumnsCache);
+  if (!dateField) {
+    return {
+      columns: financeColumnsCache,
+      rows: [],
+      rowCount: 0,
+      dateField: "",
+      missingBusinessDate: true
+    };
+  }
+
+  const query = buildFinanceRowsQuery(financeColumnsCache, MAX_QUERY_ROWS);
   const payload = await postJSON("/query", {
-    query: buildFinanceRowsQuery(financeColumnsCache, MAX_QUERY_ROWS),
+    query,
     limit: MAX_QUERY_ROWS
   }, getAuthToken);
 
   return {
     columns: financeColumnsCache,
     rows: Array.isArray(payload?.rows) ? payload.rows : [],
-    rowCount: Number(payload?.row_count || 0)
+    rowCount: Number(payload?.row_count || 0),
+    dateField,
+    missingBusinessDate: false
   };
 }
 
@@ -562,6 +580,8 @@ export function startLiveUpdates({
   let timer = null;
   let resizeFrame = null;
   let latestRows = [];
+  let financeDateField = "";
+  let missingBusinessDate = false;
   let selectedWindow = 30;
   const filterButtons = Array.from(document.querySelectorAll("#dashboard-spend-filters .segmented-btn"));
 
@@ -573,6 +593,10 @@ export function startLiveUpdates({
 
   const rerender = () => {
     resizeFrame = null;
+    if (missingBusinessDate) {
+      renderEmptyChart(chartElement, FINANCE_TREND_MISSING_DATE_MESSAGE);
+      return;
+    }
     const model = buildChartModel(latestRows, selectedWindow);
     renderChart(chartElement, model, selectedWindow);
   };
@@ -605,6 +629,26 @@ export function startLiveUpdates({
     try {
       const payload = await fetchFinanceRows(getAuthToken);
       latestRows = payload.rows;
+      financeDateField = payload.dateField || "";
+      missingBusinessDate = Boolean(payload.missingBusinessDate);
+
+      if (missingBusinessDate) {
+        const refreshedAt = new Date().toISOString();
+        metaElement.textContent = FINANCE_TREND_MISSING_DATE_MESSAGE;
+        statusElement.textContent = "Finance trend unavailable";
+        statusElement.classList.remove("is-live");
+        statusElement.classList.add("is-error");
+        renderEmptyChart(chartElement, FINANCE_TREND_MISSING_DATE_MESSAGE);
+        publishFinanceState({
+          rows: latestRows,
+          columns: payload.columns,
+          refreshedAt,
+          selectedWindow,
+          dateField: financeDateField,
+          missingBusinessDate
+        });
+        return;
+      }
 
       const model = buildChartModel(latestRows, selectedWindow);
       renderChart(chartElement, model, selectedWindow);
@@ -622,7 +666,9 @@ export function startLiveUpdates({
         rows: latestRows,
         columns: payload.columns,
         refreshedAt,
-        selectedWindow
+        selectedWindow,
+        dateField: financeDateField,
+        missingBusinessDate
       });
     } catch (error) {
       statusElement.textContent = `Update failed: ${error.message}`;
