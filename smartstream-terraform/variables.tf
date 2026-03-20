@@ -94,6 +94,12 @@ variable "shared_lambda_live_api_role_name" {
   default     = ""
 }
 
+variable "shared_lambda_ops_api_role_name" {
+  description = "Optional override for shared ops API Lambda role name"
+  type        = string
+  default     = ""
+}
+
 variable "shared_lambda_anomaly_role_name" {
   description = "Optional override for shared anomaly Lambda role name"
   type        = string
@@ -349,5 +355,17 @@ variable "auth_token_ttl_seconds" {
     condition     = var.auth_token_ttl_seconds >= 3600 && var.auth_token_ttl_seconds <= 2592000
     error_message = "auth_token_ttl_seconds must be between 3600 and 2592000."
   }
+}
+
+variable "ops_api_require_auth" {
+  description = "When true, the ops API requires a valid bearer token and the configured role."
+  type        = bool
+  default     = false
+}
+
+variable "ops_api_required_role" {
+  description = "Minimum account role allowed to access the ops API when auth is enabled."
+  type        = string
+  default     = "admin"
 }
 

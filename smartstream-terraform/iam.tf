@@ -31,6 +31,7 @@ locals {
     lambda_transform   = aws_iam_role.lambda_transform[0].name
     lambda_ml          = aws_iam_role.lambda_ml[0].name
     lambda_live_api    = aws_iam_role.lambda_live_api[0].name
+    lambda_ops_api     = aws_iam_role.lambda_ops_api[0].name
     lambda_anomaly     = aws_iam_role.lambda_anomaly[0].name
     glue_crawler       = aws_iam_role.glue_crawler[0].name
     } : {
@@ -59,6 +60,7 @@ locals {
   lambda_transform_role_arn   = var.create_shared_iam ? aws_iam_role.lambda_transform[0].arn : try(data.aws_iam_role.shared["lambda_transform"].arn, "")
   lambda_ml_role_arn          = var.create_shared_iam ? aws_iam_role.lambda_ml[0].arn : try(data.aws_iam_role.shared["lambda_ml"].arn, "")
   lambda_live_api_role_arn    = var.create_shared_iam ? aws_iam_role.lambda_live_api[0].arn : try(data.aws_iam_role.shared["lambda_live_api"].arn, "")
+  lambda_ops_api_role_arn     = var.create_shared_iam ? aws_iam_role.lambda_ops_api[0].arn : try(data.aws_iam_role.shared["lambda_ops_api"].arn, "")
   lambda_anomaly_role_arn     = var.create_shared_iam ? aws_iam_role.lambda_anomaly[0].arn : try(data.aws_iam_role.shared["lambda_anomaly"].arn, "")
   glue_crawler_role_arn       = var.create_shared_iam ? aws_iam_role.glue_crawler[0].arn : try(data.aws_iam_role.shared["glue_crawler"].arn, "")
 }

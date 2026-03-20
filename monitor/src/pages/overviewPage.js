@@ -133,85 +133,89 @@ function buildPageHtml(viewModel) {
           </div>
         </header>
 
-        ${renderIncidentBanner(viewModel.allPipelines, viewModel.alarms)}
+        <div class="dashboard-layout">
+          <main class="dashboard-main">
+            ${renderIncidentBanner(viewModel.allPipelines, viewModel.alarms)}
 
-        <section class="summary-grid">
-          ${renderSummaryCards(viewModel.overview)}
-        </section>
+            <section class="summary-grid">
+              ${renderSummaryCards(viewModel.overview)}
+            </section>
 
-        <section class="insights-grid">
-          <article class="panel section-card">
-            <div class="section-card__header">
-              <div>
-                <span class="eyebrow">Escalations</span>
-                <h2>Recent alarms</h2>
+            <section class="panel section-card section-card--table">
+              <div class="section-card__header section-card__header--table">
+                <div>
+                  <span class="eyebrow">Pipeline fleet</span>
+                  <h2>Health matrix</h2>
+                  <p class="section-card__summary">${escapeHtml(filtersSummary)}</p>
+                </div>
+                <div class="filter-bar">
+                  <label class="control">
+                    <span>Status</span>
+                    <select data-control="status-filter">
+                      ${renderOptions(
+                        [
+                          ["all", "All statuses"],
+                          ["healthy", "Healthy"],
+                          ["degraded", "Degraded"],
+                          ["down", "Down"]
+                        ],
+                        viewModel.filters.status
+                      )}
+                    </select>
+                  </label>
+                  <label class="control control--grow">
+                    <span>Pipeline name</span>
+                    <input
+                      type="search"
+                      data-control="name-filter"
+                      value="${escapeHtml(viewModel.filters.query)}"
+                      placeholder="Search pipelines"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="control">
+                    <span>Sort</span>
+                    <select data-control="sort-order">
+                      ${renderOptions(
+                        [
+                          ["severity", "Status severity"],
+                          ["name-asc", "Pipeline name A-Z"],
+                          ["name-desc", "Pipeline name Z-A"]
+                        ],
+                        viewModel.filters.sort
+                      )}
+                    </select>
+                  </label>
+                </div>
               </div>
-              <span class="section-card__meta">${escapeHtml(String(viewModel.alarms.length))} active</span>
-            </div>
-            ${renderAlarmsPanel(viewModel.alarms)}
-          </article>
+              ${renderPipelineSection(viewModel)}
+            </section>
+          </main>
 
-          <article class="panel section-card">
-            <div class="section-card__header">
-              <div>
-                <span class="eyebrow">Logs</span>
-                <h2>Log pulse</h2>
+          <aside class="dashboard-rail" aria-label="Operational insights">
+            <article class="panel section-card section-card--rail">
+              <div class="section-card__header">
+                <div>
+                  <span class="eyebrow">Escalations</span>
+                  <h2>Recent alarms</h2>
+                </div>
+                <span class="section-card__meta">${escapeHtml(String(viewModel.alarms.length))} active</span>
               </div>
-              <span class="section-card__meta">Last 15 minutes</span>
-            </div>
-            ${renderLogSummaryPanel(viewModel.logSummary)}
-          </article>
-        </section>
+              ${renderAlarmsPanel(viewModel.alarms)}
+            </article>
 
-        <section class="panel section-card section-card--table">
-          <div class="section-card__header section-card__header--table">
-            <div>
-              <span class="eyebrow">Pipeline fleet</span>
-              <h2>Health matrix</h2>
-              <p class="section-card__summary">${escapeHtml(filtersSummary)}</p>
-            </div>
-            <div class="filter-bar">
-              <label class="control">
-                <span>Status</span>
-                <select data-control="status-filter">
-                  ${renderOptions(
-                    [
-                      ["all", "All statuses"],
-                      ["healthy", "Healthy"],
-                      ["degraded", "Degraded"],
-                      ["down", "Down"]
-                    ],
-                    viewModel.filters.status
-                  )}
-                </select>
-              </label>
-              <label class="control control--grow">
-                <span>Pipeline name</span>
-                <input
-                  type="search"
-                  data-control="name-filter"
-                  value="${escapeHtml(viewModel.filters.query)}"
-                  placeholder="Search pipelines"
-                  autocomplete="off"
-                />
-              </label>
-              <label class="control">
-                <span>Sort</span>
-                <select data-control="sort-order">
-                  ${renderOptions(
-                    [
-                      ["severity", "Status severity"],
-                      ["name-asc", "Pipeline name A-Z"],
-                      ["name-desc", "Pipeline name Z-A"]
-                    ],
-                    viewModel.filters.sort
-                  )}
-                </select>
-              </label>
-            </div>
-          </div>
-          ${renderPipelineSection(viewModel)}
-        </section>
+            <article class="panel section-card section-card--rail">
+              <div class="section-card__header">
+                <div>
+                  <span class="eyebrow">Logs</span>
+                  <h2>Log pulse</h2>
+                </div>
+                <span class="section-card__meta">Last 15 minutes</span>
+              </div>
+              ${renderLogSummaryPanel(viewModel.logSummary)}
+            </article>
+          </aside>
+        </div>
       </div>
       ${renderPipelineDetailsModal({
         pipeline: viewModel.selectedPipeline,
@@ -264,6 +268,13 @@ function getSourceMessage(dataSource) {
     return {
       label: "Mixed live + mock",
       tone: "mixed"
+    };
+  }
+
+  if (dataSource === "partial") {
+    return {
+      label: "Live partial data",
+      tone: "partial"
     };
   }
 

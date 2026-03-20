@@ -300,3 +300,41 @@ resource "aws_dms_replication_task" "finance_cdc_task" {
     aws_dms_endpoint.target_kinesis
   ]
 }
+
+resource "aws_cloudwatch_metric_alarm" "dms_public_latency_target" {
+  alarm_name          = "${local.name_prefix}-dms-public-latency-target"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CDCLatencyTarget"
+  namespace           = "AWS/DMS"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 300
+  alarm_description   = "Primary DMS CDC task target latency is above 5 minutes"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ReplicationTaskIdentifier = aws_dms_replication_task.cdc_task.replication_task_id
+  }
+
+  tags = local.common_tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "dms_finance_latency_target" {
+  alarm_name          = "${local.name_prefix}-dms-finance-latency-target"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CDCLatencyTarget"
+  namespace           = "AWS/DMS"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 300
+  alarm_description   = "Finance DMS CDC task target latency is above 5 minutes"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ReplicationTaskIdentifier = aws_dms_replication_task.finance_cdc_task.replication_task_id
+  }
+
+  tags = local.common_tags
+}

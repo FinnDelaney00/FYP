@@ -7,6 +7,7 @@ This workspace contains:
 - Terraform infrastructure in `smartstream-terraform/`
 - Lambda application code for transform, ML forecasting, anomaly detection, and live API
 - Frontend dashboard in `frontend/` (Vite + vanilla JS/HTML/CSS)
+- Engineer/admin monitoring dashboard in `monitor/` (separate Vite app)
 - Python unit tests in `tests/`
 
 ## Current Architecture
@@ -25,6 +26,8 @@ RDS PostgreSQL
   -> S3 trusted-analytics/{company_id}/anomalies/...
   -> Live API Lambda + API Gateway HTTP API
   -> Frontend dashboard
+  -> Ops API Lambda + API Gateway HTTP API
+  -> Monitor dashboard
 ```
 
 Glue crawlers and Athena are provisioned for cataloging and SQL query access.
@@ -41,6 +44,11 @@ Glue crawlers and Athena are provisioned for cataloging and SQL query access.
 |   |-- test_anomaly_lambda.py
 |   `-- test_live_api_lambda.py
 |-- frontend/
+|   |-- README.md
+|   |-- package.json
+|   |-- index.html
+|   `-- src/
+|-- monitor/
 |   |-- README.md
 |   |-- package.json
 |   |-- index.html
@@ -77,6 +85,14 @@ Key behaviors in the current implementation:
 - Auth tokens include `company_id` and `role`.
 - Protected routes enforce company isolation from auth context.
 - `/query` only allows read-only, single-statement, simple `SELECT ... FROM trusted ...` queries and resolves the authenticated tenant's Glue table server-side.
+
+Separate ops/admin routes are now provisioned by a dedicated monitoring Lambda:
+
+- `GET /ops/overview`
+- `GET /ops/pipelines`
+- `GET /ops/pipelines/{id}`
+- `GET /ops/alarms`
+- `GET /ops/log-summary`
 
 ## Deployment Modes (Terraform)
 
@@ -135,6 +151,32 @@ Run:
 npm run dev
 ```
 
+### 4. Run the monitor locally against live ops data
+
+Deploy Terraform first, then read the ops API base URL:
+
+```bash
+cd ../smartstream-terraform
+terraform output -raw ops_api_base_url
+```
+
+Create `monitor/.env.local`:
+
+```env
+VITE_MONITOR_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com
+VITE_MONITOR_USE_MOCK=false
+VITE_MONITOR_AUTH_TOKEN=
+VITE_MONITOR_AUTH_TOKEN_STORAGE_KEY=smartstream_auth_token
+```
+
+Run:
+
+```bash
+cd ../monitor
+npm install
+npm run dev
+```
+
 ## Tests
 
 From repository root:
@@ -160,6 +202,7 @@ npm run lint
 ## Project Docs
 
 - `smartstream-terraform/README.md`
+- `monitor/README.md`
 - `smartstream-terraform/DEPLOYMENT_CHECKLIST.md`
 - `smartstream-terraform/QUICK_REFERENCE.md`
 - `smartstream-terraform/PROJECT_SUMMARY.md`

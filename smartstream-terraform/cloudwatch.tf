@@ -119,6 +119,9 @@ resource "aws_cloudwatch_composite_alarm" "pipeline_health" {
   alarm_actions     = [aws_sns_topic.alerts.arn]
 
   alarm_rule = join(" OR ", [
+    "ALARM(${aws_cloudwatch_metric_alarm.dms_public_latency_target.alarm_name})",
+    "ALARM(${aws_cloudwatch_metric_alarm.dms_finance_latency_target.alarm_name})",
+    "ALARM(${aws_cloudwatch_metric_alarm.kinesis_iterator_age.alarm_name})",
     "ALARM(${aws_cloudwatch_metric_alarm.kinesis_write_throttle.alarm_name})",
     "ALARM(${aws_cloudwatch_metric_alarm.firehose_delivery_failed.alarm_name})",
     "ALARM(${aws_cloudwatch_metric_alarm.transform_lambda_errors.alarm_name})",

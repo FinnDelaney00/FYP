@@ -186,6 +186,16 @@ output "lambda_live_api_arn" {
   value       = aws_lambda_function.live_api.arn
 }
 
+output "lambda_ops_api_function_name" {
+  description = "Ops API Lambda function name"
+  value       = aws_lambda_function.ops_api.function_name
+}
+
+output "lambda_ops_api_arn" {
+  description = "Ops API Lambda function ARN"
+  value       = aws_lambda_function.ops_api.arn
+}
+
 output "lambda_anomaly_function_name" {
   description = "Anomaly detection Lambda function name"
   value       = aws_lambda_function.anomaly.function_name
@@ -204,6 +214,11 @@ output "anomaly_schedule_rule_name" {
 output "live_api_base_url" {
   description = "HTTP API base URL for frontend live updates"
   value       = trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")
+}
+
+output "ops_api_base_url" {
+  description = "HTTP API base URL for the monitor ops dashboard"
+  value       = trimsuffix(aws_apigatewayv2_stage.ops_api.invoke_url, "/")
 }
 
 output "live_api_latest_endpoint" {
@@ -249,6 +264,11 @@ output "live_api_auth_me_endpoint" {
 output "live_api_admin_invites_endpoint" {
   description = "Live API admin invite creation endpoint URL"
   value       = "${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/admin/invites"
+}
+
+output "ops_api_overview_endpoint" {
+  description = "Ops API overview endpoint URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.ops_api.invoke_url, "/")}/ops/overview"
 }
 
 output "accounts_table_name" {
@@ -332,6 +352,7 @@ output "shared_iam_role_arns" {
     lambda_transform   = local.lambda_transform_role_arn
     lambda_ml          = local.lambda_ml_role_arn
     lambda_live_api    = local.lambda_live_api_role_arn
+    lambda_ops_api     = local.lambda_ops_api_role_arn
     lambda_anomaly     = local.lambda_anomaly_role_arn
     glue_crawler       = local.glue_crawler_role_arn
   }
@@ -361,6 +382,8 @@ output "quick_start_commands" {
     invoke_anomaly_lambda = "aws lambda invoke --function-name ${aws_lambda_function.anomaly.function_name} /tmp/anomaly_response.json"
 
     live_api_sample_request = "curl \"${trimsuffix(aws_apigatewayv2_stage.live_api.invoke_url, "/")}/latest?limit=50\""
+
+    ops_api_sample_request = "curl \"${trimsuffix(aws_apigatewayv2_stage.ops_api.invoke_url, "/")}/ops/overview\""
 
     view_cloudwatch_dashboard = "https://console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
 

@@ -75,6 +75,7 @@ locals {
     lambda_transform   = var.shared_lambda_transform_role_name
     lambda_ml          = var.shared_lambda_ml_role_name
     lambda_live_api    = var.shared_lambda_live_api_role_name
+    lambda_ops_api     = var.shared_lambda_ops_api_role_name
     lambda_anomaly     = var.shared_lambda_anomaly_role_name
     glue_crawler       = var.shared_glue_crawler_role_name
   }
@@ -87,6 +88,7 @@ locals {
     lambda_transform   = "^${var.legacy_name_prefix}-lambda-transform-.*$"
     lambda_ml          = "^${var.legacy_name_prefix}-lambda-ml-.*$"
     lambda_live_api    = "^${var.legacy_name_prefix}-lambda-live-api-.*$"
+    lambda_ops_api     = "^${var.legacy_name_prefix}-lambda-ops-api-.*$"
     lambda_anomaly     = "^${var.legacy_name_prefix}-lambda-anomaly-.*$"
     glue_crawler       = "^${var.legacy_name_prefix}-glue-crawler-.*$"
   }

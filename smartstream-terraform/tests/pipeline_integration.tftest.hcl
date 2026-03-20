@@ -92,7 +92,7 @@ run "default_pipeline_wiring" {
   }
 
   assert {
-    condition     = aws_lambda_function.ml_inference.environment[0].variables.ANALYTICS_PREFIX == "${local.s3_trusted_analytics_prefix}predictions/"
+    condition     = aws_lambda_function.ml_inference.environment[0].variables.ANALYTICS_PREFIX == "${local.s3_trusted_analytics_prefix}${local.name_prefix}/predictions/"
     error_message = "ML lambda analytics prefix must target trusted-analytics predictions."
   }
 
@@ -104,6 +104,16 @@ run "default_pipeline_wiring" {
   assert {
     condition     = aws_lambda_function.live_api.environment[0].variables.ATHENA_DATABASE == aws_glue_catalog_database.main.name
     error_message = "Live API lambda ATHENA_DATABASE should be wired to Terraform Glue database."
+  }
+
+  assert {
+    condition     = aws_lambda_function.ops_api.environment[0].variables.KINESIS_STREAM_NAME == aws_kinesis_stream.cdc_stream.name
+    error_message = "Ops API should be wired to the deployed Kinesis stream."
+  }
+
+  assert {
+    condition     = aws_lambda_function.ops_api.environment[0].variables.DMS_PUBLIC_TASK_ID == aws_dms_replication_task.cdc_task.replication_task_id
+    error_message = "Ops API should receive the primary DMS task identifier."
   }
 
   assert {
@@ -121,16 +131,14 @@ run "override_pipeline_wiring" {
   command = plan
 
   variables {
-    db_password                         = "UnitTestPassword123!"
-    finance_schema_name                 = "ledger"
-    finance_table_list                  = ["transactions", "accounts", "balances"]
-    data_lake_bucket_name               = "external-live-api-bucket"
-    trusted_prefix_finance_transactions = "trusted/ledger/transactions/"
-    trusted_prefix_employees            = "trusted/hr/employees/"
-    trusted_prefix_predictions          = "trusted-analytics/ml/predictions/"
-    max_items                           = 321
-    query_max_rows                      = 777
-    auth_token_ttl_seconds              = 7200
+    db_password                = "UnitTestPassword123!"
+    finance_schema_name        = "ledger"
+    finance_table_list         = ["transactions", "accounts", "balances"]
+    data_lake_bucket_name      = "external-live-api-bucket"
+    trusted_prefix_predictions = "trusted-analytics/ml/predictions/"
+    max_items                  = 321
+    query_max_rows             = 777
+    auth_token_ttl_seconds     = 7200
   }
 
   assert {
@@ -139,18 +147,24 @@ run "override_pipeline_wiring" {
   }
 
   assert {
-    condition     = aws_lambda_function.live_api.environment[0].variables.TRUSTED_PREFIX == "trusted/ledger/transactions/"
-    error_message = "Live API TRUSTED_PREFIX should honor finance prefix override."
+    condition     = aws_lambda_function.live_api.environment[0].variables.TRUSTED_ROOT_PREFIX == local.s3_trusted_prefix
+    error_message = "Live API TRUSTED_ROOT_PREFIX should stay aligned with the trusted root prefix."
   }
 
   assert {
-    condition     = aws_lambda_function.live_api.environment[0].variables.EMPLOYEES_PREFIX == "trusted/hr/employees/"
-    error_message = "Live API EMPLOYEES_PREFIX should honor employee prefix override."
+    condition     = aws_lambda_function.live_api.environment[0].variables.TRUSTED_ANALYTICS_ROOT_PREFIX == local.s3_trusted_analytics_prefix
+    error_message = "Live API TRUSTED_ANALYTICS_ROOT_PREFIX should stay aligned with the analytics root prefix."
   }
 
   assert {
-    condition     = aws_lambda_function.live_api.environment[0].variables.PREDICTIONS_PREFIX == "trusted-analytics/ml/predictions/"
-    error_message = "Live API PREDICTIONS_PREFIX should honor predictions prefix override."
+    condition = contains(
+      flatten([
+        for statement in jsondecode(aws_iam_role_policy.lambda_live_api_s3[0].policy).Statement :
+        try(statement.Resource, [])
+      ]),
+      "arn:aws:s3:::external-live-api-bucket/trusted-analytics/ml/predictions/*"
+    )
+    error_message = "Live API IAM policy should honor the overridden predictions prefix."
   }
 
   assert {
@@ -193,6 +207,8 @@ run "tenant_mode_shared_iam_reuse" {
     shared_lambda_transform_role_name = "shared-lambda-transform-role"
     shared_lambda_ml_role_name        = "shared-lambda-ml-role"
     shared_lambda_live_api_role_name  = "shared-lambda-live-api-role"
+    shared_lambda_ops_api_role_name   = "shared-lambda-ops-api-role"
+    shared_lambda_anomaly_role_name   = "shared-lambda-anomaly-role"
     shared_glue_crawler_role_name     = "shared-glue-crawler-role"
   }
 
@@ -207,7 +223,7 @@ run "tenant_mode_shared_iam_reuse" {
   }
 
   assert {
-    condition     = local.lambda_transform_role_arn != "" && local.lambda_ml_role_arn != "" && local.lambda_live_api_role_arn != ""
+    condition     = local.lambda_transform_role_arn != "" && local.lambda_ml_role_arn != "" && local.lambda_live_api_role_arn != "" && local.lambda_ops_api_role_arn != "" && local.lambda_anomaly_role_arn != ""
     error_message = "Tenant mode must resolve shared IAM role ARNs instead of creating tenant IAM roles."
   }
 

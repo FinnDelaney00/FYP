@@ -24,7 +24,9 @@ The monitor frontend is built around these endpoints:
 - `GET /ops/alarms`
 - `GET /ops/log-summary`
 
-If `VITE_MONITOR_API_BASE_URL` is not set, or the request fails, the UI falls back to mock data in `src/mock/opsData.js`.
+If `VITE_MONITOR_API_BASE_URL` is not set, or the live ops API returns a network/5xx failure, the UI falls back to mock data in `src/mock/opsData.js`.
+
+Auth and 4xx errors are surfaced in the UI as live API failures instead of silently falling back to mock data.
 
 ## Environment
 
@@ -34,9 +36,13 @@ Copy `.env.example` to `.env.local` and set the ops API base URL:
 VITE_MONITOR_API_BASE_URL=https://<ops-api-host>
 VITE_MONITOR_USE_MOCK=false
 VITE_MONITOR_REFRESH_INTERVAL_MS=60000
+VITE_MONITOR_AUTH_TOKEN=
+VITE_MONITOR_AUTH_TOKEN_STORAGE_KEY=smartstream_auth_token
 ```
 
 `VITE_MONITOR_USE_MOCK=true` forces the app to stay on mock data.
+
+`VITE_MONITOR_AUTH_TOKEN` is optional and useful for local verification when the ops API requires a bearer token. If unset, the frontend will look in `localStorage` using `VITE_MONITOR_AUTH_TOKEN_STORAGE_KEY`.
 
 ## Local Development
 
@@ -45,6 +51,43 @@ cd monitor
 npm install
 npm run dev
 ```
+
+## Switching To Live AWS Data
+
+1. Deploy the Terraform stack so the ops API Lambda and HTTP API exist.
+2. Read the deployed base URL:
+
+```bash
+cd smartstream-terraform
+terraform output -raw ops_api_base_url
+```
+
+3. Create `monitor/.env.local`:
+
+```env
+VITE_MONITOR_API_BASE_URL=https://<ops-api-id>.execute-api.<region>.amazonaws.com
+VITE_MONITOR_USE_MOCK=false
+VITE_MONITOR_REFRESH_INTERVAL_MS=60000
+VITE_MONITOR_AUTH_TOKEN_STORAGE_KEY=smartstream_auth_token
+```
+
+4. If `ops_api_require_auth=true`, either:
+   - set `VITE_MONITOR_AUTH_TOKEN=<bearer-token>` in `monitor/.env.local`, or
+   - write the token into `localStorage["smartstream_auth_token"]` before loading the app.
+
+5. Start the app with `npm run dev`.
+
+## Verifying Live Mode
+
+- `curl https://<ops-api-host>/ops/overview`
+- If auth is enabled:
+
+```bash
+curl -H "Authorization: Bearer <token>" https://<ops-api-host>/ops/overview
+```
+
+- In the monitor UI, the source pill should read `Live ops data` or `Live partial data`.
+- If the backend is unreachable, the pill switches to `Mock fallback` and the fallback reason is shown in the header.
 
 ## Build
 

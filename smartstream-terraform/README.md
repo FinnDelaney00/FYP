@@ -15,6 +15,7 @@ Core services:
 - ML inference Lambda (EventBridge schedule)
 - Anomaly detection Lambda (EventBridge schedule)
 - Live API Lambda + API Gateway HTTP API + DynamoDB auth/review tables
+- Ops API Lambda + API Gateway HTTP API for engineer/admin monitoring
 - Glue catalog database + trusted/analytics crawlers
 - Athena workgroup + sample named queries
 - CloudWatch dashboard/alarms + SNS topic
@@ -89,6 +90,37 @@ Auth model in current lambda code:
 - `company_id` is derived from invite/account, not trusted from client input.
 - Protected routes require active account and active company.
 
+## Ops API and Monitor Dashboard
+
+Terraform now provisions a separate monitoring backend for the `monitor/` app:
+
+- Lambda: `aws_lambda_function.ops_api`
+- HTTP API: `aws_apigatewayv2_api.ops_api`
+- Routes:
+  - `GET /ops/overview`
+  - `GET /ops/pipelines`
+  - `GET /ops/pipelines/{id}`
+  - `GET /ops/alarms`
+  - `GET /ops/log-summary`
+
+The ops Lambda reads health telemetry from:
+
+- CloudWatch alarms
+- CloudWatch metrics for DMS, Kinesis, Firehose, and Lambda
+- CloudWatch Logs `filter_log_events` summaries
+- S3 trusted/trusted-analytics object freshness
+
+The monitor frontend should call this API, not AWS directly from the browser.
+
+### Ops API auth
+
+Two Terraform variables control admin protection:
+
+- `ops_api_require_auth` (`false` by default)
+- `ops_api_required_role` (`admin` by default)
+
+When auth is enabled, the ops Lambda expects the same signed bearer token shape used by the live API and validates the account/company state via DynamoDB.
+
 ## Important Current Behavior
 
 1. Pipeline output and API reads are tenant-scoped:
@@ -143,12 +175,46 @@ terraform apply \
 ```bash
 terraform output
 terraform output -raw live_api_base_url
+terraform output -raw ops_api_base_url
 terraform output -raw data_lake_bucket_name
 terraform output -raw dms_replication_task_arn
 terraform output -raw dms_finance_replication_task_arn
 ```
 
 Both DMS tasks are configured with `start_replication_task = true`.
+
+## Verifying The Ops API
+
+Without auth:
+
+```bash
+curl "$(terraform output -raw ops_api_base_url)/ops/overview"
+curl "$(terraform output -raw ops_api_base_url)/ops/pipelines"
+```
+
+With auth enabled:
+
+```bash
+curl \
+  -H "Authorization: Bearer <token>" \
+  "$(terraform output -raw ops_api_base_url)/ops/overview"
+```
+
+The response envelope is:
+
+```json
+{
+  "data": {},
+  "meta": {
+    "source": "live",
+    "partial_data": false,
+    "warnings": [],
+    "generated_at": "2026-03-13T12:00:00+00:00"
+  }
+}
+```
+
+`partial_data=true` means the Lambda answered successfully but one or more AWS telemetry sources were unavailable.
 
 ## Minimum Source Schema
 

@@ -101,7 +101,10 @@ export function createMonitorApp(rootElement) {
       ]
         .map((meta) => meta.fallbackReason)
         .find(Boolean) ?? "";
-      state.lastUpdated = new Date();
+      state.lastUpdated =
+        overviewResult.meta?.generatedAt ??
+        overviewResult.data?.last_updated ??
+        new Date().toISOString();
       state.isLoading = false;
       state.errorMessage = "";
 
@@ -240,13 +243,21 @@ function sanitizeRefreshInterval(value) {
 }
 
 function resolveDataSource(metaEntries) {
-  const sources = new Set(metaEntries.map((meta) => meta.source));
+  const sources = new Set(metaEntries.map((meta) => meta.source).filter(Boolean));
 
-  if (sources.size === 1) {
-    return metaEntries[0]?.source ?? "mock";
+  if (sources.has("mock") && sources.size > 1) {
+    return "mixed";
   }
 
-  return "mixed";
+  if (sources.has("mock")) {
+    return "mock";
+  }
+
+  if (sources.has("partial")) {
+    return "partial";
+  }
+
+  return metaEntries[0]?.source ?? "mock";
 }
 
 function sortPipelines(left, right, sortOrder) {
