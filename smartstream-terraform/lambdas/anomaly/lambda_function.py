@@ -10,6 +10,9 @@ from io import BytesIO
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import boto3
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import IsolationForest
 
 LOGGER = logging.getLogger()
 if not LOGGER.handlers:
@@ -17,7 +20,32 @@ if not LOGGER.handlers:
 LOGGER.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
 S3_CLIENT = boto3.client("s3")
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"
+MODEL_NAME = "IsolationForest"
+MODEL_RANDOM_STATE = 42
+MODEL_PARAMS = {
+    "n_estimators": 150,
+    "contamination": 0.08,
+    "random_state": MODEL_RANDOM_STATE,
+}
+TRANSACTION_FEATURE_COLUMNS = [
+    "amount",
+    "daily_total",
+    "transaction_count",
+    "rolling_mean_7",
+    "rolling_deviation_7",
+    "day_of_week",
+]
+DAILY_FEATURE_COLUMNS = [
+    "daily_total",
+    "transaction_count",
+    "rolling_mean_7",
+    "rolling_deviation_7",
+    "day_of_week",
+]
+MIN_TRANSACTION_ROWS = 20
+MIN_DAILY_ROWS = 14
+MAX_ANOMALIES = 200
 
 
 def _normalize_prefix(prefix: Optional[str], default: str) -> str:
@@ -29,7 +57,7 @@ def _normalize_prefix(prefix: Optional[str], default: str) -> str:
     return value
 
 
-def _read_int_env(name: str, default: int, minimum: int = 0) -> int:
+def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
     raw_value = os.environ.get(name, str(default))
     try:
         parsed = int(raw_value)
@@ -40,34 +68,18 @@ def _read_int_env(name: str, default: int, minimum: int = 0) -> int:
     return parsed
 
 
-def _read_float_env(name: str, default: float, minimum: float = 0.0) -> float:
-    raw_value = os.environ.get(name, str(default))
-    try:
-        parsed = float(raw_value)
-    except ValueError as exc:
-        raise ValueError(f"Environment variable {name} must be a float, got {raw_value!r}") from exc
-    if parsed < minimum:
-        raise ValueError(f"Environment variable {name} must be >= {minimum}, got {parsed}")
-    return parsed
-
-
 DATA_LAKE_BUCKET = os.environ["DATA_LAKE_BUCKET"]
 TRUSTED_PREFIX = _normalize_prefix(os.environ.get("TRUSTED_PREFIX"), "trusted/")
-EMPLOYEES_PREFIX = _normalize_prefix(os.environ.get("EMPLOYEES_PREFIX"), f"{TRUSTED_PREFIX}employees/")
+FINANCE_PREFIX = _normalize_prefix(os.environ.get("FINANCE_PREFIX"), f"{TRUSTED_PREFIX}finance/")
 TRANSACTIONS_PREFIX = _normalize_prefix(
     os.environ.get("TRANSACTIONS_PREFIX"),
-    f"{TRUSTED_PREFIX}finance/transactions/",
+    f"{FINANCE_PREFIX}transactions/",
 )
 ANALYTICS_PREFIX = _normalize_prefix(
     os.environ.get("ANALYTICS_PREFIX"),
     "trusted-analytics/anomalies/",
 )
 MAX_INPUT_FILES = _read_int_env("MAX_INPUT_FILES", 20, minimum=1)
-
-SALARY_OUTLIER_ZSCORE_THRESHOLD = _read_float_env("SALARY_OUTLIER_ZSCORE_THRESHOLD", 2.5, minimum=0.5)
-DUPLICATE_TRANSACTION_WINDOW_MINUTES = _read_int_env("DUPLICATE_TRANSACTION_WINDOW_MINUTES", 10, minimum=1)
-LARGE_TRANSACTION_MULTIPLIER = _read_float_env("LARGE_TRANSACTION_MULTIPLIER", 3.0, minimum=1.1)
-SMALL_TRANSACTION_FLOOR_RATIO = _read_float_env("SMALL_TRANSACTION_FLOOR_RATIO", 0.25, minimum=0.01)
 
 DATE_FIELDS = (
     "updated_at",
@@ -78,68 +90,49 @@ DATE_FIELDS = (
     "transaction_date",
     "event_time",
     "event_timestamp",
-    "hire_date",
 )
-
-EMPLOYEE_ID_FIELDS = ("employee_id", "emp_id", "staff_id", "person_id", "id")
-EMPLOYEE_EMAIL_FIELDS = ("email", "work_email", "employee_email")
-EMPLOYEE_NAME_FIELDS = ("full_name", "name", "employee_name")
-EMPLOYEE_FIRST_NAME_FIELDS = ("first_name", "firstname", "given_name")
-EMPLOYEE_LAST_NAME_FIELDS = ("last_name", "lastname", "family_name", "surname")
-EMPLOYEE_DEPARTMENT_FIELDS = ("department", "dept", "team", "division")
-EMPLOYEE_ROLE_FIELDS = ("role", "title", "job_title", "position")
-EMPLOYEE_HIRE_DATE_FIELDS = ("hire_date", "start_date", "joining_date", "date_of_joining")
-EMPLOYEE_SALARY_FIELDS = ("salary", "annual_salary", "base_salary", "compensation", "pay")
-
 TRANSACTION_ID_FIELDS = ("transaction_id", "txn_id", "id", "entry_id")
-TRANSACTION_ACCOUNT_FIELDS = ("account_id", "account", "account_number", "customer_id", "customer")
-TRANSACTION_VENDOR_FIELDS = ("vendor", "merchant", "merchant_name", "vendor_name", "payee", "counterparty")
-TRANSACTION_CATEGORY_FIELDS = ("category", "transaction_type", "type", "entry_type")
-TRANSACTION_AMOUNT_FIELDS = ("amount", "transaction_amount", "value", "total", "net_amount")
+AMOUNT_FIELDS = ("amount", "transaction_amount", "value", "total", "net_amount")
+REVENUE_HINTS = ("revenue", "income", "credit", "sale", "sales", "deposit", "inflow", "received")
+EXPENDITURE_HINTS = (
+    "expense",
+    "expenditure",
+    "debit",
+    "cost",
+    "purchase",
+    "withdrawal",
+    "outflow",
+    "payment",
+)
 
 
 def lambda_handler(event, context):
+    del context
     run_started_at = datetime.now(timezone.utc)
     LOGGER.info(
         (
             "Anomaly detector started at %s "
-            "(employees_prefix=%s transactions_prefix=%s analytics_prefix=%s max_input_files=%d)"
+            "(finance_prefix=%s transactions_prefix=%s analytics_prefix=%s max_input_files=%d)"
         ),
         run_started_at.isoformat(),
-        EMPLOYEES_PREFIX,
+        FINANCE_PREFIX,
         TRANSACTIONS_PREFIX,
         ANALYTICS_PREFIX,
         MAX_INPUT_FILES,
     )
-    LOGGER.info(
-        (
-            "Thresholds: salary_z=%.3f duplicate_window_minutes=%d "
-            "large_multiplier=%.3f small_floor_ratio=%.3f"
-        ),
-        SALARY_OUTLIER_ZSCORE_THRESHOLD,
-        DUPLICATE_TRANSACTION_WINDOW_MINUTES,
-        LARGE_TRANSACTION_MULTIPLIER,
-        SMALL_TRANSACTION_FLOOR_RATIO,
-    )
 
-    employee_objects = list_recent_objects(DATA_LAKE_BUCKET, EMPLOYEES_PREFIX, MAX_INPUT_FILES)
     transaction_objects = list_recent_objects(DATA_LAKE_BUCKET, TRANSACTIONS_PREFIX, MAX_INPUT_FILES)
+    fallback_finance_objects = [] if transaction_objects else list_recent_objects(DATA_LAKE_BUCKET, FINANCE_PREFIX, MAX_INPUT_FILES)
+    input_objects = transaction_objects or fallback_finance_objects
+    records = read_records_from_objects(DATA_LAKE_BUCKET, input_objects)
 
-    employee_records = read_records_from_objects(DATA_LAKE_BUCKET, employee_objects)
-    transaction_records = read_records_from_objects(DATA_LAKE_BUCKET, transaction_objects)
-
-    anomalies: List[Dict[str, Any]] = []
-    anomalies.extend(detect_salary_outliers(employee_records, run_started_at))
-    anomalies.extend(detect_duplicate_hires(employee_records, run_started_at))
-    anomalies.extend(detect_duplicate_transactions(transaction_records, run_started_at))
-    anomalies.extend(detect_large_transactions(transaction_records, run_started_at))
-    anomalies.extend(detect_small_suspicious_transactions(transaction_records, run_started_at))
-    anomalies = deduplicate_anomalies(anomalies)
+    anomaly_result = detect_finance_anomalies(records, detected_at=run_started_at)
+    anomalies = anomaly_result["anomalies"]
 
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": run_started_at.isoformat(),
-        "status": "ok" if anomalies else "no_anomalies_detected",
+        "status": anomaly_result["status"],
         "summary": {
             "total": len(anomalies),
             "by_severity": summarize_counts(anomalies, "severity"),
@@ -147,16 +140,14 @@ def lambda_handler(event, context):
         },
         "source": {
             "bucket": DATA_LAKE_BUCKET,
-            "employees_prefix": EMPLOYEES_PREFIX,
+            "finance_prefix": FINANCE_PREFIX,
             "transactions_prefix": TRANSACTIONS_PREFIX,
-            "employees_objects": [obj["Key"] for obj in employee_objects],
-            "transaction_objects": [obj["Key"] for obj in transaction_objects],
-            "rows_processed": {
-                "employees": len(employee_records),
-                "transactions": len(transaction_records),
-            },
+            "analytics_prefix": ANALYTICS_PREFIX,
+            "input_objects": [obj["Key"] for obj in input_objects],
+            "rows_processed": len(records),
             "event_summary": summarize_event(event),
         },
+        "metadata": anomaly_result["metadata"],
         "anomalies": anomalies,
     }
 
@@ -270,612 +261,414 @@ def parse_records(raw_text: str, source_key: str) -> List[Dict[str, Any]]:
     return records
 
 
-def detect_salary_outliers(records: Sequence[Dict[str, Any]], detected_at: datetime) -> List[Dict[str, Any]]:
-    employee_rows = normalize_employee_rows(records)
-    with_salary = [row for row in employee_rows if row["salary"] is not None]
-    if len(with_salary) < 4:
-        return []
+def detect_finance_anomalies(records: Sequence[Dict[str, Any]], detected_at: datetime) -> Dict[str, Any]:
+    rows = normalize_finance_rows(records)
+    if not rows:
+        return {
+            "status": "insufficient_data",
+            "anomalies": [],
+            "metadata": serialize_anomaly_metadata(
+                mode="none",
+                feature_columns=[],
+                rows_modeled=0,
+                records_read=len(records),
+                message="No usable finance timestamps and amounts were available.",
+            ),
+        }
 
-    groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for row in with_salary:
-        grouping_values = [row.get("department") or "", row.get("role") or ""]
-        group_key = "|".join(value.lower() for value in grouping_values if value)
-        groups[group_key or "__all__"].append(row)
+    transaction_frame = build_anomaly_frame(rows, mode="transaction")
+    if len(transaction_frame) >= MIN_TRANSACTION_ROWS:
+        scored = score_anomalies(
+            frame=transaction_frame,
+            feature_columns=TRANSACTION_FEATURE_COLUMNS,
+            minimum_rows=MIN_TRANSACTION_ROWS,
+            mode="transaction",
+            detected_at=detected_at,
+        )
+        if scored["status"] != "insufficient_data":
+            return scored
 
-    anomalies: List[Dict[str, Any]] = []
-    for group_key, members in groups.items():
-        if len(members) < 4:
-            continue
-        salaries = sorted(float(member["salary"]) for member in members if member["salary"] is not None)
-        if len(salaries) < 4:
-            continue
-
-        q1 = percentile(salaries, 25)
-        q3 = percentile(salaries, 75)
-        iqr = q3 - q1
-        median = percentile(salaries, 50)
-        mean = sum(salaries) / len(salaries)
-        std_dev = standard_deviation(salaries, mean)
-
-        iqr_lower = q1 - 1.5 * iqr
-        iqr_upper = q3 + 1.5 * iqr
-
-        for member in members:
-            salary = member["salary"]
-            if salary is None:
-                continue
-            z_score = (salary - mean) / std_dev if std_dev > 0 else 0.0
-            is_iqr_outlier = salary < iqr_lower or salary > iqr_upper
-            is_z_outlier = abs(z_score) >= SALARY_OUTLIER_ZSCORE_THRESHOLD
-            if not (is_iqr_outlier or is_z_outlier):
-                continue
-
-            deviation_percent = percent_deviation(salary, median)
-            expected_low = max(0.0, iqr_lower)
-            expected_high = max(expected_low, iqr_upper)
-            severity = classify_salary_outlier_severity(abs(z_score), abs(deviation_percent or 0.0))
-            group_label = describe_employee_group(member, group_key)
-            direction = "higher" if salary >= median else "lower"
-
-            anomalies.append(
-                build_anomaly(
-                    entity_type="employee",
-                    record_ids=[member["employee_id"]],
-                    anomaly_type="salary_outlier",
-                    severity=severity,
-                    confidence=confidence_from_score(abs(z_score), floor=0.55, cap=0.97),
-                    title=f"Salary {direction} than expected",
-                    description=(
-                        f"Employee salary in {group_label} is outside the expected salary range "
-                        f"for comparable records."
-                    ),
-                    reasons=[
-                        f"Observed salary {format_currency(salary)} is outside "
-                        f"{format_currency(expected_low)} to {format_currency(expected_high)}.",
-                        f"Salary z-score is {round(z_score, 3)}.",
-                    ],
-                    suggested_action="review",
-                    metrics={
-                        "actual_value": round(salary, 2),
-                        "expected_value": round(median, 2),
-                        "percent_deviation": round(deviation_percent, 2) if deviation_percent is not None else None,
-                        "z_score": round(z_score, 3),
-                    },
-                    detected_at=detected_at,
-                    source_table="employees",
-                    details={
-                        "group": group_label,
-                        "expected_range": {
-                            "min": round(expected_low, 2),
-                            "max": round(expected_high, 2),
-                        },
-                        "employee": compact_record_snapshot(member["raw"]),
-                    },
-                )
-            )
-
-    LOGGER.info("Detected %d salary outliers", len(anomalies))
-    return anomalies
-
-
-def detect_duplicate_hires(records: Sequence[Dict[str, Any]], detected_at: datetime) -> List[Dict[str, Any]]:
-    employee_rows = normalize_employee_rows(records)
-    if len(employee_rows) < 2:
-        return []
-
-    anomalies: List[Dict[str, Any]] = []
-    seen_signatures: set[Tuple[str, Tuple[str, ...]]] = set()
-
-    def add_duplicate_anomaly(
-        members: Sequence[Dict[str, Any]],
-        matched_fields: Sequence[str],
-        confidence: float,
-        severity: str,
-        title: str,
-        description: str,
-    ) -> None:
-        ids = sorted({member["employee_id"] for member in members})
-        if len(ids) < 2:
-            return
-        signature = ("duplicate_hire", tuple(ids))
-        if signature in seen_signatures:
-            return
-        seen_signatures.add(signature)
-
-        anomalies.append(
-            build_anomaly(
-                entity_type="employee",
-                record_ids=ids,
-                anomaly_type="duplicate_hire",
-                severity=severity,
-                confidence=round(confidence, 3),
-                title=title,
-                description=description,
-                reasons=[f"Matched on fields: {', '.join(matched_fields)}."],
-                suggested_action="review",
-                metrics={
-                    "actual_value": float(len(ids)),
-                    "expected_value": 1.0,
-                    "percent_deviation": round(((len(ids) - 1) / 1.0) * 100.0, 2),
-                    "z_score": None,
-                },
-                detected_at=detected_at,
-                source_table="employees",
-                details={
-                    "matched_fields": list(matched_fields),
-                    "matched_records": [compact_record_snapshot(member["raw"]) for member in members],
-                },
-            )
+    daily_frame = build_anomaly_frame(rows, mode="daily")
+    if len(daily_frame) >= MIN_DAILY_ROWS:
+        return score_anomalies(
+            frame=daily_frame,
+            feature_columns=DAILY_FEATURE_COLUMNS,
+            minimum_rows=MIN_DAILY_ROWS,
+            mode="daily",
+            detected_at=detected_at,
         )
 
-    by_email: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for row in employee_rows:
-        email = normalize_string(row.get("email"))
-        if email:
-            by_email[email].append(row)
+    return {
+        "status": "insufficient_data",
+        "anomalies": [],
+        "metadata": serialize_anomaly_metadata(
+            mode="daily" if len(daily_frame) else "transaction",
+            feature_columns=DAILY_FEATURE_COLUMNS if len(daily_frame) else TRANSACTION_FEATURE_COLUMNS,
+            rows_modeled=int(max(len(transaction_frame), len(daily_frame))),
+            records_read=len(records),
+            message="Not enough finance history to train IsolationForest safely.",
+        ),
+    }
 
-    for email, members in by_email.items():
-        if len(members) > 1:
-            add_duplicate_anomaly(
-                members=members,
-                matched_fields=[f"email={email}"],
-                confidence=0.98,
-                severity="high",
-                title="Likely duplicate employee records",
-                description="Multiple employee records share the same email address.",
-            )
 
-    by_name: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for row in employee_rows:
-        full_name = normalize_name(row.get("full_name"))
-        if full_name:
-            by_name[full_name].append(row)
-
-    for name, members in by_name.items():
-        if len(members) > 1:
-            add_duplicate_anomaly(
-                members=members,
-                matched_fields=[f"full_name={name}"],
-                confidence=0.85,
-                severity="medium",
-                title="Potential duplicate hire records",
-                description="Multiple employee records share the same full name.",
-            )
-
-    by_composite: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
-    for row in employee_rows:
-        department = normalize_string(row.get("department"))
-        hire_date = row.get("hire_date")
-        if not department or not isinstance(hire_date, date):
+def normalize_finance_rows(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for index, record in enumerate(records):
+        timestamp = extract_record_datetime(record)
+        amount = extract_finance_amount(record)
+        if timestamp is None or amount is None:
             continue
-        by_composite[(department, hire_date.isoformat())].append(row)
 
-    for (department, hire_date), members in by_composite.items():
-        if len(members) < 2:
-            continue
-        members_sorted = sorted(
-            members,
-            key=lambda item: item["salary"] if item["salary"] is not None else float("inf"),
+        record_id = extract_first_string(record, TRANSACTION_ID_FIELDS) or f"finance-{index + 1}"
+        source_area = classify_finance_amount(record, amount)
+        rows.append(
+            {
+                "record_id": record_id,
+                "timestamp": timestamp,
+                "date": timestamp.date(),
+                "amount": abs(float(amount)),
+                "signed_amount": float(amount),
+                "source_area": source_area,
+                "raw": record,
+            }
         )
-        cluster: List[Dict[str, Any]] = []
-        for member in members_sorted:
-            salary = member["salary"]
-            if salary is None:
-                continue
-            if not cluster:
-                cluster.append(member)
-                continue
-            baseline = cluster[-1]["salary"] or salary
-            salary_gap_ratio = abs(salary - baseline) / max(abs(baseline), 1.0)
-            if salary_gap_ratio <= 0.05:
-                cluster.append(member)
-            else:
-                if len(cluster) > 1:
-                    add_duplicate_anomaly(
-                        members=cluster,
-                        matched_fields=[
-                            f"department={department}",
-                            f"hire_date={hire_date}",
-                            "salary_within_5_percent",
-                        ],
-                        confidence=0.78,
-                        severity="medium",
-                        title="Possible duplicate hires in same department",
-                        description=(
-                            "Employees share the same department and hire date, "
-                            "with near-identical salaries."
-                        ),
-                    )
-                cluster = [member]
 
-        if len(cluster) > 1:
-            add_duplicate_anomaly(
-                members=cluster,
-                matched_fields=[
-                    f"department={department}",
-                    f"hire_date={hire_date}",
-                    "salary_within_5_percent",
-                ],
-                confidence=0.78,
-                severity="medium",
-                title="Possible duplicate hires in same department",
-                description=(
-                    "Employees share the same department and hire date, "
-                    "with near-identical salaries."
-                ),
-            )
-
-    LOGGER.info("Detected %d duplicate employee anomalies", len(anomalies))
-    return anomalies
+    return rows
 
 
-def detect_duplicate_transactions(records: Sequence[Dict[str, Any]], detected_at: datetime) -> List[Dict[str, Any]]:
-    transaction_rows = normalize_transaction_rows(records)
-    if len(transaction_rows) < 2:
-        return []
+def build_anomaly_frame(rows: Sequence[Dict[str, Any]], mode: str) -> pd.DataFrame:
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return pd.DataFrame()
 
-    grouped: Dict[Tuple[str, str, float], List[Dict[str, Any]]] = defaultdict(list)
-    for row in transaction_rows:
-        timestamp = row.get("timestamp")
-        amount = row.get("amount")
-        account_key = normalize_string(row.get("account_key"))
-        vendor = normalize_string(row.get("vendor")) or "unknown"
-        if amount is None or timestamp is None:
-            continue
-        if not account_key:
-            account_key = "unknown-account"
-        amount_key = round(float(amount), 2)
-        grouped[(account_key, vendor, amount_key)].append(row)
+    frame["date"] = pd.to_datetime(frame["date"])
+    frame["day_of_week"] = frame["date"].dt.dayofweek
+    frame["amount"] = pd.to_numeric(frame["amount"], errors="coerce")
 
-    anomalies: List[Dict[str, Any]] = []
-    window_seconds = DUPLICATE_TRANSACTION_WINDOW_MINUTES * 60
-    for (account_key, vendor, amount_key), members in grouped.items():
-        if len(members) < 2:
-            continue
-        ordered = sorted(members, key=lambda item: item["timestamp"])
-        cluster = [ordered[0]]
-        for candidate in ordered[1:]:
-            last_ts = cluster[-1]["timestamp"]
-            current_ts = candidate["timestamp"]
-            if not isinstance(last_ts, datetime) or not isinstance(current_ts, datetime):
-                continue
-            delta_seconds = abs((current_ts - last_ts).total_seconds())
-            if delta_seconds <= window_seconds:
-                cluster.append(candidate)
-            else:
-                if len(cluster) > 1:
-                    anomalies.append(
-                        build_duplicate_transaction_anomaly(
-                            cluster=cluster,
-                            account_key=account_key,
-                            vendor=vendor,
-                            amount_key=amount_key,
-                            detected_at=detected_at,
-                        )
-                    )
-                cluster = [candidate]
-        if len(cluster) > 1:
-            anomalies.append(
-                build_duplicate_transaction_anomaly(
-                    cluster=cluster,
-                    account_key=account_key,
-                    vendor=vendor,
-                    amount_key=amount_key,
-                    detected_at=detected_at,
-                )
-            )
+    daily = (
+        frame.groupby(["source_area", "date"], as_index=False)
+        .agg(
+            daily_total=("amount", "sum"),
+            transaction_count=("record_id", "count"),
+        )
+        .sort_values(["source_area", "date"])
+        .reset_index(drop=True)
+    )
+    daily["rolling_mean_7"] = (
+        daily.groupby("source_area")["daily_total"]
+        .transform(lambda values: values.shift(1).rolling(window=7, min_periods=3).mean())
+    )
+    daily["rolling_deviation_7"] = (daily["daily_total"] - daily["rolling_mean_7"]).abs()
+    daily["day_of_week"] = daily["date"].dt.dayofweek
 
-    LOGGER.info("Detected %d duplicate transaction anomalies", len(anomalies))
-    return anomalies
+    if mode == "daily":
+        daily["rolling_mean_7"] = daily["rolling_mean_7"].fillna(daily["daily_total"])
+        daily["rolling_deviation_7"] = daily["rolling_deviation_7"].fillna(0.0)
+        daily["record_id"] = daily.apply(
+            lambda row: f"{row['source_area']}-{pd.Timestamp(row['date']).date().isoformat()}",
+            axis=1,
+        )
+        return daily
+
+    amount_baseline = (
+        frame.groupby("source_area")["amount"]
+        .transform("median")
+        .fillna(frame["amount"])
+    )
+    merged = frame.merge(
+        daily[["source_area", "date", "daily_total", "transaction_count", "rolling_mean_7", "rolling_deviation_7"]],
+        on=["source_area", "date"],
+        how="left",
+    )
+    merged["rolling_mean_7"] = merged["rolling_mean_7"].fillna(merged["daily_total"])
+    merged["rolling_deviation_7"] = merged["rolling_deviation_7"].fillna(0.0)
+    merged["amount_baseline"] = amount_baseline
+    return merged
 
 
-def build_duplicate_transaction_anomaly(
-    cluster: Sequence[Dict[str, Any]],
-    account_key: str,
-    vendor: str,
-    amount_key: float,
+def train_isolation_forest(features: pd.DataFrame) -> IsolationForest:
+    model = IsolationForest(**MODEL_PARAMS)
+    model.fit(features)
+    return model
+
+
+def score_anomalies(
+    *,
+    frame: pd.DataFrame,
+    feature_columns: Sequence[str],
+    minimum_rows: int,
+    mode: str,
     detected_at: datetime,
 ) -> Dict[str, Any]:
-    ids = sorted({item["transaction_id"] for item in cluster})
-    total_value = amount_key * len(ids)
-    confidence = min(0.99, 0.84 + (0.05 * min(3, len(ids) - 1)))
-    severity = "high" if len(ids) >= 3 or amount_key >= 10000 else "medium"
+    anomalies: List[Dict[str, Any]] = []
+    modeled_rows = 0
+    scored_groups = 0
+    fallback_needed = True
 
-    return build_anomaly(
-        entity_type="transaction",
-        record_ids=ids,
-        anomaly_type="duplicate_transaction",
-        severity=severity,
-        confidence=round(confidence, 3),
-        title="Possible duplicate transactions detected",
-        description=(
-            "Transactions share account, vendor, and amount, with posting times inside "
-            "the configured duplicate window."
+    for source_area, group in frame.groupby("source_area"):
+        usable = group.dropna(subset=list(feature_columns)).copy()
+        if len(usable) < minimum_rows:
+            continue
+
+        fallback_needed = False
+        scored_groups += 1
+        modeled_rows += len(usable)
+        model = train_isolation_forest(usable[list(feature_columns)])
+        usable = add_scores(usable, model, feature_columns)
+        anomalies.extend(
+            build_anomaly_output(
+                scored_rows=usable,
+                mode=mode,
+                detected_at=detected_at,
+                feature_columns=feature_columns,
+                source_area_override=source_area,
+            )
+        )
+
+    if fallback_needed:
+        usable = frame.dropna(subset=list(feature_columns)).copy()
+        if len(usable) >= minimum_rows:
+            scored_groups = 1
+            modeled_rows = len(usable)
+            model = train_isolation_forest(usable[list(feature_columns)])
+            usable = add_scores(usable, model, feature_columns)
+            anomalies.extend(
+                build_anomaly_output(
+                    scored_rows=usable,
+                    mode=mode,
+                    detected_at=detected_at,
+                    feature_columns=feature_columns,
+                    source_area_override=None,
+                )
+            )
+
+    anomalies.sort(key=lambda item: float(item.get("anomaly_score") or 0.0), reverse=True)
+    anomalies = anomalies[:MAX_ANOMALIES]
+
+    if modeled_rows == 0:
+        status = "insufficient_data"
+    elif anomalies:
+        status = "ok"
+    else:
+        status = "no_anomalies_detected"
+
+    return {
+        "status": status,
+        "anomalies": anomalies,
+        "metadata": serialize_anomaly_metadata(
+            mode=mode,
+            feature_columns=feature_columns,
+            rows_modeled=modeled_rows,
+            records_read=int(len(frame)),
+            scored_groups=scored_groups,
+            message=None,
         ),
-        reasons=[
-            f"Matched account={account_key}, vendor={vendor}, amount={format_currency(amount_key)}.",
-            f"Timestamps are within {DUPLICATE_TRANSACTION_WINDOW_MINUTES} minutes.",
-        ],
-        suggested_action="quarantine",
-        metrics={
-            "actual_value": round(total_value, 2),
-            "expected_value": round(amount_key, 2),
-            "percent_deviation": round(((total_value - amount_key) / max(amount_key, 1.0)) * 100.0, 2),
-            "z_score": None,
-        },
-        detected_at=detected_at,
-        source_table="transactions",
-        details={
-            "match_key": {
-                "account": account_key,
-                "vendor": vendor,
-                "amount": round(amount_key, 2),
-            },
-            "linked_transactions": [compact_record_snapshot(item["raw"]) for item in cluster],
-        },
+    }
+
+
+def add_scores(
+    scored_frame: pd.DataFrame,
+    model: IsolationForest,
+    feature_columns: Sequence[str],
+) -> pd.DataFrame:
+    features = scored_frame[list(feature_columns)]
+    prediction_labels = model.predict(features)
+    raw_scores = -model.score_samples(features)
+    raw_scores = np.asarray(raw_scores, dtype=float)
+
+    if raw_scores.size == 0:
+        normalized_scores = np.array([], dtype=float)
+    else:
+        minimum = float(raw_scores.min())
+        maximum = float(raw_scores.max())
+        spread = maximum - minimum
+        if spread <= 0:
+            normalized_scores = np.zeros_like(raw_scores)
+        else:
+            normalized_scores = (raw_scores - minimum) / spread
+
+    result = scored_frame.copy()
+    result["anomaly_flag"] = prediction_labels == -1
+    result["anomaly_score"] = normalized_scores
+    return result
+
+
+def build_anomaly_output(
+    *,
+    scored_rows: pd.DataFrame,
+    mode: str,
+    detected_at: datetime,
+    feature_columns: Sequence[str],
+    source_area_override: Optional[str],
+) -> List[Dict[str, Any]]:
+    anomalies: List[Dict[str, Any]] = []
+    flagged = scored_rows[scored_rows["anomaly_flag"]].copy()
+    if flagged.empty:
+        return anomalies
+
+    flagged = flagged.sort_values("anomaly_score", ascending=False)
+    for row in flagged.itertuples(index=False):
+        row_dict = row._asdict()
+        source_area = source_area_override or str(row_dict.get("source_area") or "finance")
+        anomaly_type, title, description = describe_anomaly(row_dict, mode, source_area)
+        anomaly_score = round(float(row_dict.get("anomaly_score") or 0.0), 4)
+        severity = classify_severity(anomaly_score)
+
+        if mode == "transaction":
+            actual_value = round(float(row_dict.get("amount") or 0.0), 2)
+            expected_value = round(float(row_dict.get("amount_baseline") or actual_value), 2)
+            percent_deviation = percent_deviation_from(expected_value, actual_value)
+            record_details = compact_record_snapshot(row_dict.get("raw") or {})
+            details = {
+                "transaction": record_details,
+                "features": {
+                    "amount": actual_value,
+                    "daily_total": round(float(row_dict.get("daily_total") or 0.0), 2),
+                    "transaction_count": int(row_dict.get("transaction_count") or 0),
+                    "rolling_mean_7": round(float(row_dict.get("rolling_mean_7") or 0.0), 2),
+                    "rolling_deviation_7": round(float(row_dict.get("rolling_deviation_7") or 0.0), 2),
+                    "day_of_week": int(row_dict.get("day_of_week") or 0),
+                },
+            }
+            reasons = [
+                f"Transaction amount {format_currency(actual_value)} differs from the typical {source_area} amount baseline.",
+                (
+                    f"Daily total {format_currency(float(row_dict.get('daily_total') or 0.0))} "
+                    f"vs rolling mean {format_currency(float(row_dict.get('rolling_mean_7') or 0.0))}."
+                ),
+            ]
+            entity_type = "transaction"
+            source_table = "transactions"
+        else:
+            actual_value = round(float(row_dict.get("daily_total") or 0.0), 2)
+            expected_value = round(float(row_dict.get("rolling_mean_7") or actual_value), 2)
+            percent_deviation = percent_deviation_from(expected_value, actual_value)
+            details = {
+                "record": {
+                    "date": pd.Timestamp(row_dict["date"]).date().isoformat(),
+                    "source_area": source_area,
+                    "daily_total": actual_value,
+                    "transaction_count": int(row_dict.get("transaction_count") or 0),
+                },
+                "features": {
+                    "daily_total": actual_value,
+                    "transaction_count": int(row_dict.get("transaction_count") or 0),
+                    "rolling_mean_7": round(float(row_dict.get("rolling_mean_7") or 0.0), 2),
+                    "rolling_deviation_7": round(float(row_dict.get("rolling_deviation_7") or 0.0), 2),
+                    "day_of_week": int(row_dict.get("day_of_week") or 0),
+                },
+            }
+            reasons = [
+                (
+                    f"Daily total {format_currency(actual_value)} differs from the rolling mean "
+                    f"of {format_currency(expected_value)}."
+                ),
+                f"Transaction count for the day is {int(row_dict.get('transaction_count') or 0)}.",
+            ]
+            entity_type = "daily_finance"
+            source_table = "finance_daily"
+
+        anomalies.append(
+            {
+                "anomaly_id": str(uuid.uuid4()),
+                "record_id": str(row_dict.get("record_id") or ""),
+                "record_ids": [str(row_dict.get("record_id") or "")],
+                "date": pd.Timestamp(row_dict["date"]).date().isoformat(),
+                "anomaly_flag": True,
+                "anomaly_score": anomaly_score,
+                "source_area": source_area,
+                "model_name": MODEL_NAME,
+                "status": "new",
+                "anomaly_type": anomaly_type,
+                "entity_type": entity_type,
+                "severity": severity,
+                "confidence": anomaly_score,
+                "title": title,
+                "description": description,
+                "reasons": reasons,
+                "suggested_action": "review",
+                "metrics": {
+                    "actual_value": actual_value,
+                    "expected_value": expected_value,
+                    "percent_deviation": percent_deviation,
+                    "z_score": None,
+                },
+                "detected_at": detected_at.isoformat(),
+                "source_table": source_table,
+                "audit_trail": [],
+                "features_used": list(feature_columns),
+                "details": details,
+            }
+        )
+
+    return anomalies
+
+
+def describe_anomaly(row: Dict[str, Any], mode: str, source_area: str) -> Tuple[str, str, str]:
+    daily_total = float(row.get("daily_total") or 0.0)
+    rolling_mean = float(row.get("rolling_mean_7") or 0.0)
+    amount = float(row.get("amount") or 0.0)
+
+    if mode == "daily":
+        if source_area == "expenditure" and daily_total >= rolling_mean:
+            return (
+                "daily_expenditure_spike",
+                "Unusual expenditure spike detected",
+                "IsolationForest flagged the daily expenditure total as unusually high for recent history.",
+            )
+        if source_area == "revenue" and daily_total <= rolling_mean:
+            return (
+                "daily_revenue_drop",
+                "Unusual revenue drop detected",
+                "IsolationForest flagged the daily revenue total as unusually low for recent history.",
+            )
+        return (
+            "daily_total_anomaly",
+            "Suspicious daily finance total detected",
+            "IsolationForest flagged the daily finance aggregate as outside the recent baseline.",
+        )
+
+    if source_area == "expenditure" and daily_total >= rolling_mean:
+        return (
+            "transaction_expenditure_spike",
+            "Transaction sits inside an expenditure spike",
+            "IsolationForest flagged this transaction because it lands on an unusually heavy spend day.",
+        )
+    if source_area == "revenue" and daily_total <= rolling_mean:
+        return (
+            "transaction_revenue_drop",
+            "Transaction sits inside a low-revenue day",
+            "IsolationForest flagged this transaction because it lands on an unusually weak revenue day.",
+        )
+    return (
+        "transaction_amount_outlier",
+        "Anomalous transaction amount detected",
+        f"IsolationForest flagged the {source_area} transaction amount as unusual compared with recent activity.",
     )
 
 
-def detect_large_transactions(records: Sequence[Dict[str, Any]], detected_at: datetime) -> List[Dict[str, Any]]:
-    grouped = group_transactions_for_context(records)
-    anomalies: List[Dict[str, Any]] = []
-
-    for context_key, members in grouped.items():
-        amounts = [member["amount"] for member in members if member["amount"] is not None]
-        if len(amounts) < 8:
-            continue
-
-        sorted_amounts = sorted(float(value) for value in amounts)
-        median = percentile(sorted_amounts, 50)
-        p75 = percentile(sorted_amounts, 75)
-        if median <= 0:
-            continue
-
-        threshold = max(median * LARGE_TRANSACTION_MULTIPLIER, p75 * 1.5)
-        for member in members:
-            amount = member["amount"]
-            if amount is None or amount <= threshold:
-                continue
-            deviation = percent_deviation(amount, median)
-            severity = "high" if amount >= median * (LARGE_TRANSACTION_MULTIPLIER + 1.5) else "medium"
-            anomalies.append(
-                build_anomaly(
-                    entity_type="transaction",
-                    record_ids=[member["transaction_id"]],
-                    anomaly_type="large_transaction",
-                    severity=severity,
-                    confidence=confidence_from_score((amount / max(median, 1.0)), floor=0.62, cap=0.98),
-                    title="Unusually large transaction",
-                    description=(
-                        "Transaction amount is significantly higher than baseline for this "
-                        "account/category context."
-                    ),
-                    reasons=[
-                        f"Observed {format_currency(amount)} vs baseline median {format_currency(median)}.",
-                        f"Configured multiplier threshold is {LARGE_TRANSACTION_MULTIPLIER}x.",
-                    ],
-                    suggested_action="review",
-                    metrics={
-                        "actual_value": round(amount, 2),
-                        "expected_value": round(median, 2),
-                        "percent_deviation": round(deviation, 2) if deviation is not None else None,
-                        "z_score": None,
-                    },
-                    detected_at=detected_at,
-                    source_table="transactions",
-                    details={
-                        "context_key": context_key,
-                        "baseline": {
-                            "median": round(median, 2),
-                            "p75": round(p75, 2),
-                            "threshold": round(threshold, 2),
-                        },
-                        "transaction": compact_record_snapshot(member["raw"]),
-                    },
-                )
-            )
-
-    LOGGER.info("Detected %d large transaction anomalies", len(anomalies))
-    return anomalies
-
-
-def detect_small_suspicious_transactions(records: Sequence[Dict[str, Any]], detected_at: datetime) -> List[Dict[str, Any]]:
-    grouped = group_transactions_for_context(records)
-    anomalies: List[Dict[str, Any]] = []
-
-    for context_key, members in grouped.items():
-        amounts = [member["amount"] for member in members if member["amount"] is not None and member["amount"] > 0]
-        if len(amounts) < 10:
-            continue
-        sorted_amounts = sorted(float(value) for value in amounts)
-        median = percentile(sorted_amounts, 50)
-        p10 = percentile(sorted_amounts, 10)
-        if median <= 0:
-            continue
-
-        floor_amount = median * SMALL_TRANSACTION_FLOOR_RATIO
-        small_values = [value for value in sorted_amounts if value <= floor_amount]
-        rare_small_signal = (len(small_values) / len(sorted_amounts)) <= 0.18
-        if not rare_small_signal:
-            continue
-
-        for member in members:
-            amount = member["amount"]
-            if amount is None or amount <= 0:
-                continue
-            if not (amount < floor_amount and amount <= p10):
-                continue
-
-            deviation = percent_deviation(amount, median)
-            severity = "medium" if amount < floor_amount * 0.5 else "low"
-            anomalies.append(
-                build_anomaly(
-                    entity_type="transaction",
-                    record_ids=[member["transaction_id"]],
-                    anomaly_type="small_transaction",
-                    severity=severity,
-                    confidence=confidence_from_score((median / max(amount, 0.01)), floor=0.52, cap=0.9),
-                    title="Unusually small transaction in context",
-                    description=(
-                        "Transaction is much smaller than normal for this account/category context "
-                        "and small-value events are uncommon in this group."
-                    ),
-                    reasons=[
-                        f"Observed {format_currency(amount)} vs median {format_currency(median)}.",
-                        f"Small-value floor ratio configured at {SMALL_TRANSACTION_FLOOR_RATIO}.",
-                    ],
-                    suggested_action="review",
-                    metrics={
-                        "actual_value": round(amount, 2),
-                        "expected_value": round(median, 2),
-                        "percent_deviation": round(deviation, 2) if deviation is not None else None,
-                        "z_score": None,
-                    },
-                    detected_at=detected_at,
-                    source_table="transactions",
-                    details={
-                        "context_key": context_key,
-                        "baseline": {
-                            "median": round(median, 2),
-                            "p10": round(p10, 2),
-                            "floor_amount": round(floor_amount, 2),
-                        },
-                        "transaction": compact_record_snapshot(member["raw"]),
-                    },
-                )
-            )
-
-    LOGGER.info("Detected %d small suspicious transaction anomalies", len(anomalies))
-    return anomalies
-
-
-def group_transactions_for_context(records: Sequence[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    rows = normalize_transaction_rows(records)
-    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        amount = row.get("amount")
-        if amount is None:
-            continue
-        account_key = normalize_string(row.get("account_key")) or "unknown-account"
-        category = normalize_string(row.get("category")) or "unknown-category"
-        key = f"{account_key}|{category}"
-        grouped[key].append(row)
-    return grouped
-
-
-def normalize_employee_rows(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    for index, record in enumerate(records):
-        employee_id = extract_first_string(record, EMPLOYEE_ID_FIELDS)
-        if not employee_id:
-            employee_id = f"employee-{index + 1}"
-
-        first_name = extract_first_string(record, EMPLOYEE_FIRST_NAME_FIELDS)
-        last_name = extract_first_string(record, EMPLOYEE_LAST_NAME_FIELDS)
-        full_name = extract_first_string(record, EMPLOYEE_NAME_FIELDS)
-        if not full_name and (first_name or last_name):
-            full_name = " ".join(part for part in [first_name, last_name] if part).strip()
-
-        row = {
-            "employee_id": employee_id,
-            "email": normalize_string(extract_first_string(record, EMPLOYEE_EMAIL_FIELDS)),
-            "full_name": full_name or "",
-            "department": extract_first_string(record, EMPLOYEE_DEPARTMENT_FIELDS),
-            "role": extract_first_string(record, EMPLOYEE_ROLE_FIELDS),
-            "hire_date": extract_first_date(record, EMPLOYEE_HIRE_DATE_FIELDS),
-            "salary": extract_first_float(record, EMPLOYEE_SALARY_FIELDS),
-            "raw": record,
-        }
-        rows.append(row)
-    return rows
-
-
-def normalize_transaction_rows(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    for index, record in enumerate(records):
-        transaction_id = extract_first_string(record, TRANSACTION_ID_FIELDS)
-        if not transaction_id:
-            transaction_id = f"txn-{index + 1}"
-
-        amount = extract_first_float(record, TRANSACTION_AMOUNT_FIELDS)
-        if amount is None:
-            credit = parse_float(record.get("credit"))
-            debit = parse_float(record.get("debit"))
-            if credit is not None or debit is not None:
-                amount = abs((credit or 0.0) - (debit or 0.0))
-        if amount is not None:
-            amount = abs(float(amount))
-
-        row = {
-            "transaction_id": transaction_id,
-            "account_key": extract_first_string(record, TRANSACTION_ACCOUNT_FIELDS),
-            "vendor": extract_first_string(record, TRANSACTION_VENDOR_FIELDS),
-            "category": extract_first_string(record, TRANSACTION_CATEGORY_FIELDS),
-            "timestamp": extract_first_datetime(record, DATE_FIELDS),
-            "amount": amount,
-            "raw": record,
-        }
-        rows.append(row)
-    return rows
-
-
-def build_anomaly(
+def serialize_anomaly_metadata(
     *,
-    entity_type: str,
-    record_ids: Sequence[str],
-    anomaly_type: str,
-    severity: str,
-    confidence: float,
-    title: str,
-    description: str,
-    reasons: Sequence[str],
-    suggested_action: str,
-    metrics: Dict[str, Any],
-    detected_at: datetime,
-    source_table: str,
-    details: Optional[Dict[str, Any]] = None,
+    mode: str,
+    feature_columns: Sequence[str],
+    rows_modeled: int,
+    records_read: int,
+    message: Optional[str],
+    scored_groups: int = 0,
 ) -> Dict[str, Any]:
     payload = {
-        "anomaly_id": str(uuid.uuid4()),
-        "entity_type": entity_type,
-        "record_ids": [str(value) for value in record_ids if str(value).strip()],
-        "anomaly_type": anomaly_type,
-        "severity": severity,
-        "confidence": round(max(0.0, min(1.0, confidence)), 3),
-        "title": title,
-        "description": description,
-        "reasons": [str(reason) for reason in reasons if str(reason).strip()],
-        "status": "new",
-        "suggested_action": suggested_action,
-        "metrics": {
-            "actual_value": metrics.get("actual_value"),
-            "expected_value": metrics.get("expected_value"),
-            "percent_deviation": metrics.get("percent_deviation"),
-            "z_score": metrics.get("z_score"),
-        },
-        "detected_at": detected_at.isoformat(),
-        "source_table": source_table,
-        "audit_trail": [],
+        "mode": mode,
+        "model_name": MODEL_NAME,
+        "parameters": dict(MODEL_PARAMS),
+        "feature_columns": list(feature_columns),
+        "rows_modeled": int(rows_modeled),
+        "records_read": int(records_read),
+        "scored_groups": int(scored_groups),
+        "random_state": MODEL_RANDOM_STATE,
     }
-    if details:
-        payload["details"] = details
+    if message:
+        payload["message"] = message
     return payload
-
-
-def deduplicate_anomalies(anomalies: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    deduplicated: List[Dict[str, Any]] = []
-    signatures: set[Tuple[str, Tuple[str, ...], str]] = set()
-    for anomaly in anomalies:
-        signature = (
-            str(anomaly.get("anomaly_type") or ""),
-            tuple(sorted(str(item) for item in anomaly.get("record_ids", []))),
-            str(anomaly.get("source_table") or ""),
-        )
-        if signature in signatures:
-            continue
-        signatures.add(signature)
-        deduplicated.append(anomaly)
-    return deduplicated
 
 
 def summarize_counts(items: Sequence[Dict[str, Any]], field_name: str) -> Dict[str, int]:
@@ -918,34 +711,58 @@ def extract_first_string(record: Dict[str, Any], fields: Sequence[str]) -> str:
     return ""
 
 
-def extract_first_float(record: Dict[str, Any], fields: Sequence[str]) -> Optional[float]:
-    for field in fields:
+def extract_finance_amount(record: Dict[str, Any]) -> Optional[float]:
+    for field in AMOUNT_FIELDS:
         if field not in record:
             continue
         parsed = parse_float(record.get(field))
         if parsed is not None:
             return parsed
+
+    credit = parse_float(record.get("credit"))
+    debit = parse_float(record.get("debit"))
+    if credit is not None or debit is not None:
+        return (credit or 0.0) - (debit or 0.0)
+
     return None
 
 
-def extract_first_datetime(record: Dict[str, Any], fields: Sequence[str]) -> Optional[datetime]:
-    for field in fields:
+def classify_finance_amount(record: Dict[str, Any], amount: float) -> str:
+    hint_fields = [
+        record.get("transaction_type"),
+        record.get("type"),
+        record.get("category"),
+        record.get("entry_type"),
+        record.get("direction"),
+    ]
+    hint_text = " ".join(str(value).lower() for value in hint_fields if value is not None)
+    if any(token in hint_text for token in REVENUE_HINTS):
+        return "revenue"
+    if any(token in hint_text for token in EXPENDITURE_HINTS):
+        return "expenditure"
+    return "revenue" if amount >= 0 else "expenditure"
+
+
+def extract_record_datetime(record: Dict[str, Any]) -> Optional[datetime]:
+    for field in DATE_FIELDS:
         if field not in record:
             continue
         parsed = parse_datetime(record.get(field))
         if parsed is not None:
             return parsed
+
+    source_key = record.get("_source_key")
+    if source_key:
+        key_date = extract_date_from_key(str(source_key))
+        if key_date:
+            return datetime.combine(key_date, datetime.min.time(), tzinfo=timezone.utc)
+
     source_modified = record.get("_source_last_modified")
     if source_modified:
-        return parse_datetime(source_modified)
+        parsed_modified = parse_datetime(source_modified)
+        if parsed_modified is not None:
+            return parsed_modified
     return None
-
-
-def extract_first_date(record: Dict[str, Any], fields: Sequence[str]) -> Optional[date]:
-    parsed_dt = extract_first_datetime(record, fields)
-    if parsed_dt is None:
-        return None
-    return parsed_dt.date()
 
 
 def parse_float(value: Any) -> Optional[float]:
@@ -1009,19 +826,16 @@ def parse_datetime(value: Any) -> Optional[datetime]:
     return None
 
 
-def normalize_string(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip().lower()
+def extract_date_from_key(key: str) -> Optional[date]:
+    match = re.search(r"/(\d{4})/(\d{2})/(\d{2})(?:/|$)", key)
+    if not match:
+        return None
 
-
-def normalize_name(value: Any) -> str:
-    text = normalize_string(value)
-    if not text:
-        return ""
-    text = re.sub(r"[^a-z0-9 ]+", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    year, month, day = match.groups()
+    try:
+        return date(int(year), int(month), int(day))
+    except ValueError:
+        return None
 
 
 def compact_record_snapshot(record: Dict[str, Any], max_fields: int = 12) -> Dict[str, Any]:
@@ -1035,59 +849,18 @@ def compact_record_snapshot(record: Dict[str, Any], max_fields: int = 12) -> Dic
     return result
 
 
-def percentile(values: Sequence[float], percentile_value: float) -> float:
-    if not values:
-        return 0.0
-    if len(values) == 1:
-        return float(values[0])
-    ordered = sorted(float(item) for item in values)
-    rank = (len(ordered) - 1) * (percentile_value / 100.0)
-    lower = int(rank)
-    upper = min(lower + 1, len(ordered) - 1)
-    fraction = rank - lower
-    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
-
-
-def standard_deviation(values: Sequence[float], mean: float) -> float:
-    if not values:
-        return 0.0
-    variance = sum((float(item) - mean) ** 2 for item in values) / len(values)
-    return variance ** 0.5
-
-
-def percent_deviation(actual: Optional[float], expected: Optional[float]) -> Optional[float]:
-    if actual is None or expected is None:
-        return None
-    if expected == 0:
-        return None
-    return ((actual - expected) / abs(expected)) * 100.0
-
-
-def confidence_from_score(score: float, floor: float, cap: float) -> float:
-    adjusted = floor + min(score, 8.0) * 0.06
-    return max(floor, min(cap, adjusted))
-
-
-def classify_salary_outlier_severity(abs_z_score: float, abs_deviation_percent: float) -> str:
-    if abs_z_score >= max(3.6, SALARY_OUTLIER_ZSCORE_THRESHOLD + 1.0) or abs_deviation_percent >= 120:
+def classify_severity(anomaly_score: float) -> str:
+    if anomaly_score >= 0.75:
         return "high"
-    if abs_z_score >= SALARY_OUTLIER_ZSCORE_THRESHOLD or abs_deviation_percent >= 60:
+    if anomaly_score >= 0.4:
         return "medium"
     return "low"
 
 
-def describe_employee_group(member: Dict[str, Any], group_key: str) -> str:
-    department = member.get("department") or ""
-    role = member.get("role") or ""
-    if department and role:
-        return f"{department} / {role}"
-    if department:
-        return str(department)
-    if role:
-        return str(role)
-    if group_key and group_key != "__all__":
-        return group_key
-    return "all employees"
+def percent_deviation_from(expected: float, actual: float) -> Optional[float]:
+    if expected == 0:
+        return None
+    return round(((actual - expected) / abs(expected)) * 100.0, 2)
 
 
 def format_currency(value: float) -> str:

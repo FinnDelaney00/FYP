@@ -13,8 +13,10 @@ resource "aws_lambda_function" "ml_inference" {
   handler          = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.ml_lambda.output_base64sha256
   runtime          = "python3.11"
+  architectures    = ["x86_64"]
   timeout          = 900 # 15 minutes (for ML processing)
   memory_size      = 1024
+  layers           = [aws_lambda_layer_version.ml_dependencies.arn]
 
   environment {
     variables = {

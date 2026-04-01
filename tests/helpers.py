@@ -11,6 +11,23 @@ from unittest.mock import patch
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _preload_optional_dependencies() -> None:
+    module_names = [
+        "joblib",
+        "numpy",
+        "pandas",
+        "scipy",
+        "scipy.stats",
+        "sklearn",
+        "sklearn.ensemble",
+    ]
+    for module_name in module_names:
+        try:
+            __import__(module_name)
+        except Exception:
+            continue
+
+
 class FakeStreamingBody:
     def __init__(self, payload: bytes):
         self._payload = payload
@@ -77,6 +94,8 @@ def load_module(
     module_path = REPO_ROOT / relative_path
     if not module_path.exists():
         raise FileNotFoundError(f"Module path not found: {module_path}")
+
+    _preload_optional_dependencies()
 
     fake_client = fake_s3_client or FakeS3Client()
     boto_clients = {"s3": fake_client}

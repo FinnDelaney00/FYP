@@ -13,22 +13,20 @@ resource "aws_lambda_function" "anomaly" {
   handler          = "lambda_function.lambda_handler"
   source_code_hash = data.archive_file.anomaly_lambda.output_base64sha256
   runtime          = "python3.11"
+  architectures    = ["x86_64"]
   timeout          = 900 # 15 minutes
   memory_size      = 1024
+  layers           = [aws_lambda_layer_version.ml_dependencies.arn]
 
   environment {
     variables = {
-      DATA_LAKE_BUCKET                     = aws_s3_bucket.data_lake.id
-      TRUSTED_PREFIX                       = "${local.s3_trusted_prefix}${local.name_prefix}/"
-      EMPLOYEES_PREFIX                     = "${local.s3_trusted_prefix}${local.name_prefix}/employees/"
-      TRANSACTIONS_PREFIX                  = "${local.s3_trusted_prefix}${local.name_prefix}/finance/transactions/"
-      ANALYTICS_PREFIX                     = "${local.s3_trusted_analytics_prefix}${local.name_prefix}/anomalies/"
-      MAX_INPUT_FILES                      = tostring(var.anomaly_max_input_files)
-      SALARY_OUTLIER_ZSCORE_THRESHOLD      = tostring(var.salary_outlier_zscore_threshold)
-      DUPLICATE_TRANSACTION_WINDOW_MINUTES = tostring(var.duplicate_transaction_window_minutes)
-      LARGE_TRANSACTION_MULTIPLIER         = tostring(var.large_transaction_multiplier)
-      SMALL_TRANSACTION_FLOOR_RATIO        = tostring(var.small_transaction_floor_ratio)
-      LOG_LEVEL                            = "INFO"
+      DATA_LAKE_BUCKET    = aws_s3_bucket.data_lake.id
+      TRUSTED_PREFIX      = "${local.s3_trusted_prefix}${local.name_prefix}/"
+      FINANCE_PREFIX      = "${local.s3_trusted_prefix}${local.name_prefix}/finance/"
+      TRANSACTIONS_PREFIX = "${local.s3_trusted_prefix}${local.name_prefix}/finance/transactions/"
+      ANALYTICS_PREFIX    = "${local.s3_trusted_analytics_prefix}${local.name_prefix}/anomalies/"
+      MAX_INPUT_FILES     = tostring(var.anomaly_max_input_files)
+      LOG_LEVEL           = "INFO"
     }
   }
 

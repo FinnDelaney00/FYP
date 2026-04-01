@@ -26,6 +26,7 @@ terraform.rc
 
 # Lambda deployment packages
 lambdas/*.zip
+build/
 
 # OS files
 .DS_Store
@@ -43,4 +44,3 @@ Thumbs.db
 *.bak
 
 .terraform.lock.hcl
-

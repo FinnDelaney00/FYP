@@ -74,6 +74,15 @@ RDS PostgreSQL
   -> Frontend
 ```
 
+## ML Packaging Note
+
+The forecasting and anomaly Lambdas now share one Python dependency layer for `scikit-learn`, `pandas`, `numpy`, and `joblib`.
+
+- Dependency versions live in `layers/ml/requirements.txt`
+- Terraform builds the layer with `scripts/package_python_layer.py`
+- The build step needs Python and `pip` access during `terraform plan/apply`
+- The packager strips tests, docs, caches, and wheel metadata to keep the Lambda layer practical in size
+
 ## Live API and Auth Resources
 
 Terraform creates:

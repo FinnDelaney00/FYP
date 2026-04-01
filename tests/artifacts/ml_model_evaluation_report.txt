@@ -1,0 +1,45 @@
+ML Model Evaluation Report
+
+Generated at: 2026-03-22T20:47:06.326158+00:00
+
+Forecasting Backtest
+Method: train on 60 days, forecast next 7 days, compare against holdout.
+employee_headcount:
+  MAE=1.57
+  RMSE=1.89
+  MAPE=1.06%
+  Actual=[144, 145, 146, 147, 148, 149, 149]
+  Predicted=[145, 145, 145, 146, 146, 146, 146]
+revenue:
+  MAE=52.27
+  RMSE=67.13
+  MAPE=2.34%
+  Actual=[2150.0, 2112.0, 2154.0, 2196.0, 2228.0, 2270.0, 2242.0]
+  Predicted=[2148.61, 2136.29, 2149.44, 2149.44, 2150.16, 2150.37, 2150.37]
+expenditure:
+  MAE=35.23
+  RMSE=44.48
+  MAPE=2.81%
+  Actual=[1195.0, 1208.0, 1206.0, 1229.0, 1247.0, 1275.0, 1258.0]
+  Predicted=[1195.77, 1195.93, 1195.93, 1195.93, 1196.33, 1196.52, 1196.52]
+
+Manual Labelled Anomaly Evaluation
+Method: manual finance sample labelled as normal/anomalous, then compared with IsolationForest results.
+Transaction-level labelled sample:
+  Mode used by Lambda=transaction
+  Labelled anomalies=['anomaly-amount-1', 'anomaly-amount-2', 'anomaly-spike-1', 'anomaly-spike-2']
+  Predicted anomalies=['anomaly-amount-1', 'anomaly-amount-2', 'anomaly-spike-1', 'anomaly-spike-2']
+  Precision=1.000
+  Recall=1.000
+  F1-score=1.000
+Daily aggregate labelled sample:
+  Mode used by Lambda=daily
+  Labelled anomalies=['revenue-2026-02-10', 'revenue-2026-02-16']
+  Predicted anomalies=['revenue-2026-02-10', 'revenue-2026-02-16']
+  Precision=1.000
+  Recall=1.000
+  F1-score=1.000
+Overall anomaly metrics:
+  Precision=1.000
+  Recall=1.000
+  F1-score=1.000

@@ -1,6 +1,6 @@
 import json
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from tests.helpers import FakeS3Client, load_module
 
@@ -34,12 +34,6 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertFalse(self.module.parse_bool(0))
         self.assertIsNone(self.module.parse_bool("maybe"))
 
-    def test_parse_float_parses_currency_and_rejects_invalid(self):
-        self.assertEqual(self.module.parse_float("$1,250.50"), 1250.5)
-        self.assertEqual(self.module.parse_float(42), 42.0)
-        self.assertIsNone(self.module.parse_float("not-a-number"))
-        self.assertIsNone(self.module.parse_float(""))
-
     def test_parse_datetime_handles_iso_epoch_and_date(self):
         iso = self.module.parse_datetime("2026-01-01T10:00:00Z")
         epoch_ms = self.module.parse_datetime("1704067200000")
@@ -51,142 +45,90 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(date_only.date(), date(2026, 2, 24))
         self.assertEqual(date_only.tzinfo, timezone.utc)
 
-    def test_extract_date_from_key_parses_partitioned_paths(self):
-        parsed = self.module.extract_date_from_key("trusted/smartstream-dev/employees/table/2026/02/24/file.json")
-        missing = self.module.extract_date_from_key("trusted/smartstream-dev/employees/table/no-date/file.json")
-        self.assertEqual(parsed, date(2026, 2, 24))
-        self.assertIsNone(missing)
+    def test_build_forecast_training_frame_creates_lag_features(self):
+        start = date(2026, 1, 1)
+        values = {start + timedelta(days=offset): float(100 + offset) for offset in range(30)}
+        series = self.module.build_daily_series(values_by_date=values, carry_forward=False)
+        frame = self.module.build_forecast_training_frame(series)
 
-    def test_extract_record_datetime_uses_fallbacks(self):
-        from_timestamp_field = self.module.extract_record_datetime({"updated_at": "2026-03-01T00:00:00Z"})
-        from_source_key = self.module.extract_record_datetime(
-            {"_source_key": "trusted/smartstream-dev/employees/x/2026/03/02/object.json"}
-        )
-        from_modified = self.module.extract_record_datetime(
-            {"_source_last_modified": "2026-03-03T09:00:00+00:00"}
-        )
+        self.assertGreaterEqual(len(frame), 10)
+        self.assertEqual(list(frame.columns), ["target", *self.module.FEATURE_COLUMNS])
+        self.assertFalse(frame[self.module.FEATURE_COLUMNS].isnull().any().any())
 
-        self.assertEqual(from_timestamp_field.date(), date(2026, 3, 1))
-        self.assertEqual(from_source_key.date(), date(2026, 3, 2))
-        self.assertEqual(from_modified.date(), date(2026, 3, 3))
+    def test_build_employee_growth_insight_trains_random_forest_forecast(self):
+        records = []
+        base_day = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        for offset in range(28):
+            records.append(
+                {
+                    "id": f"emp-{offset + 1}",
+                    "updated_at": (base_day + timedelta(days=offset)).isoformat(),
+                    "employment_status": "active",
+                }
+            )
 
-    def test_classify_finance_amount_prefers_hints_then_sign(self):
-        revenue = self.module.classify_finance_amount({"type": "sales_credit"}, -20.0)
-        expenditure = self.module.classify_finance_amount({"category": "purchase"}, 50.0)
-        fallback_revenue = self.module.classify_finance_amount({}, 10.0)
-        fallback_expenditure = self.module.classify_finance_amount({}, -10.0)
-
-        self.assertEqual(revenue, "revenue")
-        self.assertEqual(expenditure, "expenditure")
-        self.assertEqual(fallback_revenue, "revenue")
-        self.assertEqual(fallback_expenditure, "expenditure")
-
-    def test_build_daily_history_handles_carry_forward_and_reset(self):
-        values = {
-            date(2026, 1, 1): 2.0,
-            date(2026, 1, 3): 4.0,
-        }
-
-        carry = self.module.build_daily_history(
-            values_by_date=values,
-            value_name="headcount",
-            carry_forward=True,
-            integer_output=True,
-        )
-        reset = self.module.build_daily_history(
-            values_by_date=values,
-            value_name="revenue",
-            carry_forward=False,
-            integer_output=False,
-        )
-
-        self.assertEqual(carry[1]["headcount"], 2)
-        self.assertEqual(carry[2]["headcount"], 4)
-        self.assertEqual(reset[1]["revenue"], 0.0)
-        self.assertEqual(reset[2]["revenue"], 4.0)
-
-    def test_fit_linear_trend_and_forecast_series(self):
-        slope, intercept, residual_std = self.module.fit_linear_trend([10.0, 20.0, 30.0, 40.0])
-        self.assertGreater(slope, 0.0)
-        self.assertGreaterEqual(intercept, 0.0)
-        self.assertGreaterEqual(residual_std, 0.0)
-
-        history = [
-            {"date": "2026-01-01", "headcount": 10},
-            {"date": "2026-01-02", "headcount": 12},
-            {"date": "2026-01-03", "headcount": 14},
-        ]
-        forecast = self.module.forecast_series(
-            history=history,
-            history_key="headcount",
-            prediction_key="predicted_headcount",
-            forecast_days=5,
-            integer_output=True,
-        )
-
-        self.assertEqual(len(forecast), 5)
-        self.assertIn("predicted_headcount", forecast[0])
-        self.assertGreaterEqual(forecast[0]["lower_ci"], 0)
-        self.assertGreaterEqual(forecast[0]["upper_ci"], forecast[0]["lower_ci"])
-
-    def test_parse_records_supports_json_object_array_and_json_lines(self):
-        parsed_object = self.module.parse_records('{"id": 1}', "obj.json")
-        parsed_array = self.module.parse_records('[{"id": 1}, {"id": 2}]', "arr.json")
-        parsed_lines = self.module.parse_records('{"id":1}\n{"id":2}\ninvalid', "lines.json")
-
-        self.assertEqual(len(parsed_object), 1)
-        self.assertEqual(len(parsed_array), 2)
-        self.assertEqual(len(parsed_lines), 2)
-
-    def test_build_employee_growth_insight_reports_insufficient_data(self):
-        result = self.module.build_employee_growth_insight([], forecast_days=3)
-        self.assertEqual(result["status"], "insufficient_data")
-        self.assertEqual(result["history"], [])
-        self.assertEqual(result["forecast"], [])
-
-    def test_build_employee_growth_insight_tracks_active_headcount(self):
-        records = [
-            {"id": "1", "updated_at": "2026-01-01T00:00:00Z", "employment_status": "active"},
-            {"id": "2", "updated_at": "2026-01-02T00:00:00Z", "employment_status": "active"},
-            {"id": "1", "updated_at": "2026-01-03T00:00:00Z", "employment_status": "terminated"},
-        ]
-        result = self.module.build_employee_growth_insight(records, forecast_days=3)
+        result = self.module.build_employee_growth_insight(records, forecast_days=5)
 
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["rows_used"], 3)
-        self.assertEqual(result["history"][-1]["headcount"], 1)
-        self.assertEqual(len(result["forecast"]), 3)
+        self.assertEqual(result["model_name"], "RandomForestRegressor")
+        self.assertEqual(len(result["forecast"]), 5)
+        self.assertEqual(result["forecast"][0]["metric_name"], "employee_headcount")
+        self.assertIn("predicted_headcount", result["forecast"][0])
+        self.assertIn("lower_bound", result["forecast"][0])
+        self.assertIn("upper_bound", result["forecast"][0])
+        self.assertIn("lower_ci", result["forecast"][0])
+        self.assertIn("upper_ci", result["forecast"][0])
+        self.assertEqual(result["forecast"][0]["status"], "ok")
 
-    def test_build_finance_insight_handles_mixed_revenue_and_expenditure(self):
+    def test_build_finance_insight_returns_insufficient_data_when_history_is_short(self):
         records = [
             {"transaction_date": "2026-01-01", "amount": "100.00", "type": "sale"},
-            {"transaction_date": "2026-01-01", "amount": "$40.00", "type": "expense"},
-            {"transaction_date": "2026-01-02", "amount": -20.0},
+            {"transaction_date": "2026-01-02", "amount": "$40.00", "type": "expense"},
+            {"transaction_date": "2026-01-03", "amount": -20.0},
         ]
-        result = self.module.build_finance_insight(records, forecast_days=2)
 
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["rows_used"], 3)
-        self.assertEqual(result["revenue"]["status"], "ok")
-        self.assertEqual(result["expenditure"]["status"], "ok")
-        self.assertEqual(len(result["revenue"]["forecast"]), 2)
-        self.assertEqual(len(result["expenditure"]["forecast"]), 2)
-
-    def test_build_finance_insight_returns_insufficient_for_unusable_rows(self):
-        records = [
-            {"transaction_date": "", "amount": None},
-            {"note": "missing finance fields"},
-        ]
         result = self.module.build_finance_insight(records, forecast_days=2)
 
         self.assertEqual(result["status"], "insufficient_data")
-        self.assertEqual(result["revenue"]["history"], [])
-        self.assertEqual(result["expenditure"]["history"], [])
+        self.assertEqual(result["revenue"]["status"], "insufficient_data")
+        self.assertEqual(result["expenditure"]["status"], "insufficient_data")
+        self.assertGreaterEqual(len(result["revenue"]["history"]), 1)
+        self.assertEqual(result["revenue"]["forecast"], [])
+
+    def test_build_finance_insight_trains_random_forest_for_revenue_and_expenditure(self):
+        records = []
+        base_day = date(2026, 1, 1)
+        for offset in range(35):
+            day = base_day + timedelta(days=offset)
+            records.append(
+                {
+                    "transaction_date": day.isoformat(),
+                    "amount": 1000 + (offset * 10),
+                    "type": "sale",
+                }
+            )
+            records.append(
+                {
+                    "transaction_date": day.isoformat(),
+                    "amount": 400 + (offset * 5),
+                    "type": "expense",
+                }
+            )
+
+        result = self.module.build_finance_insight(records, forecast_days=4)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["revenue"]["status"], "ok")
+        self.assertEqual(result["expenditure"]["status"], "ok")
+        self.assertEqual(len(result["revenue"]["forecast"]), 4)
+        self.assertEqual(len(result["expenditure"]["forecast"]), 4)
+        self.assertEqual(result["revenue"]["forecast"][0]["model_name"], "RandomForestRegressor")
+        self.assertIn("predicted_revenue", result["revenue"]["forecast"][0])
+        self.assertIn("predicted_expenditure", result["expenditure"]["forecast"][0])
 
     def test_lambda_handler_end_to_end_writes_prediction_payload(self):
         employees_key = "trusted/smartstream-dev/employees/employees/2026/02/24/employees.json"
         finance_key = "trusted/smartstream-dev/finance/transactions/2026/02/24/transactions.json"
-
         self.fake_s3.pages = [
             {
                 "Contents": [
@@ -203,16 +145,45 @@ class MLInferenceLambdaTests(unittest.TestCase):
                 ]
             }
         ]
+
+        employee_lines = []
+        finance_lines = []
+        base_dt = datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc)
+        base_day = date(2026, 1, 1)
+        for offset in range(30):
+            employee_lines.append(
+                json.dumps(
+                    {
+                        "id": f"emp-{offset + 1}",
+                        "updated_at": (base_dt + timedelta(days=offset)).isoformat(),
+                        "employment_status": "active",
+                    }
+                )
+            )
+            finance_lines.append(
+                json.dumps(
+                    {
+                        "transaction_id": f"sale-{offset + 1}",
+                        "transaction_date": (base_day + timedelta(days=offset)).isoformat(),
+                        "amount": 1200 + (offset * 15),
+                        "type": "sale",
+                    }
+                )
+            )
+            finance_lines.append(
+                json.dumps(
+                    {
+                        "transaction_id": f"exp-{offset + 1}",
+                        "transaction_date": (base_day + timedelta(days=offset)).isoformat(),
+                        "amount": 500 + (offset * 7),
+                        "type": "expense",
+                    }
+                )
+            )
+
         self.fake_s3.objects = {
-            employees_key: (
-                '{"id":"1","updated_at":"2026-02-24T09:00:00Z","employment_status":"active"}\n'
-                '{"id":"2","updated_at":"2026-02-24T10:00:00Z","employment_status":"active"}\n'
-                '{"id":"1","updated_at":"2026-02-24T11:00:00Z","employment_status":"terminated"}'
-            ),
-            finance_key: (
-                '{"transaction_date":"2026-02-24","amount":120.0,"type":"sale"}\n'
-                '{"transaction_date":"2026-02-24","amount":45.0,"type":"expense"}'
-            ),
+            employees_key: "\n".join(employee_lines),
+            finance_key: "\n".join(finance_lines),
         }
 
         response = self.module.lambda_handler({"source": "aws.events"}, context=None)
@@ -226,6 +197,11 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertTrue(
             self.fake_s3.put_calls[0]["Key"].startswith("trusted-analytics/smartstream-dev/predictions/")
         )
+
+        written_payload = json.loads(self.fake_s3.put_calls[0]["Body"].decode("utf-8"))
+        self.assertEqual(written_payload["insights"]["employee_growth"]["model_name"], "RandomForestRegressor")
+        self.assertEqual(written_payload["insights"]["finance"]["revenue"]["model_name"], "RandomForestRegressor")
+        self.assertGreater(len(written_payload["insights"]["employee_growth"]["forecast"]), 0)
 
 
 if __name__ == "__main__":

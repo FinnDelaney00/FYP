@@ -1,13 +1,17 @@
+import gzip
 import json
 import logging
 import os
 import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
-from math import sqrt
-from typing import Any, Dict, List, Optional, Tuple
+from io import BytesIO
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import boto3
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
 
 LOGGER = logging.getLogger()
 if not LOGGER.handlers:
@@ -15,7 +19,28 @@ if not LOGGER.handlers:
 LOGGER.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
 S3_CLIENT = boto3.client("s3")
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"
+MODEL_NAME = "RandomForestRegressor"
+MODEL_RANDOM_STATE = 42
+FEATURE_COLUMNS = [
+    "lag_1",
+    "lag_7",
+    "lag_14",
+    "rolling_mean_7",
+    "rolling_mean_14",
+    "day_of_week",
+    "month",
+]
+MAX_LAG = 14
+MIN_TRAINING_ROWS = 7
+MIN_HISTORY_POINTS = MAX_LAG + MIN_TRAINING_ROWS
+MODEL_PARAMS = {
+    "n_estimators": 160,
+    "max_depth": 8,
+    "min_samples_leaf": 2,
+    "random_state": MODEL_RANDOM_STATE,
+    "n_jobs": 1,
+}
 
 
 def _normalize_prefix(prefix: Optional[str], default: str) -> str:
@@ -78,11 +103,15 @@ EXPENDITURE_HINTS = (
 
 
 def lambda_handler(event, context):
+    del context
     run_started_at = datetime.now(timezone.utc)
 
     LOGGER.info("ML inference started at %s", run_started_at.isoformat())
     LOGGER.info(
-        "Configuration: bucket=%s trusted_prefix=%s analytics_prefix=%s max_input_files=%d forecast_days=%d",
+        (
+            "Configuration: bucket=%s trusted_prefix=%s analytics_prefix=%s "
+            "max_input_files=%d forecast_days=%d"
+        ),
         DATA_LAKE_BUCKET,
         TRUSTED_PREFIX,
         ANALYTICS_PREFIX,
@@ -103,15 +132,13 @@ def lambda_handler(event, context):
                 "finance_prefix": FINANCE_PREFIX,
                 "analytics_prefix": ANALYTICS_PREFIX,
                 "max_input_files": MAX_INPUT_FILES,
+                "forecast_days": FORECAST_DAYS,
             },
             "input_objects": {
                 "employees": [obj["Key"] for obj in employee_objects],
                 "finance": [obj["Key"] for obj in finance_objects],
             },
         }
-
-        LOGGER.info("Employees input objects: %s", diagnostics["input_objects"]["employees"])
-        LOGGER.info("Finance input objects: %s", diagnostics["input_objects"]["finance"])
 
         employee_records = read_records_from_objects(DATA_LAKE_BUCKET, employee_objects)
         finance_records = read_records_from_objects(DATA_LAKE_BUCKET, finance_objects)
@@ -121,21 +148,15 @@ def lambda_handler(event, context):
             "finance": len(finance_records),
         }
 
-        LOGGER.info(
-            "Rows processed: employees=%d finance=%d",
-            diagnostics["rows_processed"]["employees"],
-            diagnostics["rows_processed"]["finance"],
-        )
-
         employee_insight = build_employee_growth_insight(employee_records, FORECAST_DAYS)
         finance_insight = build_finance_insight(finance_records, FORECAST_DAYS)
 
-        if not employee_records and not finance_records:
-            status = "no_input_data"
-        elif employee_insight["status"] == "ok" and finance_insight["status"] == "ok":
-            status = "ok"
-        else:
-            status = "partial_data"
+        status = derive_overall_status(
+            employee_records=employee_records,
+            finance_records=finance_records,
+            employee_insight=employee_insight,
+            finance_insight=finance_insight,
+        )
 
         payload = {
             "schema_version": SCHEMA_VERSION,
@@ -169,6 +190,32 @@ def lambda_handler(event, context):
         raise
 
 
+def derive_overall_status(
+    *,
+    employee_records: Sequence[Dict[str, Any]],
+    finance_records: Sequence[Dict[str, Any]],
+    employee_insight: Dict[str, Any],
+    finance_insight: Dict[str, Any],
+) -> str:
+    if not employee_records and not finance_records:
+        return "no_input_data"
+
+    statuses = [
+        employee_insight.get("status"),
+        finance_insight.get("status"),
+        (finance_insight.get("revenue") or {}).get("status"),
+        (finance_insight.get("expenditure") or {}).get("status"),
+    ]
+    ok_count = sum(1 for value in statuses if value == "ok")
+    insufficient_count = sum(1 for value in statuses if value == "insufficient_data")
+
+    if ok_count >= 3:
+        return "ok"
+    if ok_count > 0 or insufficient_count > 0:
+        return "partial_data"
+    return "insufficient_data"
+
+
 def summarize_event(event: Any) -> Dict[str, Any]:
     if isinstance(event, dict):
         return {
@@ -186,48 +233,58 @@ def list_recent_objects(bucket: str, prefix: str, limit: int) -> List[Dict[str, 
 
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
-            key = obj["Key"]
-            if key.endswith("/"):
+            key = str(obj.get("Key") or "")
+            if not key or key.endswith("/"):
                 continue
             objects.append(
                 {
                     "Key": key,
-                    "LastModified": obj["LastModified"],
+                    "LastModified": obj.get("LastModified"),
                     "Size": obj.get("Size", 0),
                 }
             )
 
-    objects.sort(key=lambda item: item["LastModified"], reverse=True)
-    selected = objects[:limit]
-
-    LOGGER.info(
-        "Found %d objects under %s, selected %d most recent.",
-        len(objects),
-        prefix,
-        len(selected),
+    objects.sort(
+        key=lambda item: item.get("LastModified") or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
     )
-
+    selected = objects[:limit]
+    LOGGER.info("Found %d objects under %s, selected %d", len(objects), prefix, len(selected))
     return selected
 
 
-def read_records_from_objects(bucket: str, objects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def read_records_from_objects(bucket: str, objects: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     all_records: List[Dict[str, Any]] = []
 
     for obj in objects:
-        key = obj["Key"]
-        response = S3_CLIENT.get_object(Bucket=bucket, Key=key)
-        body = response["Body"].read().decode("utf-8")
+        key = str(obj["Key"])
+        try:
+            payload = read_s3_object_text(bucket, key)
+            parsed_records = parse_records(payload, key)
+        except Exception:
+            LOGGER.exception("Failed reading/parsing object %s", key)
+            continue
 
-        parsed_records = parse_records(body, key)
         for record in parsed_records:
             enriched = dict(record)
             enriched["_source_key"] = key
-            enriched["_source_last_modified"] = obj["LastModified"].isoformat()
+            last_modified = obj.get("LastModified")
+            if isinstance(last_modified, datetime):
+                enriched["_source_last_modified"] = last_modified.isoformat()
             all_records.append(enriched)
 
         LOGGER.info("Read %d records from %s", len(parsed_records), key)
 
     return all_records
+
+
+def read_s3_object_text(bucket: str, key: str) -> str:
+    response = S3_CLIENT.get_object(Bucket=bucket, Key=key)
+    raw_bytes = response["Body"].read()
+    if key.endswith(".gz"):
+        with gzip.GzipFile(fileobj=BytesIO(raw_bytes)) as stream:
+            return stream.read().decode("utf-8")
+    return raw_bytes.decode("utf-8")
 
 
 def parse_records(raw_text: str, source_key: str) -> List[Dict[str, Any]]:
@@ -265,12 +322,12 @@ def parse_records(raw_text: str, source_key: str) -> List[Dict[str, Any]]:
 
 def build_employee_growth_insight(records: List[Dict[str, Any]], forecast_days: int) -> Dict[str, Any]:
     if not records:
-        return {
-            "status": "insufficient_data",
-            "message": f"No employee records found under {EMPLOYEES_PREFIX}.",
-            "history": [],
-            "forecast": [],
-        }
+        return insufficient_metric_result(
+            metric_name="employee_headcount",
+            history_field="headcount",
+            prediction_field="predicted_headcount",
+            message=f"No employee records found under {EMPLOYEES_PREFIX}.",
+        )
 
     events: List[Tuple[datetime, str, Optional[bool]]] = []
     for record in records:
@@ -281,49 +338,36 @@ def build_employee_growth_insight(records: List[Dict[str, Any]], forecast_days: 
         events.append((event_dt, employee_id, infer_employee_active(record)))
 
     if not events:
-        return {
-            "status": "insufficient_data",
-            "message": "Employee records exist but missing usable IDs/timestamps.",
-            "history": [],
-            "forecast": [],
-        }
+        return insufficient_metric_result(
+            metric_name="employee_headcount",
+            history_field="headcount",
+            prediction_field="predicted_headcount",
+            message="Employee records exist but missing usable IDs/timestamps.",
+        )
 
     events.sort(key=lambda item: item[0])
 
     active_ids: set[str] = set()
-    counts_by_date: Dict[date, int] = {}
+    counts_by_date: Dict[date, float] = {}
 
     for event_dt, employee_id, is_active in events:
         if is_active is False:
             active_ids.discard(employee_id)
         else:
             active_ids.add(employee_id)
+        counts_by_date[event_dt.date()] = float(len(active_ids))
 
-        counts_by_date[event_dt.date()] = len(active_ids)
-
-    history = build_daily_history(
-        values_by_date={key: float(value) for key, value in counts_by_date.items()},
-        value_name="headcount",
-        carry_forward=True,
-        integer_output=True,
-    )
-
-    forecast = forecast_series(
-        history=history,
-        history_key="headcount",
-        prediction_key="predicted_headcount",
+    series = build_daily_series(values_by_date=counts_by_date, carry_forward=True)
+    return build_forecast_output(
+        metric_name="employee_headcount",
+        history_field="headcount",
+        prediction_field="predicted_headcount",
+        series=series,
         forecast_days=forecast_days,
         integer_output=True,
+        source_rows=len(events),
+        source_area="employees",
     )
-
-    return {
-        "status": "ok",
-        "method": "active_employee_id_trend",
-        "history": history,
-        "forecast": forecast,
-        "forecast_days": forecast_days,
-        "rows_used": len(events),
-    }
 
 
 def build_finance_insight(records: List[Dict[str, Any]], forecast_days: int) -> Dict[str, Any]:
@@ -342,11 +386,12 @@ def build_finance_insight(records: List[Dict[str, Any]], forecast_days: int) -> 
             continue
 
         usable_rows += 1
+        record_date = event_dt.date()
 
         if classify_finance_amount(record, amount) == "revenue":
-            revenue_by_date[event_dt.date()] += abs(amount)
+            revenue_by_date[record_date] += abs(amount)
         else:
-            expenditure_by_date[event_dt.date()] += abs(amount)
+            expenditure_by_date[record_date] += abs(amount)
 
     if usable_rows == 0:
         return insufficient_finance_result("Finance files exist but no usable amount/timestamp records were found.")
@@ -358,65 +403,311 @@ def build_finance_insight(records: List[Dict[str, Any]], forecast_days: int) -> 
     start_date = all_dates[0]
     end_date = all_dates[-1]
 
-    revenue_history = build_daily_history(
+    revenue_series = build_daily_series(
         values_by_date=revenue_by_date,
-        value_name="revenue",
         carry_forward=False,
-        integer_output=False,
         start_date=start_date,
         end_date=end_date,
     )
-    expenditure_history = build_daily_history(
+    expenditure_series = build_daily_series(
         values_by_date=expenditure_by_date,
-        value_name="expenditure",
         carry_forward=False,
-        integer_output=False,
         start_date=start_date,
         end_date=end_date,
     )
 
-    revenue_status = "ok" if any(point["revenue"] > 0 for point in revenue_history) else "insufficient_data"
-    expenditure_status = (
-        "ok" if any(point["expenditure"] > 0 for point in expenditure_history) else "insufficient_data"
+    revenue_result = build_forecast_output(
+        metric_name="revenue",
+        history_field="revenue",
+        prediction_field="predicted_revenue",
+        series=revenue_series,
+        forecast_days=forecast_days,
+        integer_output=False,
+        source_rows=usable_rows,
+        source_area="finance_revenue",
+    )
+    expenditure_result = build_forecast_output(
+        metric_name="expenditure",
+        history_field="expenditure",
+        prediction_field="predicted_expenditure",
+        series=expenditure_series,
+        forecast_days=forecast_days,
+        integer_output=False,
+        source_rows=usable_rows,
+        source_area="finance_expenditure",
     )
 
-    revenue_forecast = (
-        forecast_series(
-            history=revenue_history,
-            history_key="revenue",
-            prediction_key="predicted_revenue",
-            forecast_days=forecast_days,
-        )
-        if revenue_status == "ok"
-        else []
-    )
-
-    expenditure_forecast = (
-        forecast_series(
-            history=expenditure_history,
-            history_key="expenditure",
-            prediction_key="predicted_expenditure",
-            forecast_days=forecast_days,
-        )
-        if expenditure_status == "ok"
-        else []
-    )
-
-    overall_status = "ok" if revenue_status == "ok" and expenditure_status == "ok" else "insufficient_data"
+    if revenue_result["status"] == "ok" and expenditure_result["status"] == "ok":
+        overall_status = "ok"
+    elif revenue_result["status"] == "insufficient_data" and expenditure_result["status"] == "insufficient_data":
+        overall_status = "insufficient_data"
+    else:
+        overall_status = "partial_data"
 
     return {
         "status": overall_status,
         "forecast_days": forecast_days,
         "rows_used": usable_rows,
-        "revenue": {
-            "status": revenue_status,
-            "history": revenue_history,
-            "forecast": revenue_forecast,
-        },
-        "expenditure": {
-            "status": expenditure_status,
-            "history": expenditure_history,
-            "forecast": expenditure_forecast,
+        "revenue": revenue_result,
+        "expenditure": expenditure_result,
+    }
+
+
+def build_daily_series(
+    *,
+    values_by_date: Dict[date, float],
+    carry_forward: bool,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> pd.Series:
+    if not values_by_date:
+        return pd.Series(dtype="float64")
+
+    first_date = start_date or min(values_by_date.keys())
+    last_date = end_date or max(values_by_date.keys())
+    index = pd.date_range(start=first_date, end=last_date, freq="D")
+    series = pd.Series(index=index, dtype="float64")
+
+    for entry_date, value in values_by_date.items():
+        series.loc[pd.Timestamp(entry_date)] = float(value)
+
+    if carry_forward:
+        series = series.ffill().fillna(0.0)
+    else:
+        series = series.fillna(0.0)
+
+    return series.astype("float64")
+
+
+def build_forecast_training_frame(series: pd.Series) -> pd.DataFrame:
+    frame = pd.DataFrame({"target": series.astype("float64")})
+    shifted = frame["target"].shift(1)
+    frame["lag_1"] = frame["target"].shift(1)
+    frame["lag_7"] = frame["target"].shift(7)
+    frame["lag_14"] = frame["target"].shift(14)
+    frame["rolling_mean_7"] = shifted.rolling(window=7, min_periods=7).mean()
+    frame["rolling_mean_14"] = shifted.rolling(window=14, min_periods=14).mean()
+    frame["day_of_week"] = frame.index.dayofweek
+    frame["month"] = frame.index.month
+    return frame.dropna().copy()
+
+
+def train_random_forest_forecaster(training_frame: pd.DataFrame) -> Tuple[RandomForestRegressor, Dict[str, Any]]:
+    model = RandomForestRegressor(**MODEL_PARAMS)
+    features = training_frame[FEATURE_COLUMNS]
+    target = training_frame["target"]
+    model.fit(features, target)
+
+    fitted_values = model.predict(features)
+    residuals = target.to_numpy(dtype=float) - np.asarray(fitted_values, dtype=float)
+    residual_std = float(np.std(residuals, ddof=1)) if len(residuals) > 1 else 0.0
+
+    return model, {
+        "model_name": MODEL_NAME,
+        "rows_used": int(len(training_frame)),
+        "features_used": list(FEATURE_COLUMNS),
+        "parameters": dict(MODEL_PARAMS),
+        "residual_std": residual_std,
+        "interval_method": "residual_training_error_spread",
+    }
+
+
+def recursive_forecast(
+    *,
+    history_series: pd.Series,
+    model: RandomForestRegressor,
+    forecast_days: int,
+    metric_name: str,
+    prediction_field: str,
+    integer_output: bool,
+    model_metadata: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    history_values = [float(value) for value in history_series.tolist()]
+    last_date = pd.Timestamp(history_series.index[-1])
+    residual_std = float(model_metadata.get("residual_std") or 0.0)
+    rows_used = int(model_metadata.get("rows_used") or 0)
+
+    forecast_rows: List[Dict[str, Any]] = []
+    for step in range(1, forecast_days + 1):
+        target_date = last_date + pd.Timedelta(days=step)
+        feature_row = build_recursive_feature_row(history_values, target_date)
+        prediction = float(model.predict(pd.DataFrame([feature_row], columns=FEATURE_COLUMNS))[0])
+        prediction = max(0.0, prediction)
+
+        # Residual spread is used as a lightweight approximation for uncertainty.
+        interval_scale = 1.0 + (step / max(1, forecast_days))
+        half_width = max(1.0 if integer_output else 0.01, 1.96 * residual_std * interval_scale)
+        lower_bound = max(0.0, prediction - half_width)
+        upper_bound = max(lower_bound, prediction + half_width)
+
+        formatted_prediction = format_numeric(prediction, integer_output)
+        formatted_lower = format_numeric(lower_bound, integer_output)
+        formatted_upper = format_numeric(upper_bound, integer_output)
+
+        forecast_rows.append(
+            {
+                "metric_name": metric_name,
+                "date": target_date.date().isoformat(),
+                "predicted_value": formatted_prediction,
+                prediction_field: formatted_prediction,
+                "lower_bound": formatted_lower,
+                "upper_bound": formatted_upper,
+                "lower_ci": formatted_lower,
+                "upper_ci": formatted_upper,
+                "model_name": MODEL_NAME,
+                "rows_used": rows_used,
+                "features_used": list(FEATURE_COLUMNS),
+                "status": "ok",
+            }
+        )
+
+        history_values.append(prediction)
+
+    return forecast_rows
+
+
+def build_recursive_feature_row(history_values: Sequence[float], target_date: pd.Timestamp) -> Dict[str, float]:
+    return {
+        "lag_1": float(history_values[-1]),
+        "lag_7": float(history_values[-7]),
+        "lag_14": float(history_values[-14]),
+        "rolling_mean_7": float(np.mean(history_values[-7:])),
+        "rolling_mean_14": float(np.mean(history_values[-14:])),
+        "day_of_week": float(target_date.dayofweek),
+        "month": float(target_date.month),
+    }
+
+
+def build_forecast_output(
+    *,
+    metric_name: str,
+    history_field: str,
+    prediction_field: str,
+    series: pd.Series,
+    forecast_days: int,
+    integer_output: bool,
+    source_rows: int,
+    source_area: str,
+) -> Dict[str, Any]:
+    history = serialize_history(series, history_field, integer_output)
+
+    if len(series) < MIN_HISTORY_POINTS:
+        return insufficient_metric_result(
+            metric_name=metric_name,
+            history_field=history_field,
+            prediction_field=prediction_field,
+            history=history,
+            source_rows=source_rows,
+            message=(
+                f"Need at least {MIN_HISTORY_POINTS} daily points for {MODEL_NAME}; "
+                f"found {len(series)}."
+            ),
+            source_area=source_area,
+        )
+
+    training_frame = build_forecast_training_frame(series)
+    if len(training_frame) < MIN_TRAINING_ROWS:
+        return insufficient_metric_result(
+            metric_name=metric_name,
+            history_field=history_field,
+            prediction_field=prediction_field,
+            history=history,
+            source_rows=source_rows,
+            message=(
+                f"Need at least {MIN_TRAINING_ROWS} supervised training rows after lag generation; "
+                f"found {len(training_frame)}."
+            ),
+            source_area=source_area,
+        )
+
+    model, model_metadata = train_random_forest_forecaster(training_frame)
+    forecast = recursive_forecast(
+        history_series=series,
+        model=model,
+        forecast_days=forecast_days,
+        metric_name=metric_name,
+        prediction_field=prediction_field,
+        integer_output=integer_output,
+        model_metadata=model_metadata,
+    )
+
+    return {
+        "status": "ok",
+        "method": "random_forest_lag_features",
+        "model_name": MODEL_NAME,
+        "source_area": source_area,
+        "forecast_days": forecast_days,
+        "rows_used": model_metadata["rows_used"],
+        "source_rows": source_rows,
+        "features_used": list(FEATURE_COLUMNS),
+        "history": history,
+        "forecast": forecast,
+        "metadata": serialize_forecast_metadata(
+            model_metadata=model_metadata,
+            history_points=len(series),
+            metric_name=metric_name,
+        ),
+    }
+
+
+def serialize_history(series: pd.Series, value_name: str, integer_output: bool) -> List[Dict[str, Any]]:
+    history: List[Dict[str, Any]] = []
+    for index_value, numeric_value in series.items():
+        history.append(
+            {
+                "date": pd.Timestamp(index_value).date().isoformat(),
+                value_name: format_numeric(float(numeric_value), integer_output),
+            }
+        )
+    return history
+
+
+def serialize_forecast_metadata(
+    *,
+    model_metadata: Dict[str, Any],
+    history_points: int,
+    metric_name: str,
+) -> Dict[str, Any]:
+    return {
+        "metric_name": metric_name,
+        "model_name": model_metadata.get("model_name"),
+        "parameters": model_metadata.get("parameters"),
+        "features_used": model_metadata.get("features_used"),
+        "rows_used": model_metadata.get("rows_used"),
+        "history_points": history_points,
+        "interval_method": model_metadata.get("interval_method"),
+        "random_state": MODEL_RANDOM_STATE,
+    }
+
+
+def insufficient_metric_result(
+    *,
+    metric_name: str,
+    history_field: str,
+    prediction_field: str,
+    message: str,
+    history: Optional[List[Dict[str, Any]]] = None,
+    source_rows: int = 0,
+    source_area: str = "",
+) -> Dict[str, Any]:
+    del prediction_field
+    return {
+        "status": "insufficient_data",
+        "message": message,
+        "model_name": MODEL_NAME,
+        "source_area": source_area,
+        "rows_used": 0,
+        "source_rows": source_rows,
+        "features_used": list(FEATURE_COLUMNS),
+        "history": history or [],
+        "forecast": [],
+        "metadata": {
+            "metric_name": metric_name,
+            "model_name": MODEL_NAME,
+            "history_field": history_field,
+            "features_used": list(FEATURE_COLUMNS),
+            "rows_used": 0,
+            "random_state": MODEL_RANDOM_STATE,
         },
     }
 
@@ -425,129 +716,28 @@ def insufficient_finance_result(message: str) -> Dict[str, Any]:
     return {
         "status": "insufficient_data",
         "message": message,
-        "revenue": {
-            "status": "insufficient_data",
-            "history": [],
-            "forecast": [],
-        },
-        "expenditure": {
-            "status": "insufficient_data",
-            "history": [],
-            "forecast": [],
-        },
+        "revenue": insufficient_metric_result(
+            metric_name="revenue",
+            history_field="revenue",
+            prediction_field="predicted_revenue",
+            message=message,
+            source_area="finance_revenue",
+        ),
+        "expenditure": insufficient_metric_result(
+            metric_name="expenditure",
+            history_field="expenditure",
+            prediction_field="predicted_expenditure",
+            message=message,
+            source_area="finance_expenditure",
+        ),
     }
 
 
-def build_daily_history(
-    values_by_date: Dict[date, float],
-    value_name: str,
-    carry_forward: bool,
-    integer_output: bool = False,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
-) -> List[Dict[str, Any]]:
-    if not values_by_date:
-        return []
-
-    first_date = start_date or min(values_by_date.keys())
-    last_date = end_date or max(values_by_date.keys())
-
-    history: List[Dict[str, Any]] = []
-    cursor = first_date
-    current_value = 0.0
-
-    while cursor <= last_date:
-        if cursor in values_by_date:
-            current_value = float(values_by_date[cursor])
-        elif not carry_forward:
-            current_value = 0.0
-
-        formatted_value: Any
-        if integer_output:
-            formatted_value = max(0, int(round(current_value)))
-        else:
-            formatted_value = round(max(0.0, current_value), 2)
-
-        history.append({"date": cursor.isoformat(), value_name: formatted_value})
-        cursor += timedelta(days=1)
-
-    return history
-
-
-def forecast_series(
-    history: List[Dict[str, Any]],
-    history_key: str,
-    prediction_key: str,
-    forecast_days: int,
-    integer_output: bool = False,
-) -> List[Dict[str, Any]]:
-    if not history:
-        return []
-
-    values = [float(point[history_key]) for point in history]
-    slope, intercept, residual_std = fit_linear_trend(values)
-
-    window = min(7, len(values))
-    moving_average = sum(values[-window:]) / window
-
-    start_date = datetime.strptime(history[-1]["date"], "%Y-%m-%d").date()
-
-    forecast: List[Dict[str, Any]] = []
-    for step in range(1, forecast_days + 1):
-        trend_projection = intercept + slope * (len(values) - 1 + step)
-        prediction = max(0.0, 0.7 * trend_projection + 0.3 * moving_average)
-
-        widening_factor = 1.0 + (step / max(1, forecast_days))
-        ci_half_width = max(0.01, 1.96 * residual_std * widening_factor)
-
-        lower_bound = max(0.0, prediction - ci_half_width)
-        upper_bound = max(0.0, prediction + ci_half_width)
-
-        target_date = start_date + timedelta(days=step)
-
-        if integer_output:
-            forecast.append(
-                {
-                    "date": target_date.isoformat(),
-                    prediction_key: int(round(prediction)),
-                    "lower_ci": max(0, int(round(lower_bound))),
-                    "upper_ci": max(0, int(round(upper_bound))),
-                }
-            )
-        else:
-            forecast.append(
-                {
-                    "date": target_date.isoformat(),
-                    prediction_key: round(prediction, 2),
-                    "lower_ci": round(lower_bound, 2),
-                    "upper_ci": round(upper_bound, 2),
-                }
-            )
-
-    return forecast
-
-
-def fit_linear_trend(values: List[float]) -> Tuple[float, float, float]:
-    count = len(values)
-    if count == 1:
-        return 0.0, values[0], 0.0
-
-    x_values = list(range(count))
-    x_mean = sum(x_values) / count
-    y_mean = sum(values) / count
-
-    denominator = sum((x - x_mean) ** 2 for x in x_values)
-    if denominator == 0:
-        slope = 0.0
-    else:
-        slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_values, values)) / denominator
-
-    intercept = y_mean - slope * x_mean
-    residuals = [y - (intercept + slope * x) for x, y in zip(x_values, values)]
-    residual_variance = sum(error**2 for error in residuals) / max(1, count - 2)
-    residual_std = sqrt(residual_variance)
-
-    return slope, intercept, residual_std
+def format_numeric(value: float, integer_output: bool) -> Any:
+    value = max(0.0, float(value))
+    if integer_output:
+        return int(round(value))
+    return round(value, 2)
 
 
 def extract_employee_id(record: Dict[str, Any]) -> Optional[str]:
@@ -686,7 +876,10 @@ def parse_datetime(value: Any) -> Optional[datetime]:
         return datetime.combine(value, datetime.min.time(), tzinfo=timezone.utc)
 
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        number = float(value)
+        if number > 10_000_000_000:
+            number = number / 1000.0
+        return datetime.fromtimestamp(number, tz=timezone.utc)
 
     if not isinstance(value, str):
         return None
