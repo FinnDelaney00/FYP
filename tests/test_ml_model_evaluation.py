@@ -1,4 +1,5 @@
 import math
+import os
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ class MLModelEvaluationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.run_started_at = datetime.now(timezone.utc)
+        cls.write_reports = str(os.environ.get("SMARTSTREAM_WRITE_ML_EVAL_REPORTS", "false")).strip().lower() == "true"
         cls.report_path = REPORTS_DIR / (
             f"ml_model_evaluation_report_{cls.run_started_at.strftime('%Y%m%dT%H%M%S%fZ')}.txt"
         )
@@ -52,6 +54,8 @@ class MLModelEvaluationTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        if not cls.write_reports:
+            return
         cls.report_path.write_text("\n\n".join(cls.report_sections) + "\n", encoding="utf-8")
         with RUN_INDEX_PATH.open("a", encoding="utf-8") as index_file:
             index_file.write(f"{cls.run_started_at.isoformat()} {cls.report_path.name}\n")
