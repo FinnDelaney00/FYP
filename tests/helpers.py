@@ -75,6 +75,12 @@ class FakeS3Client:
 
     def put_object(self, **kwargs) -> Dict[str, Any]:
         self.put_calls.append(kwargs)
+        key = kwargs.get("Key")
+        body = kwargs.get("Body", b"")
+        if key:
+            if isinstance(body, str):
+                body = body.encode("utf-8")
+            self.objects[key] = bytes(body)
         return {"ETag": "fake-etag"}
 
 

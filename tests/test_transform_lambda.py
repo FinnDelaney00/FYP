@@ -1,5 +1,6 @@
 import json
 import unittest
+from gzip import BadGzipFile
 from unittest.mock import patch
 
 from tests.helpers import FakeS3Client, gzip_bytes, load_module
@@ -167,6 +168,17 @@ class TransformLambdaTests(unittest.TestCase):
 
         self.assertEqual(response["statusCode"], 200)
         write_mock.assert_not_called()
+
+    def test_lambda_handler_returns_success_for_empty_event(self):
+        response = self.module.lambda_handler({}, context=None)
+
+        self.assertEqual(response["statusCode"], 200)
+
+    def test_read_s3_object_raises_for_corrupted_gzip_payload(self):
+        self.fake_s3.objects["raw/corrupted.json.gz"] = b"not-a-valid-gzip-stream"
+
+        with self.assertRaises(BadGzipFile):
+            self.module.read_s3_object("bucket", "raw/corrupted.json.gz")
 
 
 if __name__ == "__main__":

@@ -126,6 +126,61 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertIn("predicted_revenue", result["revenue"]["forecast"][0])
         self.assertIn("predicted_expenditure", result["expenditure"]["forecast"][0])
 
+    def test_parse_records_skips_invalid_json_lines(self):
+        payload = "\n".join(
+            [
+                '{"employee_id": "emp-1"}',
+                "{invalid json}",
+                '{"employee_id": "emp-2"}',
+            ]
+        )
+
+        records = self.module.parse_records(payload, "trusted/smartstream-dev/employees/employees/2026/02/24/file.json")
+
+        self.assertEqual(records, [{"employee_id": "emp-1"}, {"employee_id": "emp-2"}])
+
+    def test_read_records_from_objects_skips_corrupted_payload_and_continues(self):
+        valid_key = "trusted/smartstream-dev/employees/employees/2026/02/24/valid.json"
+        broken_key = "trusted/smartstream-dev/employees/employees/2026/02/24/broken.json.gz"
+        now = datetime(2026, 2, 24, 12, 0, tzinfo=timezone.utc)
+        objects = [
+            {"Key": valid_key, "LastModified": now, "Size": 32},
+            {"Key": broken_key, "LastModified": now, "Size": 8},
+        ]
+        self.fake_s3.objects = {
+            valid_key: '{"employee_id": "emp-1", "updated_at": "2026-02-24T12:00:00Z"}',
+            broken_key: b"not-a-valid-gzip-stream",
+        }
+
+        records = self.module.read_records_from_objects("test-data-lake", objects)
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["employee_id"], "emp-1")
+        self.assertEqual(records[0]["_source_key"], valid_key)
+
+    def test_lambda_handler_returns_no_input_data_when_no_objects_exist(self):
+        self.fake_s3.pages = [{"Contents": []}]
+
+        response = self.module.lambda_handler({"source": "aws.events"}, context=None)
+        body = json.loads(response["body"])
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(body["status"], "no_input_data")
+        self.assertEqual(body["rows_processed"], {"employees": 0, "finance": 0})
+        self.assertEqual(len(self.fake_s3.put_calls), 1)
+
+    def test_module_rejects_invalid_max_input_files_env(self):
+        with self.assertRaises(ValueError):
+            load_module(
+                relative_path="smartstream-terraform/lambdas/ml/lambda_function.py",
+                module_name="ml_inference_lambda_invalid_env",
+                fake_s3_client=FakeS3Client(),
+                env={
+                    "DATA_LAKE_BUCKET": "test-data-lake",
+                    "MAX_INPUT_FILES": "0",
+                },
+            )
+
     def test_lambda_handler_end_to_end_writes_prediction_payload(self):
         employees_key = "trusted/smartstream-dev/employees/employees/2026/02/24/employees.json"
         finance_key = "trusted/smartstream-dev/finance/transactions/2026/02/24/transactions.json"

@@ -280,6 +280,18 @@ class LiveApiLambdaTests(unittest.TestCase):
         token = self.module._issue_token(account)
         return {"authorization": f"Bearer {token}"}
 
+    def _seed_anomaly_source(self, *, company_id="acme", anomalies=None, last_modified=None):
+        key = f"trusted-analytics/{company_id}/anomalies/2026/03/01/anomalies.json"
+        modified_at = last_modified or datetime(2026, 3, 1, 10, 0, tzinfo=timezone.utc)
+        self.fake_s3.pages = [{"Contents": [{"Key": key, "LastModified": modified_at}]}]
+        self.fake_s3.objects[key] = json.dumps(
+            {
+                "generated_at": "2026-03-01T10:00:00Z",
+                "anomalies": anomalies or [],
+            }
+        )
+        return key
+
     def test_signup_fails_with_invalid_invite_code(self):
         self._create_company("acme")
         response = self.module.lambda_handler(
@@ -665,6 +677,265 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(dashboard["statusCode"], 200)
         self.assertEqual(dashboard_body["sources"]["latest_finance_key"], finance_key)
         self.assertEqual(dashboard_body["sources"]["trusted_prefix"], "trusted/acme-dev/")
+
+    def test_dashboard_returns_company_scoped_metrics_and_prediction_sources(self):
+        self._create_company("acme")
+        self._create_account("member@example.com", company_id="acme", role="member")
+
+        finance_key = "trusted/acme/finance/transactions/2026/03/01/finance.json"
+        prediction_key = "trusted-analytics/acme/predictions/2026/03/01/predictions.json"
+        self.fake_s3.pages = [
+            {
+                "Contents": [
+                    {"Key": finance_key, "LastModified": datetime(2026, 3, 1, 11, 0, tzinfo=timezone.utc)},
+                    {"Key": prediction_key, "LastModified": datetime(2026, 3, 1, 11, 5, tzinfo=timezone.utc)},
+                ]
+            }
+        ]
+        self.fake_s3.objects = {
+            finance_key: json.dumps(
+                [
+                    {"transaction_date": "2026-03-01", "amount": 1200, "type": "sale"},
+                    {"transaction_date": "2026-03-01", "amount": 400, "type": "expense"},
+                ]
+            ),
+            prediction_key: json.dumps(
+                {
+                    "status": "ok",
+                    "generated_at": "2026-03-01T11:05:00Z",
+                    "diagnostics": {"rows_processed": {"employees": 8, "finance": 12}},
+                    "insights": {
+                        "employee_growth": {
+                            "history": [{"date": "2026-02-28", "headcount": 8}],
+                            "forecast": [
+                                {"date": "2026-03-02", "predicted_headcount": 9},
+                                {"date": "2026-03-03", "predicted_headcount": 10},
+                            ],
+                        },
+                        "finance": {
+                            "revenue": {"history": [{"date": "2026-03-01", "revenue": 1200}], "forecast": []},
+                            "expenditure": {
+                                "history": [{"date": "2026-03-01", "expenditure": 400}],
+                                "forecast": [],
+                            },
+                        },
+                    },
+                }
+            ),
+        }
+
+        response = self.module.lambda_handler(
+            self._event("GET", "/dashboard", headers=self._auth_headers("member@example.com")),
+            _context=None,
+        )
+        body = json.loads(response["body"])
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(body["metrics"]["total_employees"]["value"], 8)
+        self.assertEqual(body["metrics"]["revenue"]["value"], 1200.0)
+        self.assertEqual(body["metrics"]["data_health"]["value_percent"], 100)
+        self.assertEqual(body["sources"]["latest_prediction_key"], prediction_key)
+        self.assertEqual(body["sources"]["trusted_prefix"], "trusted/acme/")
+
+    def test_forecasts_returns_invalid_prediction_when_payload_is_corrupted(self):
+        self._create_company("acme")
+        self._create_account("member@example.com", company_id="acme", role="member")
+
+        prediction_key = "trusted-analytics/acme/predictions/2026/03/01/predictions.json"
+        self.fake_s3.pages = [
+            {
+                "Contents": [
+                    {"Key": prediction_key, "LastModified": datetime(2026, 3, 1, 11, 5, tzinfo=timezone.utc)},
+                ]
+            }
+        ]
+        self.fake_s3.objects = {
+            prediction_key: "{this is not valid json}",
+        }
+
+        response = self.module.lambda_handler(
+            self._event("GET", "/forecasts", headers=self._auth_headers("member@example.com")),
+            _context=None,
+        )
+        body = json.loads(response["body"])
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(body["status"], "invalid_prediction")
+        self.assertEqual(body["source_key"], prediction_key)
+        self.assertEqual(body["employee_growth_forecast"], [])
+
+    def test_anomalies_support_filters_and_review_state_merging(self):
+        self._create_company("acme")
+        self._create_account("member@example.com", company_id="acme", role="member")
+        self._seed_anomaly_source(
+            anomalies=[
+                {
+                    "anomaly_id": "a-high",
+                    "title": "Large spend detected",
+                    "description": "Expense outlier",
+                    "severity": "high",
+                    "status": "new",
+                    "anomaly_type": "transaction_amount_outlier",
+                    "entity_type": "transaction",
+                    "record_ids": ["txn-1"],
+                    "reasons": ["outlier"],
+                    "detected_at": "2026-03-01T09:55:00Z",
+                    "suggested_action": "review",
+                    "metrics": {},
+                },
+                {
+                    "anomaly_id": "a-medium",
+                    "title": "Revenue dip",
+                    "description": "Daily total below baseline",
+                    "severity": "medium",
+                    "status": "new",
+                    "anomaly_type": "daily_revenue_drop",
+                    "entity_type": "daily_finance",
+                    "record_ids": ["day-1"],
+                    "reasons": ["drop"],
+                    "detected_at": "2026-02-27T09:55:00Z",
+                    "suggested_action": "review",
+                    "metrics": {},
+                },
+            ]
+        )
+        self._table("anomaly_reviews").put_item(
+            Item={
+                "anomaly_id": "acme#a-medium",
+                "company_id": "acme",
+                "source_anomaly_id": "a-medium",
+                "status": "confirmed",
+                "last_action": "mark_confirmed",
+                "updated_at": "2026-03-01T10:05:00Z",
+                "updated_by": "member@example.com",
+                "notes": [],
+                "audit_trail": [{"action": "mark_confirmed", "at": "2026-03-01T10:05:00Z"}],
+            }
+        )
+
+        response = self.module.lambda_handler(
+            self._event(
+                "GET",
+                "/anomalies",
+                headers=self._auth_headers("member@example.com"),
+                query={
+                    "severity": "medium",
+                    "status": "confirmed",
+                    "entity_type": "daily_finance",
+                    "date_from": "2026-02-26",
+                },
+            ),
+            _context=None,
+        )
+        body = json.loads(response["body"])
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual([item["anomaly_id"] for item in body["items"]], ["a-medium"])
+        self.assertEqual(body["items"][0]["status"], "confirmed")
+        self.assertEqual(body["summary"]["reviewed_count"], 1)
+        self.assertEqual(body["summary"]["confirmed_count"], 1)
+
+    def test_anomaly_actions_update_status_and_audit_trail(self):
+        self._create_company("acme")
+        self._create_account("member@example.com", company_id="acme", role="member", display_name="Member")
+        self._seed_anomaly_source(
+            anomalies=[
+                {
+                    "anomaly_id": "a-1",
+                    "title": "Large spend detected",
+                    "description": "Expense outlier",
+                    "severity": "high",
+                    "status": "new",
+                    "anomaly_type": "transaction_amount_outlier",
+                    "entity_type": "transaction",
+                    "record_ids": ["txn-1"],
+                    "reasons": ["outlier"],
+                    "detected_at": "2026-03-01T09:55:00Z",
+                    "suggested_action": "review",
+                    "metrics": {},
+                }
+            ]
+        )
+
+        action_response = self.module.lambda_handler(
+            self._event(
+                "POST",
+                "/anomalies/a-1/actions",
+                headers=self._auth_headers("member@example.com"),
+                body={"action": "mark_confirmed", "note": "Reviewed against source finance row."},
+            ),
+            _context=None,
+        )
+        action_body = json.loads(action_response["body"])
+        stored_review = self._table("anomaly_reviews").items["acme#a-1"]
+        detail_response = self.module.lambda_handler(
+            self._event("GET", "/anomalies/a-1", headers=self._auth_headers("member@example.com")),
+            _context=None,
+        )
+        detail_body = json.loads(detail_response["body"])
+
+        self.assertEqual(action_response["statusCode"], 200)
+        self.assertEqual(action_body["item"]["status"], "confirmed")
+        self.assertEqual(stored_review["status"], "confirmed")
+        self.assertEqual(stored_review["last_action"], "mark_confirmed")
+        self.assertEqual(stored_review["notes"][0]["note"], "Reviewed against source finance row.")
+        self.assertEqual(detail_response["statusCode"], 200)
+        self.assertEqual(detail_body["item"]["status"], "confirmed")
+        self.assertEqual(detail_body["item"]["audit_trail"][0]["action"], "mark_confirmed")
+
+    def test_anomaly_actions_reject_unsupported_actions(self):
+        self._create_company("acme")
+        self._create_account("member@example.com", company_id="acme", role="member")
+        self._seed_anomaly_source(anomalies=[{"anomaly_id": "a-1", "detected_at": "2026-03-01T09:55:00Z"}])
+
+        response = self.module.lambda_handler(
+            self._event(
+                "POST",
+                "/anomalies/a-1/actions",
+                headers=self._auth_headers("member@example.com"),
+                body={"action": "drop_database"},
+            ),
+            _context=None,
+        )
+        body = json.loads(response["body"])
+
+        self.assertEqual(response["statusCode"], 400)
+        self.assertIn("Unsupported review action", body["message"])
+
+    def test_query_returns_service_failure_when_athena_execution_fails(self):
+        self._create_company("acme")
+        self._create_account("member@example.com", company_id="acme")
+        self.fake_athena.fail_reason = "Athena execution failed"
+
+        response = self.module.lambda_handler(
+            self._event(
+                "POST",
+                "/query",
+                headers=self._auth_headers("member@example.com"),
+                body={"query": "SELECT * FROM trusted LIMIT 1"},
+            ),
+            _context=None,
+        )
+        body = json.loads(response["body"])
+
+        self.assertEqual(response["statusCode"], 400)
+        self.assertIn("Athena execution failed", body["message"])
+
+    def test_invalid_json_request_body_returns_400(self):
+        self._create_company("acme")
+        self._create_account("member@example.com", company_id="acme")
+
+        event = {
+            "requestContext": {"http": {"method": "POST"}},
+            "rawPath": "/query",
+            "headers": self._auth_headers("member@example.com"),
+            "body": "{invalid-json}",
+        }
+        response = self.module.lambda_handler(event, _context=None)
+        body = json.loads(response["body"])
+
+        self.assertEqual(response["statusCode"], 400)
+        self.assertIn("JSON body", body["message"])
 
 
 if __name__ == "__main__":

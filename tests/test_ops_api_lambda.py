@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import hmac
 import json
 import sys
 import unittest
@@ -171,6 +174,18 @@ class OpsApiLambdaTests(unittest.TestCase):
     def _body(self, response):
         self.assertIn("body", response)
         return json.loads(response["body"])
+
+    def _issue_ops_token(self, payload, secret):
+        payload_segment = base64.urlsafe_b64encode(
+            json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        ).decode("utf-8").rstrip("=")
+        signature = hmac.new(
+            secret.encode("utf-8"),
+            payload_segment.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+        signature_segment = base64.urlsafe_b64encode(signature).decode("utf-8").rstrip("=")
+        return f"{payload_segment}.{signature_segment}"
 
     def _add_metric(self, cloudwatch, namespace, metric_name, dimensions, statistic, value, timestamp):
         cloudwatch.set_metric(namespace, metric_name, dimensions, statistic, value, timestamp)
@@ -633,6 +648,106 @@ class OpsApiLambdaTests(unittest.TestCase):
         self.assertEqual(statuses["employee-pipeline"], "healthy")
         self.assertEqual(statuses["forecast-pipeline"], "degraded")
         self.assertEqual(statuses["finance-pipeline"], "down")
+
+    def test_auth_required_rejects_missing_token(self):
+        module = self._load_ops_lambda(env_overrides={"OPS_API_REQUIRE_AUTH": "true"})
+
+        response = module.lambda_handler(self._event("/ops/overview"), _context=None)
+        body = self._body(response)
+
+        self.assertEqual(response["statusCode"], 401)
+        self.assertIn("Authorization", body["message"])
+
+    def test_auth_required_rejects_insufficient_role(self):
+        fake_dynamodb = FakeDynamoResource()
+        fake_dynamodb.Table("accounts").items["viewer@example.com"] = {
+            "email": "viewer@example.com",
+            "company_id": "acme",
+            "role": "viewer",
+            "status": "active",
+        }
+        fake_dynamodb.Table("companies").items["acme"] = {
+            "company_id": "acme",
+            "status": "active",
+        }
+        module = self._load_ops_lambda(
+            fake_dynamodb=fake_dynamodb,
+            env_overrides={
+                "OPS_API_REQUIRE_AUTH": "true",
+                "AUTH_TOKEN_SECRET": "ops-secret",
+                "ACCOUNTS_TABLE": "accounts",
+                "COMPANIES_TABLE": "companies",
+            },
+        )
+        token = self._issue_ops_token(
+            {
+                "sub": "viewer@example.com",
+                "company_id": "acme",
+                "role": "viewer",
+                "exp": 2524608000,
+            },
+            "ops-secret",
+        )
+        headers = {"authorization": f"Bearer {token}"}
+
+        response = module.lambda_handler(self._event("/ops/overview", headers=headers), _context=None)
+
+        self.assertEqual(response["statusCode"], 403)
+
+    def test_authenticated_requests_include_identity_in_meta(self):
+        fake_dynamodb = FakeDynamoResource()
+        fake_dynamodb.Table("accounts").items["admin@example.com"] = {
+            "email": "admin@example.com",
+            "company_id": "acme",
+            "role": "admin",
+            "status": "active",
+        }
+        fake_dynamodb.Table("companies").items["acme"] = {
+            "company_id": "acme",
+            "status": "active",
+        }
+        fixture = self._seed_live_signals()
+        module = self._load_ops_lambda(
+            fake_s3=fixture["fake_s3"],
+            fake_cloudwatch=fixture["fake_cloudwatch"],
+            fake_logs=fixture["fake_logs"],
+            fake_dms=fixture["fake_dms"],
+            fake_dynamodb=fake_dynamodb,
+            env_overrides={
+                "OPS_API_REQUIRE_AUTH": "true",
+                "AUTH_TOKEN_SECRET": "ops-secret",
+                "ACCOUNTS_TABLE": "accounts",
+                "COMPANIES_TABLE": "companies",
+            },
+        )
+        token = self._issue_ops_token(
+            {
+                "sub": "admin@example.com",
+                "company_id": "acme",
+                "role": "admin",
+                "exp": 2524608000,
+            },
+            "ops-secret",
+        )
+        headers = {"authorization": f"Bearer {token}"}
+
+        response = module.lambda_handler(self._event("/ops/overview", headers=headers), _context=None)
+        body = self._body(response)
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(body["meta"]["authenticated_as"], "admin@example.com")
+        self.assertEqual(body["meta"]["role"], "admin")
+
+    def test_non_get_method_is_rejected(self):
+        module = self._load_live_module()
+        event = {
+            "requestContext": {"http": {"method": "POST"}},
+            "rawPath": "/ops/overview",
+        }
+
+        response = module.lambda_handler(event, _context=None)
+
+        self.assertEqual(response["statusCode"], 405)
 
 
 if __name__ == "__main__":
