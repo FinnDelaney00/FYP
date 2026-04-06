@@ -1161,7 +1161,8 @@ def _quote_sql_identifier(identifier: str) -> str:
     cleaned = str(identifier or "").strip()
     if not cleaned:
         raise ValueError("Query table name is not configured.")
-    return f"\"{cleaned.replace('\"', '\"\"')}\""
+    escaped = cleaned.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def _list_glue_tables(database_name: str) -> List[Dict[str, Any]]:

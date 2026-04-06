@@ -62,3 +62,24 @@ check "shared_iam_roles_resolved" {
     error_message = "create_shared_iam=false requires all shared IAM roles to be discoverable or explicitly configured."
   }
 }
+
+check "query_max_rows_validation" {
+  assert {
+    condition     = var.query_max_rows <= 1000
+    error_message = "query_max_rows must be 1000 or fewer."
+  }
+}
+
+check "ml_forecast_days_validation" {
+  assert {
+    condition     = var.ml_forecast_days >= 14
+    error_message = "ml_forecast_days must be 14 or more."
+  }
+}
+
+check "auth_token_ttl_validation" {
+  assert {
+    condition     = var.auth_token_ttl_seconds >= 300
+    error_message = "auth_token_ttl_seconds must be at least 300 seconds."
+  }
+}

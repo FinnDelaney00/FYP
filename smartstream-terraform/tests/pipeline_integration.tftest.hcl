@@ -53,7 +53,8 @@ run "default_pipeline_wiring" {
   command = plan
 
   variables {
-    db_password = "UnitTestPassword123!"
+    db_password           = "UnitTestPassword123!"
+    legacy_workspace_name = "default"
   }
 
   assert {
