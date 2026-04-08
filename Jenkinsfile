@@ -66,8 +66,11 @@ pipeline {
     stage('Check tools') {
       steps {
         bat 'where terraform'
+        bat 'terraform version'
         bat 'where git'
+        bat 'git --version'
         bat 'where aws'
+        bat 'aws --version'
       }
     }
 
