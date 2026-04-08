@@ -12,10 +12,11 @@ pipeline {
   }
 
   environment {
-    TF_EXE           = 'C:\\terraform\\terraform.exe'
-    TF_DIR           = 'smartstream-terraform'
-    TF_IN_AUTOMATION = 'true'
-    LEGACY_WORKSPACE = 'newaccount'
+    TF_EXE                   = 'C:\\terraform\\terraform.exe'
+    TF_DIR                   = 'smartstream-terraform'
+    TF_IN_AUTOMATION         = 'true'
+    LEGACY_WORKSPACE         = 'newaccount'
+    AWS_EC2_METADATA_DISABLED = 'true'
   }
 
   stages {
@@ -62,14 +63,23 @@ pipeline {
       steps {
         bat "\"${env.TF_EXE}\" version"
         bat 'git --version'
+        bat 'aws --version'
         bat "dir \"${env.TF_DIR}\""
       }
     }
 
     stage('Terraform init') {
       steps {
-        dir("${env.TF_DIR}") {
-          bat "\"${env.TF_EXE}\" init -input=false"
+        withCredentials([
+          usernamePassword(
+            credentialsId: 'aws-smartstream',
+            usernameVariable: 'AWS_ACCESS_KEY_ID',
+            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+          )
+        ]) {
+          dir("${env.TF_DIR}") {
+            bat "\"${env.TF_EXE}\" init -input=false"
+          }
         }
       }
     }
@@ -85,16 +95,33 @@ pipeline {
 
     stage('Workspace select/new') {
       steps {
-        dir("${env.TF_DIR}") {
-          bat "\"${env.TF_EXE}\" workspace select \"${env.RESOLVED_WORKSPACE}\" || \"${env.TF_EXE}\" workspace new \"${env.RESOLVED_WORKSPACE}\""
+        withCredentials([
+          usernamePassword(
+            credentialsId: 'aws-smartstream',
+            usernameVariable: 'AWS_ACCESS_KEY_ID',
+            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+          )
+        ]) {
+          dir("${env.TF_DIR}") {
+            bat "\"${env.TF_EXE}\" workspace select \"${env.RESOLVED_WORKSPACE}\" || \"${env.TF_EXE}\" workspace new \"${env.RESOLVED_WORKSPACE}\""
+          }
         }
       }
     }
 
     stage('Terraform plan') {
       steps {
-        dir("${env.TF_DIR}") {
-          bat "\"${env.TF_EXE}\" plan -input=false -out=tfplan ${env.TF_MODE_ARGS}"
+        withCredentials([
+          usernamePassword(
+            credentialsId: 'aws-smartstream',
+            usernameVariable: 'AWS_ACCESS_KEY_ID',
+            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+          )
+        ]) {
+          dir("${env.TF_DIR}") {
+            bat 'aws sts get-caller-identity'
+            bat "\"${env.TF_EXE}\" plan -input=false -out=tfplan ${env.TF_MODE_ARGS}"
+          }
         }
       }
     }
