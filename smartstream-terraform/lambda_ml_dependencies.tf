@@ -27,7 +27,10 @@ resource "aws_s3_object" "ml_dependencies_layer" {
   bucket = aws_s3_bucket.data_lake.id
   key    = "deployment-artifacts/layers/${local.name_prefix}/ml_dependencies.zip"
   source = data.archive_file.ml_dependencies_layer.output_path
-  etag   = filemd5(data.archive_file.ml_dependencies_layer.output_path)
+  # Use the archive provider's stable hash instead of re-reading a file that is
+  # generated during the same apply, which can trip "inconsistent result"
+  # errors when Terraform evaluates filemd5() mid-build.
+  source_hash = data.archive_file.ml_dependencies_layer.output_base64sha256
 }
 
 resource "aws_lambda_layer_version" "ml_dependencies" {

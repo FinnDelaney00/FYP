@@ -15,6 +15,7 @@ Current UI views:
   - Explore Data (guided query builder)
   - Alerts (anomalies feed + review actions)
   - Forecasts
+  - Settings, including admin invite generation in `Company Access`
 
 ## Runtime Data Behavior
 
@@ -35,6 +36,7 @@ Frontend calls these live API routes:
 - `POST /auth/signup`
 - `POST /auth/login`
 - `GET /auth/me`
+- `POST /admin/invites`
 - `GET /dashboard`
 - `GET /forecasts`
 - `GET /anomalies`

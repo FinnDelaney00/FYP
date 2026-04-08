@@ -23,6 +23,8 @@ terraform.tfvars
 *.pyc
 .pytest_cache/
 pytest-cache-files-*/
+tests/.tmp/
+tests/artifacts/tmp/
 .coverage
 .coverage.*
 coverage/

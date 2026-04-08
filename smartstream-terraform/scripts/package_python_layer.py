@@ -6,6 +6,13 @@ import sys
 from pathlib import Path
 
 
+"""
+Packages such as numpy expose runtime modules under test-related package names
+(for example, ``numpy.testing`` and ``numpy._core.tests``), so we preserve
+those package trees while still stripping obvious non-runtime directories from
+other dependencies.
+"""
+
 STRIP_DIR_NAMES = {
     "__pycache__",
     ".pytest_cache",
@@ -22,6 +29,7 @@ DELETE_FILE_SUFFIXES = (".pyc", ".pyo")
 DEFAULT_LAMBDA_PLATFORM = "manylinux2014_x86_64"
 DEFAULT_LAMBDA_IMPLEMENTATION = "cp"
 DEFAULT_LAMBDA_PYTHON_VERSION = "3.11"
+NUMPY_RUNTIME_TEST_DIR_NAMES = {"test", "testing", "tests"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,9 +109,23 @@ def install_requirements(
         ) from exc
 
 
+def should_preserve_dir(root: Path, path: Path) -> bool:
+    if path.name not in NUMPY_RUNTIME_TEST_DIR_NAMES:
+        return False
+
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+
+    return bool(relative.parts) and relative.parts[0] == "numpy"
+
+
 def strip_package_tree(root: Path) -> None:
     for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
         if path.is_dir():
+            if should_preserve_dir(root, path):
+                continue
             if path.name in STRIP_DIR_NAMES or path.name.endswith(STRIP_SUFFIXES):
                 shutil.rmtree(path, ignore_errors=True)
         elif path.is_file() and path.suffix in DELETE_FILE_SUFFIXES:

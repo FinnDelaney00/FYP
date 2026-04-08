@@ -82,6 +82,7 @@ Provisioned routes (API Gateway -> `lambdas/live_api/lambda_function.py`):
 Key behaviors in the current implementation:
 
 - Invite-based signup (`invite_code` required).
+- Admins can generate signup invite codes from Settings -> Company Access in the frontend.
 - Auth tokens include `company_id` and `role`.
 - Protected routes enforce company isolation from auth context.
 - `/query` only allows read-only, single-statement, simple `SELECT ... FROM trusted ...` queries and resolves the authenticated tenant's Glue table server-side.

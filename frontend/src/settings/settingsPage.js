@@ -10,6 +10,7 @@ import {
   createTextField,
   createToggleField
 } from "./components.js";
+import { createAdminInvite } from "./adminInviteService.js";
 import { getProfileUpdateCapability, saveProfileChanges } from "./profileService.js";
 import { changePassword, getSecurityCapabilities, signOutAllSessions } from "./securityService.js";
 
@@ -38,6 +39,15 @@ const FONT_SIZE_OPTIONS = [
   { value: "default", label: "Default" },
   { value: "large", label: "Large" }
 ];
+
+const INVITE_ROLE_OPTIONS = [
+  { value: "viewer", label: "Viewer" },
+  { value: "member", label: "Member" },
+  { value: "analyst", label: "Analyst" },
+  { value: "admin", label: "Admin" }
+];
+
+const DEFAULT_INVITE_EXPIRY_DAYS = "14";
 
 function humanizeValue(value, fallback = "Not available") {
   const text = String(value || "").trim();
@@ -72,6 +82,17 @@ function buildSessionSummary(sessionState) {
     analyticsPrefix: humanizeValue(company.analyticsPrefix, "Not exposed by auth/me"),
     athenaDatabase: humanizeValue(company.athenaDatabase, "Not exposed by auth/me")
   };
+}
+
+function isAdminSession(sessionState) {
+  return String(sessionState?.user?.role || "").trim().toLowerCase() === "admin";
+}
+
+function formatInviteDateTime(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return formatBusinessDateTime(value * 1000);
+  }
+  return formatBusinessDateTime(value);
 }
 
 function createLoadingMarkup() {
@@ -126,9 +147,16 @@ export function createSettingsPage({
     newPassword: "",
     confirmPassword: ""
   };
+  let inviteFormState = {
+    role: "member",
+    expiresInDays: DEFAULT_INVITE_EXPIRY_DAYS
+  };
+  let companyAccessStatusOverride = null;
+  let lastCreatedInvite = null;
   let isSavingAccount = false;
   let isUpdatingPassword = false;
   let isRevokingSessions = false;
+  let isCreatingInvite = false;
 
   function getAccountDirtyState(sessionSummary) {
     return accountNameDraft.trim() !== sessionSummary.fullName.trim();
@@ -141,6 +169,22 @@ export function createSettingsPage({
       hydratedUserId = userId;
       accountNameDraft = sessionSummary.fullName;
     }
+  }
+
+  function getDefaultCompanyAccessStatus(sessionState) {
+    return isAdminSession(sessionState)
+      ? {
+          tone: "muted",
+          message: "Generate an invite code here, then email it to the teammate you want to onboard."
+        }
+      : {
+          tone: "muted",
+          message: "Invite code creation is limited to admins in this workspace."
+        };
+  }
+
+  function getCompanyAccessStatus(sessionState) {
+    return companyAccessStatusOverride || getDefaultCompanyAccessStatus(sessionState);
   }
 
   function buildAccountCard(sessionSummary) {
@@ -367,10 +411,64 @@ export function createSettingsPage({
     });
   }
 
-  function buildCompanyAccessCard(sessionSummary) {
+  function buildCompanyAccessCard(sessionSummary, sessionState) {
+    const isAdmin = isAdminSession(sessionState);
+    const companyAccessStatus = getCompanyAccessStatus(sessionState);
     const accessSummary = sessionSummary.companyName === "Company not available"
       ? "SmartStream could not read company details from the authenticated response."
       : `You can only access analytics and pipeline data for ${sessionSummary.companyName}.`;
+
+    const inviteSummary = isAdmin
+      ? `
+        <div class="settings-access-summary">
+          <strong>Invite teammates</strong>
+          <p>SmartStream does not send invite emails yet. Generate a single-use code here, then share it manually with the teammate you want to onboard.</p>
+        </div>
+
+        <div class="settings-form-grid">
+          ${createSelectField({
+            id: "settings-invite-role",
+            label: "Invite role",
+            value: inviteFormState.role,
+            options: INVITE_ROLE_OPTIONS,
+            description: "Choose the starting permissions for the new account."
+          })}
+          ${createTextField({
+            id: "settings-invite-expiry-days",
+            label: "Expires after (days)",
+            value: inviteFormState.expiresInDays,
+            description: "Invite codes can be valid for 1 to 90 days.",
+            type: "number",
+            inputAttributes: 'min="1" max="90" step="1" inputmode="numeric"'
+          })}
+          ${createTextField({
+            id: "settings-generated-invite-code",
+            label: "Latest invite code",
+            value: lastCreatedInvite?.inviteCode || "",
+            description: lastCreatedInvite
+              ? "Copy this code into the email or message you send to the new teammate."
+              : "Generate an invite to reveal the code you should send to the new teammate.",
+            placeholder: "Generate an invite code",
+            readOnly: true,
+            inputAttributes: 'spellcheck="false" autocapitalize="characters"'
+          })}
+          ${createReadOnlyField({
+            label: "Latest invite details",
+            value: lastCreatedInvite
+              ? `${humanizeRole(lastCreatedInvite.role)} | Expires ${formatInviteDateTime(lastCreatedInvite.expiresAt)}`
+              : "No invite generated in this session",
+            description: lastCreatedInvite
+              ? `Created ${formatInviteDateTime(lastCreatedInvite.createdAt)} for ${lastCreatedInvite.companyId || sessionSummary.companyId}.`
+              : "Generated codes are tied to your current company and can only be used once."
+          })}
+        </div>
+      `
+      : `
+        <div class="settings-access-summary">
+          <strong>Invite teammates</strong>
+          <p>Ask a workspace admin to generate an invite code for any new teammate who needs to sign up.</p>
+        </div>
+      `;
 
     const content = `
       <div class="settings-access-grid">
@@ -415,14 +513,32 @@ export function createSettingsPage({
           <strong>${escapeHtml(sessionSummary.athenaDatabase)}</strong>
         </div>
       </div>
+
+      ${inviteSummary}
+    `;
+
+    const footer = `
+      <div class="settings-card-footer-row">
+        ${createStatusLine("settings-company-access-status", companyAccessStatus.tone, companyAccessStatus.message)}
+        ${isAdmin
+          ? `
+            <div class="settings-footer-actions">
+              <button type="button" class="action" data-settings-action="create-invite" ${isCreatingInvite ? "disabled" : ""}>
+                ${isCreatingInvite ? "Generating..." : "Generate invite code"}
+              </button>
+            </div>
+          `
+          : ""}
+      </div>
     `;
 
     return createSettingsCard({
       sectionId: "company-access",
       title: "Company Access",
       description: "Confirm that you are inside the correct tenant and review the workspace scope being enforced.",
-      badge: "Server authority",
-      content
+      badge: isAdmin ? "Admin tools" : "Server authority",
+      content,
+      footer
     });
   }
 
@@ -458,7 +574,7 @@ export function createSettingsPage({
         buildAppearanceCard(preferences),
         buildAccessibilityCard(preferences),
         buildSecurityCard(),
-        buildCompanyAccessCard(sessionSummary)
+        buildCompanyAccessCard(sessionSummary, sessionState)
       ].join("")
     });
 
@@ -653,6 +769,54 @@ export function createSettingsPage({
     }
   }
 
+  async function handleCreateInvite() {
+    const sessionState = getSessionState();
+    if (!isAdminSession(sessionState)) {
+      companyAccessStatusOverride = {
+        tone: "error",
+        message: "Only admins can generate invite codes."
+      };
+      updateInlineStatus("settings-company-access-status", companyAccessStatusOverride.tone, companyAccessStatusOverride.message);
+      return;
+    }
+
+    const expiresInDays = Number.parseInt(String(inviteFormState.expiresInDays || "").trim(), 10);
+    if (!Number.isFinite(expiresInDays) || expiresInDays < 1 || expiresInDays > 90) {
+      companyAccessStatusOverride = {
+        tone: "error",
+        message: "Choose an invite expiry between 1 and 90 days."
+      };
+      updateInlineStatus("settings-company-access-status", companyAccessStatusOverride.tone, companyAccessStatusOverride.message);
+      return;
+    }
+
+    isCreatingInvite = true;
+    render();
+
+    try {
+      const result = await createAdminInvite(
+        {
+          role: inviteFormState.role,
+          expiresInDays
+        },
+        getAuthToken
+      );
+      lastCreatedInvite = result.invite;
+      companyAccessStatusOverride = {
+        tone: "success",
+        message: `Invite ready for a ${humanizeRole(result.invite.role)} account. Send it before ${formatInviteDateTime(result.invite.expiresAt)}.`
+      };
+    } catch (error) {
+      companyAccessStatusOverride = {
+        tone: "error",
+        message: error.message || "Invite code could not be generated."
+      };
+    } finally {
+      isCreatingInvite = false;
+      render();
+    }
+  }
+
   function updatePreferenceFromControl(control) {
     if (!control) {
       return;
@@ -800,6 +964,11 @@ export function createSettingsPage({
       return;
     }
 
+    if (action === "create-invite") {
+      void handleCreateInvite();
+      return;
+    }
+
     if (action === "reset-preferences") {
       resetPreferences();
     }
@@ -834,6 +1003,14 @@ export function createSettingsPage({
     }
     if (target.id === "settings-confirm-password") {
       passwordFormState.confirmPassword = target.value;
+      return;
+    }
+
+    if (target.id === "settings-invite-expiry-days") {
+      inviteFormState.expiresInDays = target.value;
+      companyAccessStatusOverride = null;
+      const status = getCompanyAccessStatus(getSessionState());
+      updateInlineStatus("settings-company-access-status", status.tone, status.message);
     }
   });
 
@@ -845,6 +1022,14 @@ export function createSettingsPage({
 
     if (target.id.startsWith("preference-")) {
       updatePreferenceFromControl(target);
+      return;
+    }
+
+    if (target.id === "settings-invite-role") {
+      inviteFormState.role = target.value;
+      companyAccessStatusOverride = null;
+      const status = getCompanyAccessStatus(getSessionState());
+      updateInlineStatus("settings-company-access-status", status.tone, status.message);
     }
   });
 

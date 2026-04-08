@@ -2,6 +2,7 @@
     "testing.coverageToolbarEnabled": true,
     "testing.displayedCoveragePercent": "total",
     "testing.showCoverageInExplorer": true,
+    "python.defaultInterpreterPath": "C:\\Python312\\python.exe",
     "python.testing.pytestEnabled": true,
     "python.testing.pytestArgs": [
         "tests"
