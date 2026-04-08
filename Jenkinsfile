@@ -65,11 +65,11 @@ pipeline {
 
     stage('Check tools') {
       steps {
-        bat 'echo PATH=%PATH%'
-        bat 'where terraform'
-        bat 'terraform version'
-        bat 'where git'
-        bat 'git --version'
+        bat '"C:\\terraform\\terraform.exe" init -input=false'
+        bat '"C:\\terraform\\terraform.exe" fmt -check -recursive'
+        bat '"C:\\terraform\\terraform.exe" validate'
+        bat '"C:\\terraform\\terraform.exe" workspace list'
+        bat '"C:\\terraform\\terraform.exe" plan -input=false -out=tfplan'
       }
     }
 
