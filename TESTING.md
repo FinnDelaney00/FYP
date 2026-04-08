@@ -30,7 +30,7 @@ The automated suites are designed to be practical for a student project: fast to
 From the repository root:
 
 ```powershell
-python -m pip install pytest -r smartstream-terraform/layers/ml/requirements.txt
+python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
 
@@ -43,12 +43,26 @@ npm run lint
 npm test
 ```
 
+Coverage:
+
+```powershell
+Set-Location frontend
+npm run test:coverage
+```
+
 ### Monitor dashboard
 
 ```powershell
 Set-Location monitor
 npm ci
 npm test
+```
+
+Coverage:
+
+```powershell
+Set-Location monitor
+npm run test:coverage
 ```
 
 ### Terraform
@@ -74,6 +88,15 @@ terraform fmt -check $files
 terraform validate
 terraform test
 ```
+
+### VS Code test coverage
+
+To see coverage percentages in the VS Code Testing UI:
+
+1. Install the recommended workspace extensions when VS Code prompts you.
+2. Open the Testing view and refresh test discovery.
+3. Use the coverage action in the Test Explorer or run `Test: Run All Tests with Coverage` from the Command Palette.
+4. Open the `Test Coverage` view to see per-file percentages and use Explorer/editor overlays for covered and uncovered lines.
 
 ## 4. What Is Covered Automatically
 

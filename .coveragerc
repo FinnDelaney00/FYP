@@ -1,0 +1,12 @@
+[run]
+branch = true
+relative_files = true
+source =
+    smartstream-terraform/lambdas
+omit =
+    tests/*
+    */__init__.py
+
+[report]
+show_missing = true
+skip_empty = true

@@ -1,0 +1,3 @@
+-r smartstream-terraform/layers/ml/requirements.txt
+pytest
+pytest-cov

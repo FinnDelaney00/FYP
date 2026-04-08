@@ -1,7 +1,10 @@
 {
+    "testing.coverageToolbarEnabled": true,
+    "testing.displayedCoveragePercent": "total",
+    "testing.showCoverageInExplorer": true,
     "python.testing.pytestEnabled": true,
     "python.testing.pytestArgs": [
-        "."
+        "tests"
     ],
     "python.testing.unittestEnabled": false
 }

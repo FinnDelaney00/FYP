@@ -182,7 +182,8 @@ npm run dev
 From repository root:
 
 ```bash
-python -m unittest discover -s tests -v
+python -m pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 Frontend lint:
@@ -191,6 +192,8 @@ Frontend lint:
 cd frontend
 npm run lint
 ```
+
+For VS Code coverage in the Testing view, install the recommended workspace extensions and use the "Run Tests with Coverage" action from the Test Explorer. Coverage percentages will show in the Test Coverage view and Explorer for the Python and Vitest suites.
 
 ## Current Notes
 
