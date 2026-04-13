@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/**
+ * Creates a mocked JSON fetch response for anomaly page tests.
+ *
+ * @param {unknown} payload
+ * @param {{ ok?: boolean, status?: number }} [options={}]
+ * @returns {{ ok: boolean, status: number, json: ReturnType<typeof vi.fn> }}
+ */
 function jsonResponse(payload, { ok = true, status = 200 } = {}) {
   return {
     ok,
@@ -8,11 +15,17 @@ function jsonResponse(payload, { ok = true, status = 200 } = {}) {
   };
 }
 
+/**
+ * Waits for queued promise callbacks and DOM updates to settle.
+ */
 async function flushPromises() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Builds the minimum anomaly page DOM required by the controller under test.
+ */
 function setupAnomaliesDom() {
   document.body.innerHTML = `
     <div id="anomaly-high-count"></div>
@@ -50,6 +63,7 @@ function setupAnomaliesDom() {
   `;
 }
 
+// Baseline anomaly fixture reused across detail and action tests.
 const baseAnomaly = {
   anomaly_id: "a-1",
   title: "Large spend detected",

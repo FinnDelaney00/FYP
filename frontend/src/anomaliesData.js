@@ -1,3 +1,6 @@
+/**
+ * Polls anomaly data, renders the anomaly inbox, and handles review actions.
+ */
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 const ACTION_LABELS = {
@@ -18,11 +21,25 @@ const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit"
 });
 
+/**
+ * Builds a bearer-token header when the anomaly feed is accessed by an
+ * authenticated user.
+ *
+ * @param {(() => string) | undefined} getAuthToken
+ * @returns {Record<string, string>}
+ */
 function buildAuthHeaders(getAuthToken) {
   const token = typeof getAuthToken === "function" ? String(getAuthToken() || "").trim() : "";
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/**
+ * Sends an authenticated GET request and parses the JSON response.
+ *
+ * @param {string} path
+ * @param {(() => string) | undefined} getAuthToken
+ * @returns {Promise<any>}
+ */
 function getJSON(path, getAuthToken) {
   return fetch(`${API_BASE_URL}${path}`, {
     headers: {
@@ -37,6 +54,14 @@ function getJSON(path, getAuthToken) {
   });
 }
 
+/**
+ * Sends an authenticated POST request and parses the JSON response.
+ *
+ * @param {string} path
+ * @param {unknown} body
+ * @param {(() => string) | undefined} getAuthToken
+ * @returns {Promise<any>}
+ */
 function postJSON(path, body, getAuthToken) {
   return fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
@@ -54,6 +79,12 @@ function postJSON(path, body, getAuthToken) {
   });
 }
 
+/**
+ * Escapes text before it is injected into HTML strings.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -64,6 +95,12 @@ function escapeHtml(value) {
   }[char]));
 }
 
+/**
+ * Formats anomaly timestamps for list and detail views.
+ *
+ * @param {string | number | Date} value
+ * @returns {string}
+ */
 function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -72,16 +109,35 @@ function formatDate(value) {
   return DATE_FORMATTER.format(date);
 }
 
+/**
+ * Formats general numeric values for anomaly metrics.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
 function formatNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed.toLocaleString() : "--";
 }
 
+/**
+ * Formats percentage metrics for anomaly details.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
 function formatPercent(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? `${parsed.toFixed(1)}%` : "--";
 }
 
+/**
+ * Chooses the correct formatter for each anomaly metric field.
+ *
+ * @param {string} name
+ * @param {unknown} value
+ * @returns {string}
+ */
 function formatMetricValue(name, value) {
   if (name === "percent_deviation") {
     return formatPercent(value);
@@ -89,6 +145,12 @@ function formatMetricValue(name, value) {
   return formatNumber(value);
 }
 
+/**
+ * Converts the active filter state into a query string.
+ *
+ * @param {Record<string, string>} filters
+ * @returns {string}
+ */
 function queryFromFilters(filters) {
   const query = new URLSearchParams();
   Object.entries(filters || {}).forEach(([key, value]) => {
@@ -101,6 +163,13 @@ function queryFromFilters(filters) {
   return encoded ? `?${encoded}` : "";
 }
 
+/**
+ * Truncates long anomaly descriptions for the list view.
+ *
+ * @param {unknown} value
+ * @param {number} maxLength
+ * @returns {string}
+ */
 function truncate(value, maxLength) {
   const text = String(value || "");
   if (text.length <= maxLength) {
@@ -109,6 +178,12 @@ function truncate(value, maxLength) {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
 }
 
+/**
+ * Maps anomaly severity into the CSS class used by list cards.
+ *
+ * @param {string} severity
+ * @returns {"high" | "medium" | "low"}
+ */
 function severityClass(severity) {
   const normalized = String(severity || "").toLowerCase();
   if (normalized === "high") {
@@ -120,14 +195,31 @@ function severityClass(severity) {
   return "low";
 }
 
+/**
+ * Converts backend status tokens into human-readable labels.
+ *
+ * @param {string} status
+ * @returns {string}
+ */
 function statusLabel(status) {
   return String(status || "new").replaceAll("_", " ");
 }
 
+/**
+ * Formats attached anomaly payloads for inspection in the detail panel.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
 function toPrettyJson(value) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+/**
+ * Collects the DOM nodes that show anomaly summary counts.
+ *
+ * @returns {Record<string, HTMLElement | null>}
+ */
 function summaryElements() {
   return {
     high: document.getElementById("anomaly-high-count"),
@@ -138,6 +230,11 @@ function summaryElements() {
   };
 }
 
+/**
+ * Collects the anomaly filter controls and related status elements.
+ *
+ * @returns {Record<string, HTMLElement | null | Element[]>}
+ */
 function filterElements() {
   return {
     form: document.getElementById("anomaly-filters-form"),
@@ -152,6 +249,11 @@ function filterElements() {
   };
 }
 
+/**
+ * Collects the DOM nodes used by the anomaly detail drawer.
+ *
+ * @returns {Record<string, any>}
+ */
 function detailElements() {
   return {
     panel: document.getElementById("anomaly-detail-panel"),
@@ -171,6 +273,11 @@ function detailElements() {
   };
 }
 
+/**
+ * Renders the top-line anomaly summary counters.
+ *
+ * @param {Record<string, any>} summary
+ */
 function renderSummary(summary) {
   const elements = summaryElements();
   if (!elements.high) {
@@ -184,6 +291,11 @@ function renderSummary(summary) {
   elements.confirmed.textContent = String(summary?.confirmed_count ?? 0);
 }
 
+/**
+ * Renders the anomaly inbox list and its empty state.
+ *
+ * @param {Array<Record<string, any>>} items
+ */
 function renderAnomalyList(items) {
   const container = document.getElementById("anomaly-list");
   const meta = document.getElementById("anomaly-list-meta");
@@ -221,6 +333,11 @@ function renderAnomalyList(items) {
   meta.textContent = `${items.length} anomalies shown.`;
 }
 
+/**
+ * Renders the selected anomaly into the side detail panel.
+ *
+ * @param {Record<string, any>} item
+ */
 function renderAnomalyDetail(item) {
   const elements = detailElements();
   if (!elements.panel || !item) {
@@ -282,6 +399,9 @@ function renderAnomalyDetail(item) {
     : "<div class=\"anomaly-empty\">No review activity recorded.</div>";
 }
 
+/**
+ * Hides the detail panel and clears transient input state.
+ */
 function clearAnomalyDetail() {
   const elements = detailElements();
   if (!elements.panel) {
@@ -294,6 +414,12 @@ function clearAnomalyDetail() {
   }
 }
 
+/**
+ * Initializes anomaly polling, filters, detail loading, and action handling.
+ *
+ * @param {{ getAuthToken?: () => string }} [options={}]
+ * @returns {() => void}
+ */
 export function initAnomaliesData({ getAuthToken = () => "" } = {}) {
   const filters = filterElements();
   const listContainer = document.getElementById("anomaly-list");

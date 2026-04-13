@@ -14,6 +14,13 @@ import { createAdminInvite } from "./adminInviteService.js";
 import { getProfileUpdateCapability, saveProfileChanges } from "./profileService.js";
 import { changePassword, getSecurityCapabilities, signOutAllSessions } from "./securityService.js";
 
+/**
+ * Renders and controls the dedicated workspace settings experience.
+ *
+ * This module coordinates session-backed account details, browser-stored
+ * preferences, and optional admin/security actions in one place.
+ */
+
 const SETTINGS_SECTIONS = [
   { id: "account", label: "Account", helper: "Name, email, and role" },
   { id: "appearance", label: "Appearance", helper: "Theme, density, start page" },
@@ -49,25 +56,56 @@ const INVITE_ROLE_OPTIONS = [
 
 const DEFAULT_INVITE_EXPIRY_DAYS = "14";
 
+/**
+ * Normalizes blank values into a readable placeholder.
+ *
+ * @param {unknown} value
+ * @param {string} [fallback="Not available"]
+ * @returns {string}
+ */
 function humanizeValue(value, fallback = "Not available") {
   const text = String(value || "").trim();
   return text || fallback;
 }
 
+/**
+ * Converts backend role tokens into user-facing labels.
+ *
+ * @param {string} role
+ * @returns {string}
+ */
 function humanizeRole(role) {
   const normalized = String(role || "").trim().replaceAll("_", " ");
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Member";
 }
 
+/**
+ * Converts backend status tokens into user-facing labels.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
 function humanizeStatus(value) {
   const normalized = String(value || "").trim().replaceAll("_", " ");
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Status unavailable";
 }
 
+/**
+ * Reuses route copy so landing-page settings reflect the current navigation labels.
+ *
+ * @param {string} pageName
+ * @returns {string}
+ */
 function getLandingPageLabel(pageName) {
   return getRouteByPageName(pageName).title.replace("Spending Overview", "Dashboard");
 }
 
+/**
+ * Extracts the session fields the settings page needs for display.
+ *
+ * @param {Record<string, any>} sessionState
+ * @returns {Record<string, string>}
+ */
 function buildSessionSummary(sessionState) {
   const user = sessionState?.user || {};
   const company = sessionState?.company || {};
@@ -84,10 +122,22 @@ function buildSessionSummary(sessionState) {
   };
 }
 
+/**
+ * Checks whether the current session has admin privileges.
+ *
+ * @param {Record<string, any>} sessionState
+ * @returns {boolean}
+ */
 function isAdminSession(sessionState) {
   return String(sessionState?.user?.role || "").trim().toLowerCase() === "admin";
 }
 
+/**
+ * Formats invite timestamps that may arrive as seconds or ISO strings.
+ *
+ * @param {string | number | Date} value
+ * @returns {string}
+ */
 function formatInviteDateTime(value) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
     return formatBusinessDateTime(value * 1000);
@@ -95,6 +145,11 @@ function formatInviteDateTime(value) {
   return formatBusinessDateTime(value);
 }
 
+/**
+ * Returns the skeleton UI shown while the session is refreshing.
+ *
+ * @returns {string}
+ */
 function createLoadingMarkup() {
   return `
     <section class="settings-loading-grid">
@@ -105,10 +160,35 @@ function createLoadingMarkup() {
   `;
 }
 
+/**
+ * Builds the shared inline status message used in card footers.
+ *
+ * @param {string} id
+ * @param {string} tone
+ * @param {string} message
+ * @returns {string}
+ */
 function createStatusLine(id, tone, message) {
   return `<p id="${escapeHtml(id)}" class="settings-inline-status ${tone ? `is-${escapeHtml(tone)}` : ""}" role="status" aria-live="polite">${escapeHtml(message || "")}</p>`;
 }
 
+/**
+ * Creates the settings page controller.
+ *
+ * @param {{
+ *   rootElement: HTMLElement | null,
+ *   preferencesStore: {
+ *     getState: () => Record<string, any>,
+ *     subscribe: (listener: (state: Record<string, any>) => void) => () => void,
+ *     update: (patch: Record<string, any>) => Record<string, any>,
+ *     reset: () => Record<string, any>
+ *   },
+ *   getSessionState: () => Record<string, any>,
+ *   syncSessionFromServer: () => Promise<any>,
+ *   getAuthToken: () => string
+ * }} dependencies
+ * @returns {{ render: () => void, syncPageContext: () => void }}
+ */
 export function createSettingsPage({
   rootElement,
   preferencesStore,
@@ -158,10 +238,22 @@ export function createSettingsPage({
   let isRevokingSessions = false;
   let isCreatingInvite = false;
 
+  /**
+   * Compares the editable name draft with the latest session-backed value.
+   *
+   * @param {Record<string, string>} sessionSummary
+   * @returns {boolean}
+   */
   function getAccountDirtyState(sessionSummary) {
     return accountNameDraft.trim() !== sessionSummary.fullName.trim();
   }
 
+  /**
+   * Rehydrates editable drafts when the authenticated user changes.
+   *
+   * @param {Record<string, string>} sessionSummary
+   * @param {boolean} [force=false]
+   */
   function hydrateDrafts(sessionSummary, force = false) {
     const sessionState = getSessionState();
     const userId = String(sessionState?.user?.id || "");
@@ -171,6 +263,12 @@ export function createSettingsPage({
     }
   }
 
+  /**
+   * Returns the baseline company-access helper message for the current role.
+   *
+   * @param {Record<string, any>} sessionState
+   * @returns {{ tone: string, message: string }}
+   */
   function getDefaultCompanyAccessStatus(sessionState) {
     return isAdminSession(sessionState)
       ? {
@@ -187,6 +285,7 @@ export function createSettingsPage({
     return companyAccessStatusOverride || getDefaultCompanyAccessStatus(sessionState);
   }
 
+  // Card builders keep the main render function focused on composition.
   function buildAccountCard(sessionSummary) {
     const accountDirty = getAccountDirtyState(sessionSummary);
     const footer = `
@@ -542,6 +641,9 @@ export function createSettingsPage({
     });
   }
 
+  /**
+   * Re-renders the whole settings page from the latest session and preference state.
+   */
   function render() {
     if (!rootElement) {
       return;
@@ -581,6 +683,13 @@ export function createSettingsPage({
     syncPreferenceControls();
   }
 
+  /**
+   * Updates an already-rendered inline status node without a full re-render.
+   *
+   * @param {string} id
+   * @param {string} tone
+   * @param {string} message
+   */
   function updateInlineStatus(id, tone, message) {
     const element = rootElement?.querySelector(`#${id}`);
     if (!element) {
@@ -591,6 +700,9 @@ export function createSettingsPage({
     element.textContent = message;
   }
 
+  /**
+   * Syncs current preference values into the rendered controls and preview UI.
+   */
   function syncPreferenceControls() {
     const preferences = preferencesStore.getState();
     const themeSelect = rootElement?.querySelector("#preference-theme");
@@ -639,6 +751,11 @@ export function createSettingsPage({
     }
   }
 
+  /**
+   * Persists the edited display name when the backend supports profile updates.
+   *
+   * @returns {Promise<void>}
+   */
   async function handleAccountSave() {
     const sessionSummary = buildSessionSummary(getSessionState());
     const nextName = accountNameDraft.trim();
@@ -690,6 +807,11 @@ export function createSettingsPage({
     }
   }
 
+  /**
+   * Validates and submits the password change form.
+   *
+   * @returns {Promise<void>}
+   */
   async function handleChangePassword() {
     const { currentPassword, newPassword, confirmPassword } = passwordFormState;
 
@@ -748,6 +870,11 @@ export function createSettingsPage({
     }
   }
 
+  /**
+   * Revokes other active sessions for the current account.
+   *
+   * @returns {Promise<void>}
+   */
   async function handleSignOutAllSessions() {
     isRevokingSessions = true;
     render();
@@ -769,6 +896,11 @@ export function createSettingsPage({
     }
   }
 
+  /**
+   * Validates invite settings and requests a new invite code from the backend.
+   *
+   * @returns {Promise<void>}
+   */
   async function handleCreateInvite() {
     const sessionState = getSessionState();
     if (!isAdminSession(sessionState)) {
@@ -817,6 +949,11 @@ export function createSettingsPage({
     }
   }
 
+  /**
+   * Applies a changed preference control to the browser preference store.
+   *
+   * @param {HTMLInputElement | HTMLSelectElement} control
+   */
   function updatePreferenceFromControl(control) {
     if (!control) {
       return;
@@ -888,6 +1025,9 @@ export function createSettingsPage({
     }
   }
 
+  /**
+   * Restores all appearance and accessibility settings to defaults.
+   */
   function resetPreferences() {
     preferencesStore.reset();
     appearanceStatus = {
@@ -901,6 +1041,11 @@ export function createSettingsPage({
     render();
   }
 
+  /**
+   * Activates and scrolls to a settings section from the sidebar navigation.
+   *
+   * @param {string} sectionId
+   */
   function focusSection(sectionId) {
     const section = rootElement?.querySelector(`#settings-section-${sectionId}`);
     if (!section) {

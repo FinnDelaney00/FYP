@@ -1,3 +1,9 @@
+/**
+ * Converts chart coordinates into a smooth SVG cubic-bezier path.
+ *
+ * @param {{ x: number, y: number }[]} points
+ * @returns {string}
+ */
 export function buildSmoothLinePath(points) {
   if (!Array.isArray(points) || points.length === 0) {
     return "";
@@ -27,6 +33,14 @@ export function buildSmoothLinePath(points) {
   return path;
 }
 
+/**
+ * Closes a line path back to a baseline so it can be rendered as an SVG area.
+ *
+ * @param {{ x: number, y: number }[]} points
+ * @param {number} baselineY
+ * @param {string} linePath
+ * @returns {string}
+ */
 export function buildAreaPath(points, baselineY, linePath) {
   if (!Array.isArray(points) || points.length === 0) {
     return "";
@@ -37,6 +51,13 @@ export function buildAreaPath(points, baselineY, linePath) {
   return `${linePath} L ${last.x.toFixed(1)} ${baselineY.toFixed(1)} L ${first.x.toFixed(1)} ${baselineY.toFixed(1)} Z`;
 }
 
+/**
+ * Creates a straight-line SVG path through the supplied coordinates.
+ *
+ * @param {{ x: number, y: number }[]} points
+ * @param {boolean} [closePath=false]
+ * @returns {string}
+ */
 export function buildLinearPath(points, closePath = false) {
   const coords = Array.isArray(points) ? points : [];
   if (!coords.length) {
@@ -51,6 +72,14 @@ export function buildLinearPath(points, closePath = false) {
   return closePath ? `${path} Z` : path;
 }
 
+/**
+ * Samples labels across a series so x-axes stay readable at fixed slot counts.
+ *
+ * @param {Array<Record<string, unknown>>} series
+ * @param {number} [slots=6]
+ * @param {string[]} [labelKeys=["label"]]
+ * @returns {string[]}
+ */
 export function pickSeriesAxisLabels(series, slots = 6, labelKeys = ["label"]) {
   const points = Array.isArray(series) ? series : [];
   if (!points.length) {

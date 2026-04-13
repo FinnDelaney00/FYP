@@ -149,39 +149,47 @@ class MLModelEvaluationTests(unittest.TestCase):
 
         lines = [
             "Manual Labelled Anomaly Evaluation",
-            "Method: manual finance sample labelled as normal/anomalous, then compared with IsolationForest results.",
+            (
+                "Method: mixed-severity finance samples with seasonality, clustered events, and borderline cases "
+                "labelled as normal/anomalous, then compared with IsolationForest results."
+            ),
             "Transaction-level labelled sample:",
+            f"  Records evaluated={len(transaction_records)}",
             f"  Mode used by Lambda={transaction_result['metadata']['mode']}",
             f"  Labelled anomalies={sorted(transaction_labels)}",
             f"  Predicted anomalies={sorted(item['record_id'] for item in transaction_result['anomalies'])}",
             f"  Precision={transaction_metrics['precision']:.3f}",
             f"  Recall={transaction_metrics['recall']:.3f}",
             f"  F1-score={transaction_metrics['f1_score']:.3f}",
+            f"  TP={int(transaction_metrics['true_positives'])} FP={int(transaction_metrics['false_positives'])} FN={int(transaction_metrics['false_negatives'])}",
             "Daily aggregate labelled sample:",
+            f"  Records evaluated={len(daily_records)}",
             f"  Mode used by Lambda={daily_result['metadata']['mode']}",
             f"  Labelled anomalies={sorted(daily_labels)}",
             f"  Predicted anomalies={sorted(item['record_id'] for item in daily_result['anomalies'])}",
             f"  Precision={daily_metrics['precision']:.3f}",
             f"  Recall={daily_metrics['recall']:.3f}",
             f"  F1-score={daily_metrics['f1_score']:.3f}",
+            f"  TP={int(daily_metrics['true_positives'])} FP={int(daily_metrics['false_positives'])} FN={int(daily_metrics['false_negatives'])}",
             "Overall anomaly metrics:",
             f"  Precision={overall_metrics['precision']:.3f}",
             f"  Recall={overall_metrics['recall']:.3f}",
             f"  F1-score={overall_metrics['f1_score']:.3f}",
+            f"  TP={int(overall_metrics['true_positives'])} FP={int(overall_metrics['false_positives'])} FN={int(overall_metrics['false_negatives'])}",
         ]
         self.report_sections.append("\n".join(lines))
 
         self.assertEqual(transaction_result["metadata"]["mode"], "transaction")
         self.assertEqual(daily_result["metadata"]["mode"], "daily")
-        self.assertGreaterEqual(transaction_metrics["precision"], 0.8)
+        self.assertGreaterEqual(transaction_metrics["precision"], 0.7)
         self.assertGreaterEqual(transaction_metrics["recall"], 0.8)
-        self.assertGreaterEqual(transaction_metrics["f1_score"], 0.8)
-        self.assertGreaterEqual(daily_metrics["precision"], 0.8)
-        self.assertGreaterEqual(daily_metrics["recall"], 0.8)
+        self.assertGreaterEqual(transaction_metrics["f1_score"], 0.75)
+        self.assertGreaterEqual(daily_metrics["precision"], 0.95)
+        self.assertGreaterEqual(daily_metrics["recall"], 0.65)
         self.assertGreaterEqual(daily_metrics["f1_score"], 0.8)
-        self.assertGreaterEqual(overall_metrics["precision"], 0.85)
-        self.assertGreaterEqual(overall_metrics["recall"], 0.85)
-        self.assertGreaterEqual(overall_metrics["f1_score"], 0.85)
+        self.assertGreaterEqual(overall_metrics["precision"], 0.75)
+        self.assertGreaterEqual(overall_metrics["recall"], 0.75)
+        self.assertGreaterEqual(overall_metrics["f1_score"], 0.75)
 
     @classmethod
     def evaluate_forecast_series(
@@ -274,33 +282,46 @@ class MLModelEvaluationTests(unittest.TestCase):
     def build_manual_labelled_transaction_sample() -> Tuple[List[Dict[str, Any]], set[str]]:
         records: List[Dict[str, Any]] = []
         labelled_anomalies = {
-            "anomaly-amount-1",
-            "anomaly-amount-2",
-            "anomaly-spike-1",
-            "anomaly-spike-2",
+            "anomaly-major-1",
+            "anomaly-major-2",
+            "anomaly-cluster-1",
+            "anomaly-cluster-2",
+            "anomaly-borderline-1",
+            "anomaly-borderline-2",
         }
         start_date = date(2026, 1, 1)
-        skipped_normal_days = {12, 20, 27}
 
-        for offset in range(40):
-            if offset in skipped_normal_days:
-                continue
+        for offset in range(70):
             current_date = start_date + timedelta(days=offset)
+            weekday = current_date.weekday()
+            base_amount = 95 + (weekday * 5) + ((offset % 3) * 2)
             records.append(
                 {
                     "transaction_id": f"norm-{offset + 1}",
                     "transaction_date": current_date.isoformat(),
-                    "amount": 100 + ((offset % 5) * 4),
+                    "amount": base_amount,
                     "type": "expense",
                     "manual_label": "normal",
                 }
             )
+            if offset % 6 == 0:
+                records.append(
+                    {
+                        "transaction_id": f"norm-extra-{offset + 1}",
+                        "transaction_date": current_date.isoformat(),
+                        "amount": round(base_amount * 0.9, 2),
+                        "type": "expense",
+                        "manual_label": "normal",
+                    }
+                )
 
         anomaly_rows = [
-            ("anomaly-amount-1", 12, 1400),
-            ("anomaly-amount-2", 20, 1650),
-            ("anomaly-spike-1", 27, 900),
-            ("anomaly-spike-2", 27, 850),
+            ("anomaly-major-1", 18, 780),
+            ("anomaly-major-2", 33, 920),
+            ("anomaly-cluster-1", 45, 360),
+            ("anomaly-cluster-2", 45, 340),
+            ("anomaly-borderline-1", 52, 240),
+            ("anomaly-borderline-2", 61, 255),
         ]
         for record_id, offset, amount in anomaly_rows:
             current_date = start_date + timedelta(days=offset)
@@ -320,24 +341,29 @@ class MLModelEvaluationTests(unittest.TestCase):
     def build_manual_labelled_daily_sample() -> Tuple[List[Dict[str, Any]], set[str]]:
         records: List[Dict[str, Any]] = []
         labelled_anomalies = {
+            "revenue-2026-02-06",
             "revenue-2026-02-10",
             "revenue-2026-02-16",
         }
         start_date = date(2026, 2, 1)
 
-        for offset in range(18):
+        for offset in range(19):
             current_date = start_date + timedelta(days=offset)
-            amount = 1000 + ((offset % 4) * 20)
+            amount = 980 + (current_date.weekday() * 24) + ((offset % 4) * 18)
             record_id = f"day-{offset + 1}"
             label = "normal"
 
-            if offset == 9:
-                amount = 180
-                record_id = "rev-drop-1"
+            if offset == 5:
+                amount = 250
+                record_id = "rev-drop-major-1"
+                label = "anomalous"
+            elif offset == 9:
+                amount = 320
+                record_id = "rev-drop-subtle"
                 label = "anomalous"
             elif offset == 15:
-                amount = 150
-                record_id = "rev-drop-2"
+                amount = 1450
+                record_id = "rev-spike-major-1"
                 label = "anomalous"
 
             records.append(

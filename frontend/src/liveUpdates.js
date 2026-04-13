@@ -38,11 +38,25 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 
 let financeColumnsCache = null;
 
+/**
+ * Builds a bearer-token header for finance polling requests.
+ *
+ * @param {(() => string) | undefined} getAuthToken
+ * @returns {Record<string, string>}
+ */
 function buildAuthHeaders(getAuthToken) {
   const token = typeof getAuthToken === "function" ? String(getAuthToken() || "").trim() : "";
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/**
+ * Executes a JSON POST request against the backend query endpoint.
+ *
+ * @param {string} path
+ * @param {unknown} body
+ * @param {(() => string) | undefined} getAuthToken
+ * @returns {Promise<any>}
+ */
 async function postJSON(path, body, getAuthToken) {
   const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
     method: "POST",
@@ -60,10 +74,22 @@ async function postJSON(path, body, getAuthToken) {
   return payload;
 }
 
+/**
+ * Safely quotes a SQL identifier for generated Athena queries.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
 function quoteIdentifier(value) {
   return `"${String(value || "").replace(/"/g, "\"\"")}"`;
 }
 
+/**
+ * Parses numeric-looking values from raw finance rows.
+ *
+ * @param {unknown} value
+ * @returns {number | null}
+ */
 function parseNumeric(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -81,6 +107,12 @@ function parseNumeric(value) {
   return null;
 }
 
+/**
+ * Parses raw finance dates from strings, dates, or epoch values.
+ *
+ * @param {unknown} value
+ * @returns {Date | null}
+ */
 function parseDate(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value;
@@ -112,6 +144,14 @@ function parseDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/**
+ * Returns the first non-empty string field from a finance row.
+ *
+ * @param {Record<string, any>} record
+ * @param {string[]} fields
+ * @param {string} [fallback=""]
+ * @returns {string}
+ */
 function extractField(record, fields, fallback = "") {
   for (const field of fields) {
     const value = record?.[field];
@@ -122,6 +162,12 @@ function extractField(record, fields, fallback = "") {
   return fallback;
 }
 
+/**
+ * Discovers the most business-relevant transaction date in a finance row.
+ *
+ * @param {Record<string, any>} record
+ * @returns {Date | null}
+ */
 function extractDate(record) {
   for (const field of FINANCE_DATE_FIELDS) {
     const parsed = parseDate(record?.[field]);
@@ -132,6 +178,12 @@ function extractDate(record) {
   return null;
 }
 
+/**
+ * Discovers the signed spend amount from a finance row.
+ *
+ * @param {Record<string, any>} record
+ * @returns {number | null}
+ */
 function extractAmount(record) {
   for (const field of AMOUNT_FIELDS) {
     const parsed = parseNumeric(record?.[field]);
@@ -149,6 +201,13 @@ function extractAmount(record) {
   return null;
 }
 
+/**
+ * Classifies a row as revenue or expenditure based on field hints or sign.
+ *
+ * @param {Record<string, any>} record
+ * @param {number} amount
+ * @returns {"revenue" | "expenditure"}
+ */
 function classifyFinanceFlow(record, amount) {
   const hintText = [
     record?.transaction_type,
@@ -170,6 +229,12 @@ function classifyFinanceFlow(record, amount) {
   return amount >= 0 ? "revenue" : "expenditure";
 }
 
+/**
+ * Normalizes raw finance rows into the shape used by the live spend chart.
+ *
+ * @param {Array<Record<string, any>>} rows
+ * @returns {Array<Record<string, any>>}
+ */
 function normalizeFinanceRows(rows) {
   return (Array.isArray(rows) ? rows : [])
     .map((record) => {
@@ -194,6 +259,12 @@ function normalizeFinanceRows(rows) {
     .filter(Boolean);
 }
 
+/**
+ * Discovers which optional finance columns are available in the dataset.
+ *
+ * @param {string[]} columns
+ * @returns {{ dateField: string, amountFields: string[], categoryField: string, vendorField: string, departmentField: string }}
+ */
 function discoverFinanceColumns(columns) {
   const available = new Set(columns || []);
   return {
@@ -205,6 +276,13 @@ function discoverFinanceColumns(columns) {
   };
 }
 
+/**
+ * Builds the SQL query used to fetch recent finance rows for the live chart.
+ *
+ * @param {string[]} columns
+ * @param {number} [limit=MAX_QUERY_ROWS]
+ * @returns {string | null}
+ */
 function buildFinanceRowsQuery(columns, limit = MAX_QUERY_ROWS) {
   const { dateField, amountFields, categoryField, vendorField, departmentField } = discoverFinanceColumns(columns);
   if (!dateField) {
@@ -224,6 +302,12 @@ function buildFinanceRowsQuery(columns, limit = MAX_QUERY_ROWS) {
   return `SELECT ${selectedColumns} FROM trusted WHERE "$path" LIKE '%/${FINANCE_PATH_FILTER}%'${orderClause} LIMIT ${limit}`;
 }
 
+/**
+ * Discovers finance columns once, then fetches the recent finance row window.
+ *
+ * @param {() => string} getAuthToken
+ * @returns {Promise<Record<string, any>>}
+ */
 async function fetchFinanceRows(getAuthToken) {
   if (!financeColumnsCache) {
     const discovery = await postJSON("/query", {
@@ -259,6 +343,12 @@ async function fetchFinanceRows(getAuthToken) {
   };
 }
 
+/**
+ * Formats spend values for the live chart summary cards.
+ *
+ * @param {number} value
+ * @returns {string}
+ */
 function formatCurrency(value) {
   if (!Number.isFinite(value)) {
     return "n/a";
@@ -266,6 +356,12 @@ function formatCurrency(value) {
   return currencyFormatter.format(value);
 }
 
+/**
+ * Formats delta percentages for the live chart summary cards.
+ *
+ * @param {number} value
+ * @returns {string}
+ */
 function formatPercent(value) {
   if (!Number.isFinite(value)) {
     return "n/a";
@@ -274,6 +370,13 @@ function formatPercent(value) {
   return `${sign}${Math.abs(value).toFixed(1)}%`;
 }
 
+/**
+ * Chooses a short axis label based on the current viewing window.
+ *
+ * @param {Date} value
+ * @param {number} windowDays
+ * @returns {string}
+ */
 function formatDateLabel(value, windowDays) {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
     return "--";
@@ -284,6 +387,12 @@ function formatDateLabel(value, windowDays) {
   return value.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/**
+ * Formats refresh timestamps for the status pill.
+ *
+ * @param {string | number | Date} value
+ * @returns {string}
+ */
 function formatBusinessDateTime(value) {
   const date = parseDate(value);
   if (!date) {
@@ -297,6 +406,12 @@ function formatBusinessDateTime(value) {
   });
 }
 
+/**
+ * Calculates responsive chart dimensions within the allowed min/max bounds.
+ *
+ * @param {HTMLElement} chartElement
+ * @returns {{ width: number, height: number }}
+ */
 function getChartDimensions(chartElement) {
   const containerWidth = Math.round(chartElement.getBoundingClientRect().width);
   const usableWidth = Math.max(0, containerWidth - 24);
@@ -305,6 +420,12 @@ function getChartDimensions(chartElement) {
   return { width, height };
 }
 
+/**
+ * Builds the smoothed SVG line for the live spend chart.
+ *
+ * @param {{ x: number, y: number }[]} points
+ * @returns {string}
+ */
 function buildSmoothPath(points) {
   if (!Array.isArray(points) || points.length === 0) {
     return "";
@@ -334,6 +455,14 @@ function buildSmoothPath(points) {
   return path;
 }
 
+/**
+ * Closes the live chart line back to the baseline for the fill layer.
+ *
+ * @param {{ x: number, y: number }[]} points
+ * @param {number} baselineY
+ * @param {string} linePath
+ * @returns {string}
+ */
 function buildAreaPath(points, baselineY, linePath) {
   if (!Array.isArray(points) || points.length === 0) {
     return "";
@@ -344,6 +473,13 @@ function buildAreaPath(points, baselineY, linePath) {
   return `${linePath} L ${last.x.toFixed(1)} ${baselineY.toFixed(1)} L ${first.x.toFixed(1)} ${baselineY.toFixed(1)} Z`;
 }
 
+/**
+ * Picks evenly spaced x-axis ticks without duplicating indices.
+ *
+ * @param {number} length
+ * @param {number} [slots=5]
+ * @returns {number[]}
+ */
 function uniqueTickIndices(length, slots = 5) {
   if (length <= 0) {
     return [];
@@ -359,6 +495,12 @@ function uniqueTickIndices(length, slots = 5) {
   return Array.from(new Set(indices)).sort((left, right) => left - right);
 }
 
+/**
+ * Aggregates the last 90 days of expenditure into daily spend points.
+ *
+ * @param {Array<Record<string, any>>} rows
+ * @returns {Array<Record<string, any>>}
+ */
 function buildDailySpendSeries(rows) {
   const expenseRows = rows
     .filter((row) => row.flow === "expenditure" && row.date)
@@ -397,6 +539,13 @@ function buildDailySpendSeries(rows) {
   return points;
 }
 
+/**
+ * Builds the live chart view model for the selected time window.
+ *
+ * @param {Array<Record<string, any>>} rows
+ * @param {number} windowDays
+ * @returns {Record<string, any>}
+ */
 function buildChartModel(rows, windowDays) {
   const normalizedRows = normalizeFinanceRows(rows);
   const fullSeries = buildDailySpendSeries(normalizedRows);
@@ -441,6 +590,12 @@ function buildChartModel(rows, windowDays) {
   };
 }
 
+/**
+ * Renders the chart empty state message.
+ *
+ * @param {HTMLElement} chartElement
+ * @param {string} message
+ */
 function renderEmptyChart(chartElement, message) {
   chartElement.innerHTML = "";
   const empty = document.createElement("p");
@@ -449,6 +604,13 @@ function renderEmptyChart(chartElement, message) {
   chartElement.append(empty);
 }
 
+/**
+ * Renders the live spend chart, summary stats, and anomaly markers.
+ *
+ * @param {HTMLElement} chartElement
+ * @param {Record<string, any>} model
+ * @param {number} windowDays
+ */
 function renderChart(chartElement, model, windowDays) {
   if (!model.series.length) {
     renderEmptyChart(chartElement, "No spend history was available for this period.");
@@ -555,6 +717,11 @@ function renderChart(chartElement, model, windowDays) {
   `;
 }
 
+/**
+ * Publishes the most recent finance-row snapshot for other modules to reuse.
+ *
+ * @param {Record<string, any>} state
+ */
 function publishFinanceState(state) {
   window.__smartstreamFinanceRowsState = state;
   window.dispatchEvent(new CustomEvent("smartstream:finance-rows-updated", {
@@ -562,6 +729,18 @@ function publishFinanceState(state) {
   }));
 }
 
+/**
+ * Starts finance polling and live-chart rendering for the dashboard header.
+ *
+ * @param {{
+ *   chartElement: HTMLElement,
+ *   metaElement: HTMLElement,
+ *   statusElement: HTMLElement,
+ *   pollIntervalMs?: number,
+ *   getAuthToken?: () => string
+ * }} options
+ * @returns {() => void}
+ */
 export function startLiveUpdates({
   chartElement,
   metaElement,

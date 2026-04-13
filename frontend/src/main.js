@@ -65,17 +65,26 @@ const settingsPage = createSettingsPage({
   getAuthToken: getStoredToken
 });
 
+/**
+ * Shows the authenticated workspace shell and hides the login screen.
+ */
 function openWorkspace() {
   loginView.classList.remove("view-active");
   workspaceView.classList.add("view-active");
 }
 
+/**
+ * Returns the user to the login view and closes the mobile sidebar.
+ */
 function openLogin() {
   workspaceView.classList.remove("view-active");
   loginView.classList.add("view-active");
   sidebar.classList.remove("open");
 }
 
+/**
+ * Stops every active poller or feature controller tied to authenticated data.
+ */
 function stopWorkspaceData() {
   if (typeof stopLiveUpdates === "function") {
     stopLiveUpdates();
@@ -92,6 +101,9 @@ function stopWorkspaceData() {
   workspaceDataStarted = false;
 }
 
+/**
+ * Starts the dashboard, anomaly, and live-update controllers once per session.
+ */
 function startWorkspaceData() {
   if (workspaceDataStarted) {
     return;
@@ -113,6 +125,11 @@ function startWorkspaceData() {
   workspaceDataStarted = true;
 }
 
+/**
+ * Toggles the login form between sign-in and invite-based signup modes.
+ *
+ * @param {boolean} signupMode
+ */
 function setAuthMode(signupMode) {
   isSignupMode = signupMode;
   loginError.textContent = "";
@@ -138,11 +155,22 @@ function setAuthMode(signupMode) {
   }
 }
 
+/**
+ * Converts backend role identifiers into user-friendly labels.
+ *
+ * @param {string} role
+ * @returns {string}
+ */
 function humanizeRole(role) {
   const normalized = String(role || "").trim().replaceAll("_", " ");
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Member";
 }
 
+/**
+ * Mirrors the current session identity into the sidebar and topbar summary UI.
+ *
+ * @param {Record<string, any>} sessionState
+ */
 function updateWorkspaceIdentity(sessionState) {
   if (sessionState.status !== "authenticated") {
     if (workspaceCompanyChip) {
@@ -172,6 +200,11 @@ function updateWorkspaceIdentity(sessionState) {
   }
 }
 
+/**
+ * Activates the requested page, updates nav state, and syncs route copy.
+ *
+ * @param {string} pageName
+ */
 function setActivePage(pageName) {
   const route = getRouteByPageName(pageName);
 
@@ -203,6 +236,12 @@ function setActivePage(pageName) {
   }
 }
 
+/**
+ * Pushes or replaces history state for a named page, then re-syncs the shell.
+ *
+ * @param {string} pageName
+ * @param {{ replace?: boolean }} [options={}]
+ */
 function navigateToPage(pageName, { replace = false } = {}) {
   const path = getPathForPage(pageName);
   const method = replace ? "replaceState" : "pushState";
@@ -210,10 +249,21 @@ function navigateToPage(pageName, { replace = false } = {}) {
   syncViewToRoute();
 }
 
+/**
+ * Convenience wrapper for navigating to the public login route.
+ *
+ * @param {{ replace?: boolean }} [options={}]
+ */
 function navigateToLogin({ replace = false } = {}) {
   navigateToPage("login", { replace });
 }
 
+/**
+ * Decides which route an authenticated user should actually land on.
+ *
+ * @param {ReturnType<typeof resolveRoute>} route
+ * @returns {string}
+ */
 function resolveAuthenticatedLanding(route) {
   if (route.pageName === "login") {
     return pendingProtectedPage || preferencesStore.getState().landingPage || "dashboard";
@@ -224,6 +274,9 @@ function resolveAuthenticatedLanding(route) {
   return route.pageName;
 }
 
+/**
+ * Aligns the visible shell state with both browser navigation and auth state.
+ */
 function syncViewToRoute() {
   const route = resolveRoute(window.location.pathname);
   const sessionState = getSessionState();

@@ -1,0 +1,52 @@
+ML Model Evaluation Report
+
+Generated at: 2026-04-12T14:18:01.397501+00:00
+
+Report file: ml_model_evaluation_report_20260412T141801397501Z.txt
+
+Forecasting Backtest
+Method: train on 60 days, forecast next 7 days, compare against holdout.
+employee_headcount:
+  MAE=1.57
+  RMSE=1.89
+  MAPE=1.06%
+  Actual=[144, 145, 146, 147, 148, 149, 149]
+  Predicted=[145, 145, 145, 146, 146, 146, 146]
+revenue:
+  MAE=52.27
+  RMSE=67.13
+  MAPE=2.34%
+  Actual=[2150.0, 2112.0, 2154.0, 2196.0, 2228.0, 2270.0, 2242.0]
+  Predicted=[2148.61, 2136.29, 2149.44, 2149.44, 2150.16, 2150.37, 2150.37]
+expenditure:
+  MAE=35.23
+  RMSE=44.48
+  MAPE=2.81%
+  Actual=[1195.0, 1208.0, 1206.0, 1229.0, 1247.0, 1275.0, 1258.0]
+  Predicted=[1195.77, 1195.93, 1195.93, 1195.93, 1196.33, 1196.52, 1196.52]
+
+Manual Labelled Anomaly Evaluation
+Method: mixed-severity finance samples with seasonality, clustered events, and borderline cases labelled as normal/anomalous, then compared with IsolationForest results.
+Transaction-level labelled sample:
+  Records evaluated=88
+  Mode used by Lambda=transaction
+  Labelled anomalies=['anomaly-borderline-1', 'anomaly-borderline-2', 'anomaly-cluster-1', 'anomaly-cluster-2', 'anomaly-major-1', 'anomaly-major-2']
+  Predicted anomalies=['anomaly-borderline-1', 'anomaly-cluster-1', 'anomaly-cluster-2', 'anomaly-major-1', 'anomaly-major-2', 'norm-34', 'norm-46']
+  Precision=0.714
+  Recall=0.833
+  F1-score=0.769
+  TP=5 FP=2 FN=1
+Daily aggregate labelled sample:
+  Records evaluated=19
+  Mode used by Lambda=daily
+  Labelled anomalies=['revenue-2026-02-06', 'revenue-2026-02-10', 'revenue-2026-02-16']
+  Predicted anomalies=['revenue-2026-02-06', 'revenue-2026-02-10']
+  Precision=1.000
+  Recall=0.667
+  F1-score=0.800
+  TP=2 FP=0 FN=1
+Overall anomaly metrics:
+  Precision=0.778
+  Recall=0.778
+  F1-score=0.778
+  TP=7 FP=2 FN=2

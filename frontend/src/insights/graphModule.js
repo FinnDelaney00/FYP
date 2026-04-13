@@ -2,6 +2,10 @@ import { buildAreaPath, buildSmoothLinePath, pickSeriesAxisLabels } from "./char
 import { createElementCache } from "./domCache.js";
 import { escapeHtml, formatCompactCurrency, formatCount, formatCurrency, formatWholePercent } from "./formatters.js";
 
+/**
+ * Interactive graph-preview renderer for the custom chart page.
+ */
+
 const GRAPH_CANVAS = {
   width: 920,
   height: 360,
@@ -14,6 +18,12 @@ const GRAPH_CANVAS = {
 const GRAPH_X_AXIS_MAX_LABELS = 6;
 const GRAPH_Y_AXIS_TICKS = 5;
 
+/**
+ * Condenses raw axis labels so long dates and identifiers stay readable.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
 function formatGraphAxisLabel(value) {
   const raw = String(value || "--").trim();
   if (!raw) {
@@ -34,6 +44,13 @@ function formatGraphAxisLabel(value) {
   return raw.length > 14 ? `${raw.slice(0, 13)}...` : raw;
 }
 
+/**
+ * Extracts the chart-ready series for the selected metric from dashboard data.
+ *
+ * @param {Record<string, any>} payload
+ * @param {"revenue" | "expenses" | "employees"} metric
+ * @returns {{ label: string, value: number }[]}
+ */
 function buildQueryGraphSeries(payload, metric) {
   const charts = payload?.charts || {};
   if (metric === "revenue") {
@@ -54,6 +71,13 @@ function buildQueryGraphSeries(payload, metric) {
   }));
 }
 
+/**
+ * Applies the selected time window to the generated series.
+ *
+ * @param {Array<{ label: string, value: number }>} series
+ * @param {string} windowValue
+ * @returns {Array<{ label: string, value: number }>}
+ */
 function applyGraphWindow(series, windowValue) {
   if (!Array.isArray(series) || series.length === 0) {
     return [];
@@ -70,6 +94,12 @@ function applyGraphWindow(series, windowValue) {
   return series.slice(-6);
 }
 
+/**
+ * Maps the UI label to the internal graph type identifier.
+ *
+ * @param {string} value
+ * @returns {"line" | "area" | "bar"}
+ */
 function graphTypeFromSelection(value) {
   const normalized = (value || "line chart").toLowerCase();
   if (normalized.includes("bar")) {
@@ -81,6 +111,12 @@ function graphTypeFromSelection(value) {
   return "line";
 }
 
+/**
+ * Maps the UI label to the internal metric identifier.
+ *
+ * @param {string} value
+ * @returns {"revenue" | "expenses" | "employees"}
+ */
 function graphMetricFromSelection(value) {
   const normalized = (value || "revenue").toLowerCase();
   if (normalized.includes("employee")) {
@@ -92,6 +128,12 @@ function graphMetricFromSelection(value) {
   return "revenue";
 }
 
+/**
+ * Returns the primary value formatter for the selected metric.
+ *
+ * @param {"revenue" | "expenses" | "employees"} metric
+ * @returns {(value: number) => string}
+ */
 function graphFormatterFromMetric(metric) {
   if (metric === "employees") {
     return (value) => formatCount(Number(value) || 0);
@@ -99,6 +141,12 @@ function graphFormatterFromMetric(metric) {
   return formatCurrency;
 }
 
+/**
+ * Returns the compact formatter used on the y-axis.
+ *
+ * @param {"revenue" | "expenses" | "employees"} metric
+ * @returns {(value: number) => string}
+ */
 function graphAxisFormatterFromMetric(metric) {
   if (metric === "employees") {
     return (value) => formatCount(Number(value) || 0);
@@ -106,6 +154,12 @@ function graphAxisFormatterFromMetric(metric) {
   return formatCompactCurrency;
 }
 
+/**
+ * Produces the display label for the selected metric.
+ *
+ * @param {"revenue" | "expenses" | "employees"} metric
+ * @returns {string}
+ */
 function graphMetricLabel(metric) {
   if (metric === "employees") {
     return "Employee Count";
@@ -116,6 +170,13 @@ function graphMetricLabel(metric) {
   return "Revenue";
 }
 
+/**
+ * Formats point-to-point changes using the selected metric's display rules.
+ *
+ * @param {number} value
+ * @param {"revenue" | "expenses" | "employees"} metric
+ * @returns {string}
+ */
 function formatMetricDelta(value, metric) {
   if (!Number.isFinite(value)) {
     return "--";
@@ -131,6 +192,12 @@ function formatMetricDelta(value, metric) {
   return `${value > 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
 }
 
+/**
+ * Normalizes graph points so labels and numeric values are always present.
+ *
+ * @param {Array<{ label: string, value: number }>} series
+ * @returns {{ rawLabel: string, label: string, value: number }[]}
+ */
 function normalizeGraphSeries(series) {
   return (Array.isArray(series) ? series : []).map((point) => ({
     rawLabel: String(point?.label || "--"),
@@ -139,6 +206,12 @@ function normalizeGraphSeries(series) {
   }));
 }
 
+/**
+ * Builds a padded y-axis domain that still behaves well for flat datasets.
+ *
+ * @param {number[]} values
+ * @returns {{ minValue: number, maxValue: number, domainMin: number, domainMax: number, range: number }}
+ */
 function buildDomain(values) {
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
@@ -169,6 +242,12 @@ function buildDomain(values) {
   };
 }
 
+/**
+ * Renders SVG grid lines and labels for the y-axis.
+ *
+ * @param {{ axisFormatter: (value: number) => string, domainMax: number, paddingLeft: number, paddingTop: number, plotHeight: number, range: number, width: number, paddingRight: number }} config
+ * @returns {string}
+ */
 function buildYAxis({ axisFormatter, domainMax, paddingLeft, paddingTop, plotHeight, range, width, paddingRight }) {
   return Array.from({ length: GRAPH_Y_AXIS_TICKS }, (_, index) => {
     const ratio = index / (GRAPH_Y_AXIS_TICKS - 1);
@@ -182,6 +261,12 @@ function buildYAxis({ axisFormatter, domainMax, paddingLeft, paddingTop, plotHei
   }).join("");
 }
 
+/**
+ * Samples x-axis labels so the chart footer stays readable.
+ *
+ * @param {string[]} labels
+ * @returns {{ slots: number, markup: string }}
+ */
 function buildXAxis(labels) {
   const slots = Math.max(1, Math.min(GRAPH_X_AXIS_MAX_LABELS, labels.length || 1));
   const axisLabels = pickSeriesAxisLabels(
@@ -196,6 +281,12 @@ function buildXAxis(labels) {
   };
 }
 
+/**
+ * Renders the SVG markup for line and area chart previews.
+ *
+ * @param {{ series: Array<{ rawLabel: string, label: string, value: number }>, metric: string, withArea: boolean, formatter: (value: number) => string, axisFormatter: (value: number) => string }} config
+ * @returns {string}
+ */
 function renderGraphLines({ series, metric, withArea, formatter, axisFormatter }) {
   if (!Array.isArray(series) || series.length === 0) {
     return "";
@@ -276,6 +367,12 @@ function renderGraphLines({ series, metric, withArea, formatter, axisFormatter }
   `;
 }
 
+/**
+ * Renders the SVG markup for bar chart previews.
+ *
+ * @param {{ series: Array<{ rawLabel: string, label: string, value: number }>, metric: string, formatter: (value: number) => string, axisFormatter: (value: number) => string }} config
+ * @returns {string}
+ */
 function renderGraphBars({ series, metric, formatter, axisFormatter }) {
   if (!Array.isArray(series) || series.length === 0) {
     return "";
@@ -354,9 +451,16 @@ function renderGraphBars({ series, metric, formatter, axisFormatter }) {
   `;
 }
 
+/**
+ * Creates the controller that powers the custom graph preview workflow.
+ *
+ * @param {{ getLatestDashboardPayload: () => Record<string, any> | null }} dependencies
+ * @returns {{ initializeCreateGraphPage: () => void }}
+ */
 export function createGraphModule({ getLatestDashboardPayload }) {
   const getElement = createElementCache();
 
+  // These helpers update the surrounding copy and status UI around the chart.
   function setGraphStatus(message, state = "neutral") {
     const status = getElement("graph-status");
     if (!status) {
@@ -430,6 +534,7 @@ export function createGraphModule({ getLatestDashboardPayload }) {
     `;
   }
 
+  // Insight cards summarize the currently visible chart window.
   function buildGraphInsights({ series, metric, formatter }) {
     if (!Array.isArray(series) || !series.length) {
       return [];
@@ -472,6 +577,11 @@ export function createGraphModule({ getLatestDashboardPayload }) {
     ];
   }
 
+  /**
+   * Binds hover tooltips to the rendered chart preview.
+   *
+   * @param {HTMLElement} preview
+   */
   function bindGraphTooltip(preview) {
     const frame = preview.querySelector(".graph-chart-frame");
     const tooltip = preview.querySelector(".graph-tooltip");
@@ -520,6 +630,18 @@ export function createGraphModule({ getLatestDashboardPayload }) {
     });
   }
 
+  /**
+   * Renders the active graph preview and its supporting summary copy.
+   *
+   * @param {{
+   *   metric: string,
+   *   graphType: string,
+   *   graphTypeText: string,
+   *   metricText: string,
+   *   windowText: string,
+   *   series: Array<{ rawLabel: string, label: string, value: number }>
+   * }} config
+   */
   function renderGraphPreview({
     metric,
     graphType,
@@ -584,6 +706,11 @@ export function createGraphModule({ getLatestDashboardPayload }) {
     setGraphFootnote(`Showing ${values.length} point${values.length === 1 ? "" : "s"} with a latest value of ${latestValue}.`);
   }
 
+  /**
+   * Reads the user's current graph-builder selections from the form.
+   *
+   * @returns {{ graphType: string, graphTypeText: string, metric: string, metricText: string, windowText: string } | null}
+   */
   function readGraphSelections() {
     const graphTypeSelect = getElement("graph-type");
     const graphMetricSelect = getElement("graph-metric");
@@ -604,6 +731,9 @@ export function createGraphModule({ getLatestDashboardPayload }) {
     };
   }
 
+  /**
+   * Shows the default empty state before any graph has been generated.
+   */
   function renderIdleGraphState() {
     const selections = readGraphSelections();
     if (selections) {
@@ -621,6 +751,11 @@ export function createGraphModule({ getLatestDashboardPayload }) {
     setGraphFootnote("Chart sizing is optimized for clear executive-style reporting.");
   }
 
+  /**
+   * Builds a chart preview from the latest dashboard data snapshot.
+   *
+   * @returns {Promise<void>}
+   */
   async function runCreateGraph() {
     const selections = readGraphSelections();
     if (!selections) {
@@ -679,6 +814,9 @@ export function createGraphModule({ getLatestDashboardPayload }) {
     }
   }
 
+  /**
+   * Binds the create-graph form once and renders the initial empty state.
+   */
   function initializeCreateGraphPage() {
     const graphButton = getElement("graph-generate-btn");
     const graphForm = getElement("create-graph-form");

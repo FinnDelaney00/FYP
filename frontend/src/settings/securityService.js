@@ -1,10 +1,18 @@
 import { requestJSON } from "../services/apiClient.js";
 
+/**
+ * Service helpers for password and session-management actions.
+ */
 const CHANGE_PASSWORD_PATH = String(import.meta.env.VITE_AUTH_CHANGE_PASSWORD_PATH || "").trim();
 const CHANGE_PASSWORD_METHOD = String(import.meta.env.VITE_AUTH_CHANGE_PASSWORD_METHOD || "POST").trim().toUpperCase();
 const REVOKE_SESSIONS_PATH = String(import.meta.env.VITE_AUTH_REVOKE_SESSIONS_PATH || "").trim();
 const REVOKE_SESSIONS_METHOD = String(import.meta.env.VITE_AUTH_REVOKE_SESSIONS_METHOD || "POST").trim().toUpperCase();
 
+/**
+ * Reports which security actions are available in the current environment.
+ *
+ * @returns {{ passwordChange: boolean, revokeSessions: boolean }}
+ */
 export function getSecurityCapabilities() {
   return {
     passwordChange: Boolean(CHANGE_PASSWORD_PATH),
@@ -12,6 +20,13 @@ export function getSecurityCapabilities() {
   };
 }
 
+/**
+ * Attempts to change the current user's password.
+ *
+ * @param {{ currentPassword: string, newPassword: string, confirmPassword: string }} payload
+ * @param {(() => string) | undefined} getAuthToken
+ * @returns {Promise<{ ok: boolean, supported: boolean, message: string }>}
+ */
 export async function changePassword({ currentPassword, newPassword, confirmPassword }, getAuthToken) {
   if (!CHANGE_PASSWORD_PATH) {
     return {
@@ -44,6 +59,12 @@ export async function changePassword({ currentPassword, newPassword, confirmPass
   };
 }
 
+/**
+ * Revokes other active sessions when the backend exposes the endpoint.
+ *
+ * @param {(() => string) | undefined} getAuthToken
+ * @returns {Promise<{ ok: boolean, supported: boolean, message: string }>}
+ */
 export async function signOutAllSessions(getAuthToken) {
   if (!REVOKE_SESSIONS_PATH) {
     return {

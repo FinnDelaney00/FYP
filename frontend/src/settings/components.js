@@ -1,5 +1,19 @@
 import { escapeHtml } from "../insights/formatters.js";
 
+/**
+ * HTML string builders used by the settings page renderer.
+ *
+ * Keeping these templating helpers in one module makes the larger settings page
+ * easier to read and keeps the generated markup patterns consistent.
+ */
+
+/**
+ * Renders `<option>` markup while preserving the selected value.
+ *
+ * @param {{ value: string, label?: string }[]} options
+ * @param {string} selectedValue
+ * @returns {string}
+ */
 function renderOptions(options, selectedValue) {
   return (Array.isArray(options) ? options : [])
     .map((option) => {
@@ -10,6 +24,12 @@ function renderOptions(options, selectedValue) {
     .join("");
 }
 
+/**
+ * Creates the overall settings page shell with sidebar navigation and content.
+ *
+ * @param {{ companyName: string, companyId: string, navHtml: string, contentHtml: string }} payload
+ * @returns {string}
+ */
 export function createSettingsLayout({ companyName, companyId, navHtml, contentHtml }) {
   return `
     <section class="settings-page-shell">
@@ -40,6 +60,12 @@ export function createSettingsLayout({ companyName, companyId, navHtml, contentH
   `;
 }
 
+/**
+ * Builds the sidebar navigation used to jump between settings sections.
+ *
+ * @param {{ sections: Array<{ id: string, label: string, helper: string }>, activeSection: string }} payload
+ * @returns {string}
+ */
 export function createSettingsNav({ sections, activeSection }) {
   const items = (Array.isArray(sections) ? sections : [])
     .map((section) => `
@@ -68,6 +94,12 @@ export function createSettingsNav({ sections, activeSection }) {
   `;
 }
 
+/**
+ * Wraps a settings section in the shared card frame.
+ *
+ * @param {{ sectionId: string, title: string, description: string, badge?: string, content: string, footer?: string }} payload
+ * @returns {string}
+ */
 export function createSettingsCard({ sectionId, title, description, badge, content, footer }) {
   return `
     <article id="settings-section-${escapeHtml(sectionId)}" class="settings-card panel" tabindex="-1">
@@ -86,6 +118,22 @@ export function createSettingsCard({ sectionId, title, description, badge, conte
   `;
 }
 
+/**
+ * Builds a labeled text-style input field with helper copy.
+ *
+ * @param {{
+ *   id: string,
+ *   label: string,
+ *   value?: string,
+ *   description?: string,
+ *   type?: string,
+ *   readOnly?: boolean,
+ *   disabled?: boolean,
+ *   placeholder?: string,
+ *   inputAttributes?: string
+ * }} payload
+ * @returns {string}
+ */
 export function createTextField({
   id,
   label,
@@ -117,6 +165,12 @@ export function createTextField({
   `;
 }
 
+/**
+ * Builds a non-editable field used for server-sourced account and tenant data.
+ *
+ * @param {{ label: string, value: string, description?: string }} payload
+ * @returns {string}
+ */
 export function createReadOnlyField({ label, value, description = "" }) {
   return `
     <div class="settings-field settings-field-readonly">
@@ -127,6 +181,12 @@ export function createReadOnlyField({ label, value, description = "" }) {
   `;
 }
 
+/**
+ * Builds a labeled select field with helper text.
+ *
+ * @param {{ id: string, label: string, value: string, options: Array<{ value: string, label: string }>, description?: string }} payload
+ * @returns {string}
+ */
 export function createSelectField({ id, label, value, options, description = "" }) {
   const helpId = `${id}-help`;
   return `
@@ -144,6 +204,12 @@ export function createSelectField({ id, label, value, options, description = "" 
   `;
 }
 
+/**
+ * Builds a switch-style checkbox field for boolean preferences.
+ *
+ * @param {{ id: string, label: string, description?: string, checked?: boolean, disabled?: boolean }} payload
+ * @returns {string}
+ */
 export function createToggleField({ id, label, description = "", checked = false, disabled = false }) {
   const helpId = `${id}-help`;
   return `
@@ -167,6 +233,11 @@ export function createToggleField({ id, label, description = "", checked = false
   `;
 }
 
+/**
+ * Renders the small visual preview used in the appearance settings section.
+ *
+ * @returns {string}
+ */
 export function createPreferencePreview() {
   return `
     <div class="settings-preview" aria-hidden="true">

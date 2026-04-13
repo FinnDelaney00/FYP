@@ -1,3 +1,6 @@
+/**
+ * Central route definitions for the shell navigation and page metadata.
+ */
 const routeDefinitions = [
   {
     pageName: "dashboard",
@@ -57,6 +60,12 @@ const routeDefinitions = [
   }
 ];
 
+/**
+ * Normalizes browser paths so alias matching stays case- and slash-insensitive.
+ *
+ * @param {string} pathname
+ * @returns {string}
+ */
 function normalizePath(pathname) {
   const raw = String(pathname || "/").trim();
   if (!raw || raw === "/") {
@@ -66,10 +75,22 @@ function normalizePath(pathname) {
   return cleaned.startsWith("/") ? cleaned.toLowerCase() : `/${cleaned.toLowerCase()}`;
 }
 
+/**
+ * Looks up a route definition by its internal page id.
+ *
+ * @param {string} pageName
+ * @returns {typeof routeDefinitions[number]}
+ */
 export function getRouteByPageName(pageName) {
   return routeDefinitions.find((route) => route.pageName === pageName) || routeDefinitions[0];
 }
 
+/**
+ * Resolves a browser pathname into the route metadata used by the shell.
+ *
+ * @param {string} pathname
+ * @returns {typeof routeDefinitions[number] & { normalizedPath: string, isRootAlias?: boolean, isUnknown?: boolean }}
+ */
 export function resolveRoute(pathname) {
   const normalizedPath = normalizePath(pathname);
   const matchedRoute = routeDefinitions.find((route) =>
@@ -92,6 +113,12 @@ export function resolveRoute(pathname) {
   };
 }
 
+/**
+ * Returns the canonical browser path for a page.
+ *
+ * @param {string} pageName
+ * @returns {string}
+ */
 export function getPathForPage(pageName) {
   return getRouteByPageName(pageName).path;
 }

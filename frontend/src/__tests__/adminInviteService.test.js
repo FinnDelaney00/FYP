@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/**
+ * Lightweight mocked fetch response used by service tests.
+ *
+ * @param {unknown} payload
+ * @param {{ ok?: boolean, status?: number }} [options={}]
+ * @returns {{ ok: boolean, status: number, json: ReturnType<typeof vi.fn> }}
+ */
 function jsonResponse(payload, { ok = true, status = 200 } = {}) {
   return {
     ok,

@@ -1,3 +1,10 @@
+/*
+  File purpose:
+  Styles the dedicated settings experience, including the two-column layout,
+  form controls, preview panel, and responsive behavior for smaller screens.
+*/
+
+/* Page shell and sticky navigation */
 .settings-page-shell {
   display: grid;
   gap: 1rem;
@@ -165,6 +172,7 @@
   gap: 0.95rem;
 }
 
+/* Shared fields and form controls */
 .settings-form-grid,
 .settings-access-grid {
   display: grid;
@@ -306,6 +314,7 @@
   flex-wrap: wrap;
 }
 
+/* Appearance preview and supporting summary cards */
 .settings-preview {
   padding: 1rem;
   border-radius: 18px;
@@ -415,6 +424,7 @@
   background: var(--surface-panel-soft);
 }
 
+/* Skeleton and responsive adjustments */
 .settings-loading-grid {
   display: grid;
   gap: 1rem;

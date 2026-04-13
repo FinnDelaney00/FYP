@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createDashboardModule } from "../insights/dashboardModule.js";
 
+/**
+ * Builds the dashboard DOM scaffold expected by the renderer.
+ */
 function setupDashboardDom() {
   const metricIds = [
     "metric-total-spend",

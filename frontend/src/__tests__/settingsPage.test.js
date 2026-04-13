@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Hoisted service mocks let the module under test bind to stable mock references.
 const serviceMocks = vi.hoisted(() => ({
   changePassword: vi.fn(),
   createAdminInvite: vi.fn(),
@@ -27,6 +28,9 @@ vi.mock("../settings/securityService.js", () => ({
 
 import { createSettingsPage } from "../settings/settingsPage.js";
 
+/**
+ * Creates a small in-memory preferences store for settings-page tests.
+ */
 function createPreferencesStore() {
   const defaults = {
     compactMode: false,
@@ -58,6 +62,12 @@ function createPreferencesStore() {
   };
 }
 
+/**
+ * Creates an authenticated session fixture for the requested role.
+ *
+ * @param {"admin" | "member"} [role="member"]
+ * @returns {Record<string, any>}
+ */
 function createSessionState(role = "member") {
   return {
     status: "authenticated",

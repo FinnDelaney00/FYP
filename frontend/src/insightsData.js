@@ -63,18 +63,38 @@ const graphModule = createGraphModule({
 });
 const getElement = createElementCache();
 
+/**
+ * Delegates dashboard rendering to the dedicated dashboard module.
+ *
+ * @param {Record<string, any>} payload
+ */
 function renderDashboard(payload) {
   dashboardModule.renderDashboard(payload || {});
 }
 
+/**
+ * Runs the query page action through the query module.
+ *
+ * @param {() => string} getAuthToken
+ * @returns {Promise<void>}
+ */
 async function runQuery(getAuthToken) {
   await queryModule.runQuery(getAuthToken);
 }
 
+/**
+ * Hydrates the query page builder controls.
+ *
+ * @param {() => string} getAuthToken
+ * @returns {Promise<void>}
+ */
 async function initializeQueryPage(getAuthToken) {
   await queryModule.initializeQueryPage(getAuthToken);
 }
 
+/**
+ * Binds the custom graph preview page once.
+ */
 function initializeCreateGraphPage() {
   graphModule.initializeCreateGraphPage();
 }
@@ -86,10 +106,25 @@ const FORECAST_TEXT = {
   headcountProjection: (current, projected, days) => `Headcount is projected to move from ${formatCount(current)} to ${formatCount(projected)} over the selected ${days}-day outlook.`
 };
 
+// Generic helpers used across the forecast view-model pipeline.
+
+/**
+ * Safely returns the last item in a collection.
+ *
+ * @template T
+ * @param {T[]} items
+ * @returns {T | null}
+ */
 function getLastItem(items) {
   return Array.isArray(items) && items.length ? items[items.length - 1] : null;
 }
 
+/**
+ * Computes the average of only finite numeric values.
+ *
+ * @param {unknown[]} values
+ * @returns {number | null}
+ */
 function averageValues(values) {
   const valid = (Array.isArray(values) ? values : []).filter((value) => Number.isFinite(value));
   if (!valid.length) {
@@ -98,6 +133,12 @@ function averageValues(values) {
   return valid.reduce((sum, value) => sum + value, 0) / valid.length;
 }
 
+/**
+ * Aggregates normalized finance rows into a chronological daily spend history.
+ *
+ * @param {Array<Record<string, any>>} rows
+ * @returns {Array<Record<string, any>>}
+ */
 function buildDailySpendHistory(rows) {
   const totals = new Map();
 
@@ -120,6 +161,13 @@ function buildDailySpendHistory(rows) {
     .filter((point) => point.date);
 }
 
+/**
+ * Selects the recent actual-spend window used alongside the forecast line.
+ *
+ * @param {Array<Record<string, any>>} dailySeries
+ * @param {number} horizonDays
+ * @returns {Array<Record<string, any>>}
+ */
 function buildSpendActualWindow(dailySeries, horizonDays) {
   const series = Array.isArray(dailySeries) ? dailySeries : [];
   if (!series.length) {
@@ -148,6 +196,14 @@ function buildSpendActualWindow(dailySeries, horizonDays) {
   return window;
 }
 
+/**
+ * Normalizes forecast rows into a shared chart-friendly series shape.
+ *
+ * @param {Array<Record<string, any>>} items
+ * @param {(item: Record<string, any>) => number} valueAccessor
+ * @param {(value: number) => number} [valueFormatter=(value) => value]
+ * @returns {Array<Record<string, any>>}
+ */
 function normalizeForecastSeries(items, valueAccessor, valueFormatter = (value) => value) {
   return (Array.isArray(items) ? items : [])
     .map((item) => {
@@ -172,6 +228,12 @@ function normalizeForecastSeries(items, valueAccessor, valueFormatter = (value) 
     .filter(Boolean);
 }
 
+/**
+ * Normalizes spend forecast rows into non-negative values.
+ *
+ * @param {Array<Record<string, any>>} items
+ * @returns {Array<Record<string, any>>}
+ */
 function normalizeSpendForecastSeries(items) {
   return normalizeForecastSeries(
     items,
@@ -180,6 +242,12 @@ function normalizeSpendForecastSeries(items) {
   );
 }
 
+/**
+ * Normalizes headcount forecast rows into rounded employee counts.
+ *
+ * @param {Array<Record<string, any>>} items
+ * @returns {Array<Record<string, any>>}
+ */
 function normalizeHeadcountForecastSeries(items) {
   return normalizeForecastSeries(
     items,
@@ -188,6 +256,13 @@ function normalizeHeadcountForecastSeries(items) {
   );
 }
 
+/**
+ * Builds the recent actual headcount series shown before the forecast starts.
+ *
+ * @param {Record<string, any>} dashboardPayload
+ * @param {number} currentHeadcount
+ * @returns {Array<Record<string, any>>}
+ */
 function buildHeadcountActualSeries(dashboardPayload, currentHeadcount) {
   const points = Array.isArray(dashboardPayload?.charts?.employee_growth)
     ? dashboardPayload.charts.employee_growth.filter((point) => !point.is_forecast)
@@ -216,6 +291,13 @@ function buildHeadcountActualSeries(dashboardPayload, currentHeadcount) {
   return series;
 }
 
+/**
+ * Estimates month-end spend by combining current-month actuals with forecast rows.
+ *
+ * @param {Array<Record<string, any>>} actualDailySeries
+ * @param {Array<Record<string, any>>} spendForecastSeries
+ * @returns {Record<string, any>}
+ */
 function calculateMonthEndProjection(actualDailySeries, spendForecastSeries) {
   const actualSeries = Array.isArray(actualDailySeries) ? actualDailySeries : [];
   if (!actualSeries.length) {
@@ -264,6 +346,12 @@ function calculateMonthEndProjection(actualDailySeries, spendForecastSeries) {
   };
 }
 
+/**
+ * Measures how wide forecast confidence intervals are relative to point values.
+ *
+ * @param {Array<Record<string, any>>} series
+ * @returns {number | null}
+ */
 function getAverageIntervalRatio(series) {
   const points = (Array.isArray(series) ? series : []).filter((point) =>
     Number.isFinite(point.value) && Number.isFinite(point.lower_ci) && Number.isFinite(point.upper_ci)
@@ -279,6 +367,14 @@ function getAverageIntervalRatio(series) {
   }, 0) / points.length;
 }
 
+/**
+ * Derives a user-facing confidence score from data health and interval width.
+ *
+ * @param {Record<string, any>} dashboardPayload
+ * @param {Array<Record<string, any>>} spendForecastSeries
+ * @param {Array<Record<string, any>>} headcountForecastSeries
+ * @returns {{ score: number, label: string, tone: string, summary: string }}
+ */
 function deriveForecastConfidence(dashboardPayload, spendForecastSeries, headcountForecastSeries) {
   const healthScore = Number(dashboardPayload?.metrics?.data_health?.value_percent);
   const intervalRatio = averageValues([
@@ -330,6 +426,12 @@ function deriveForecastConfidence(dashboardPayload, spendForecastSeries, headcou
   };
 }
 
+/**
+ * Builds a simple risk label from projected spend, anomalies, confidence, and hiring.
+ *
+ * @param {{ projectedVsLastMonth: number | null, unusualExpenseCount: number, confidenceScore: number, headcountChange: number | null }} payload
+ * @returns {{ label: string, tone: string, summary: string }}
+ */
 function deriveForecastRisk({
   projectedVsLastMonth,
   unusualExpenseCount,
@@ -389,6 +491,12 @@ function deriveForecastRisk({
   };
 }
 
+/**
+ * Builds the KPI cards shown at the top of the forecasts page.
+ *
+ * @param {Record<string, any>} payload
+ * @returns {Array<Record<string, any>>}
+ */
 function buildForecastSummaryCards({
   monthProjection,
   projectedHeadcount,
@@ -454,6 +562,12 @@ function buildForecastSummaryCards({
   ];
 }
 
+/**
+ * Produces the primary plain-English highlights for the current forecast window.
+ *
+ * @param {Record<string, any>} payload
+ * @returns {Array<Record<string, any>>}
+ */
 function buildForecastHighlights({
   monthProjection,
   selectedHorizon,
@@ -527,6 +641,12 @@ function buildForecastHighlights({
   return notes;
 }
 
+/**
+ * Produces the "risks" note stack for the current forecast window.
+ *
+ * @param {Record<string, any>} payload
+ * @returns {Array<Record<string, any>>}
+ */
 function buildForecastRisks({
   monthProjection,
   headcountIncrease,
@@ -598,6 +718,12 @@ function buildForecastRisks({
   return notes;
 }
 
+/**
+ * Produces the recommended actions note stack for the current forecast window.
+ *
+ * @param {Record<string, any>} payload
+ * @returns {Array<Record<string, any>>}
+ */
 function buildForecastActions({
   headcountIncrease,
   confidence,
@@ -651,6 +777,14 @@ function buildForecastActions({
   return notes;
 }
 
+/**
+ * Reorders note cards to favor the selected focus area while preserving variety.
+ *
+ * @param {Array<Record<string, any>>} items
+ * @param {"all" | "spend" | "headcount"} focus
+ * @param {number} [limit=4]
+ * @returns {Array<Record<string, any>>}
+ */
 function prioritizeForecastNotes(items, focus, limit = 4) {
   const notes = Array.isArray(items) ? items : [];
   if (focus === "all") {
@@ -664,12 +798,24 @@ function prioritizeForecastNotes(items, focus, limit = 4) {
   ].slice(0, limit);
 }
 
+/**
+ * Renders a collection of HTML fragments into a container.
+ *
+ * @param {HTMLElement} container
+ * @param {Array<Record<string, any>>} items
+ * @param {(item: Record<string, any>) => string} renderItem
+ */
 function renderHtmlCollection(container, items, renderItem) {
   container.innerHTML = (Array.isArray(items) ? items : [])
     .map(renderItem)
     .join("");
 }
 
+/**
+ * Renders the forecast KPI card row.
+ *
+ * @param {Array<Record<string, any>>} cards
+ */
 function renderForecastSummaryCards(cards) {
   const container = getElement("forecast-summary-cards");
   if (!container) {
@@ -688,6 +834,14 @@ function renderForecastSummaryCards(cards) {
     `);
 }
 
+/**
+ * Renders one of the forecast note columns with a fallback empty state.
+ *
+ * @param {string} containerId
+ * @param {Array<Record<string, any>>} items
+ * @param {string} emptyTitle
+ * @param {string} emptyBody
+ */
 function renderForecastNotes(containerId, items, emptyTitle, emptyBody) {
   const container = getElement(containerId);
   if (!container) {
@@ -715,6 +869,11 @@ function renderForecastNotes(containerId, items, emptyTitle, emptyBody) {
     `);
 }
 
+/**
+ * Renders the trust/explainer rows that describe forecast freshness and confidence.
+ *
+ * @param {Array<Record<string, any>>} rows
+ */
 function renderForecastTrustRows(rows) {
   const container = getElement("forecast-trust-list");
   if (!container) {
@@ -730,6 +889,11 @@ function renderForecastTrustRows(rows) {
     `);
 }
 
+/**
+ * Renders the compact headcount summary cards.
+ *
+ * @param {Array<Record<string, any>>} items
+ */
 function renderHeadcountStatCards(items) {
   const container = getElement("forecast-headcount-summary");
   if (!container) {
@@ -745,6 +909,11 @@ function renderHeadcountStatCards(items) {
     `);
 }
 
+/**
+ * Renders the department mix chips used to contextualize workforce projections.
+ *
+ * @param {Array<Record<string, any>>} items
+ */
 function renderForecastDepartmentSummary(items) {
   const container = getElement("forecast-department-summary");
   if (!container) {
@@ -777,6 +946,13 @@ function renderForecastDepartmentSummary(items) {
   `;
 }
 
+/**
+ * Builds a straight SVG path, used here for confidence-band polygons.
+ *
+ * @param {{ x: number, y: number }[]} points
+ * @param {boolean} [closePath=false]
+ * @returns {string}
+ */
 function buildLinearPath(points, closePath = false) {
   const coords = Array.isArray(points) ? points : [];
   if (!coords.length) {
@@ -791,6 +967,11 @@ function buildLinearPath(points, closePath = false) {
   return closePath ? `${path} Z` : path;
 }
 
+/**
+ * Attaches hover tooltips to a rendered forecast chart.
+ *
+ * @param {string} containerId
+ */
 function bindForecastTooltip(containerId) {
   const container = getElement(containerId);
   const shell = container?.querySelector(".forecast-chart-inner");
@@ -835,6 +1016,11 @@ function bindForecastTooltip(containerId) {
   container.onmouseleave = hideTooltip;
 }
 
+/**
+ * Renders either the spend or headcount forecast chart.
+ *
+ * @param {Record<string, any>} config
+ */
 function renderForecastTrendChart({
   containerId,
   actualSeries,
@@ -973,6 +1159,12 @@ function renderForecastTrendChart({
   bindForecastTooltip(containerId);
 }
 
+/**
+ * Combines dashboard, finance-row, and forecast payloads into one render model.
+ *
+ * @param {Record<string, any>} payload
+ * @returns {Record<string, any>}
+ */
 function buildForecastViewModel(payload) {
   const dashboardPayload = latestDashboardPayload || {};
   const financeAnalytics = buildFinanceAnalytics(latestFinanceRowsState.rows);
@@ -1117,6 +1309,11 @@ function buildForecastViewModel(payload) {
   };
 }
 
+/**
+ * Renders the complete forecasts page from the latest forecast payload.
+ *
+ * @param {Record<string, any>} payload
+ */
 function renderForecasts(payload) {
   syncForecastControls();
   const model = buildForecastViewModel(payload || {});
@@ -1200,6 +1397,9 @@ function renderForecasts(payload) {
   );
 }
 
+/**
+ * Syncs horizon and focus toggle button state with the view model.
+ */
 function syncForecastControls() {
   document.querySelectorAll("[data-forecast-horizon]").forEach((button) => {
     button.classList.toggle("is-active", Number(button.dataset.forecastHorizon) === forecastViewState.horizonDays);
@@ -1210,6 +1410,9 @@ function syncForecastControls() {
   });
 }
 
+/**
+ * Binds the forecast horizon and focus segmented controls once.
+ */
 function initializeForecastControls() {
   const horizonControl = getElement("forecast-horizon-control");
   const focusControl = getElement("forecast-focus-control");
@@ -1249,6 +1452,12 @@ function initializeForecastControls() {
   syncForecastControls();
 }
 
+/**
+ * Fetches and renders the dashboard payload.
+ *
+ * @param {() => string} getAuthToken
+ * @returns {Promise<void>}
+ */
 async function refreshDashboard(getAuthToken) {
   const payload = await getJSON("/dashboard", undefined, getAuthToken);
   latestDashboardPayload = payload || {};
@@ -1258,12 +1467,24 @@ async function refreshDashboard(getAuthToken) {
   }
 }
 
+/**
+ * Fetches and renders the forecast payload.
+ *
+ * @param {() => string} getAuthToken
+ * @returns {Promise<void>}
+ */
 async function refreshForecasts(getAuthToken) {
   const payload = await getJSON("/forecasts", undefined, getAuthToken);
   latestForecastPayload = payload || {};
   renderForecasts(latestForecastPayload);
 }
 
+/**
+ * Initializes dashboard, forecast, query, and graph rendering for the workspace.
+ *
+ * @param {{ getAuthToken?: () => string }} [options={}]
+ * @returns {() => void}
+ */
 export function initInsightsData({ getAuthToken = () => "" } = {}) {
   const queryButton = getElement("query-run-btn");
   const handleFinanceRowsUpdated = (event) => {

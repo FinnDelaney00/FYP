@@ -15,6 +15,18 @@ import {
   formatBusinessDateTime
 } from "./formatters.js";
 
+/**
+ * Dashboard renderer for the main executive overview page.
+ *
+ * The module combines API payload data with normalized finance row analytics to
+ * populate metrics, charts, breakdowns, and plain-English summaries.
+ */
+
+/**
+ * Removes loading placeholders once real content is ready to render.
+ *
+ * @param {HTMLElement | null} element
+ */
 function clearLoadingClasses(element) {
   if (!element) {
     return;
@@ -22,6 +34,11 @@ function clearLoadingClasses(element) {
   element.classList.remove("skeleton", "skeleton-value", "skeleton-line");
 }
 
+/**
+ * Reads the current theme's donut palette from CSS custom properties.
+ *
+ * @returns {string[]}
+ */
 function getThemeChartColors() {
   const styles = getComputedStyle(document.documentElement);
   return [
@@ -34,9 +51,16 @@ function getThemeChartColors() {
   ];
 }
 
+/**
+ * Creates the dashboard page controller.
+ *
+ * @param {{ getLatestFinanceRowsState: () => Record<string, any> }} dependencies
+ * @returns {{ renderDashboard: (payload: Record<string, any>) => void }}
+ */
 export function createDashboardModule({ getLatestFinanceRowsState }) {
   const getElement = createElementCache();
 
+  // Metric card helpers keep the render path readable and consistent.
   function setMetric(id, value, subtitle) {
     const valueElement = getElement(`${id}-value`);
     const subtitleElement = getElement(`${id}-subtitle`);
@@ -60,6 +84,7 @@ export function createDashboardModule({ getLatestFinanceRowsState }) {
     trendElement.dataset.tone = tone;
   }
 
+  // Chart renderers drive the visual summaries shown above the fold.
   function renderEmployeeGrowth(series) {
     const container = getElement("employee-growth-chart");
     if (!container) {
@@ -302,6 +327,7 @@ export function createDashboardModule({ getLatestFinanceRowsState }) {
       .join("");
   }
 
+  // Insight builders convert raw metrics into business-facing copy.
   function buildKeyInsights({ spendMetrics, employeeMetrics, largestDepartment, financeAnalytics }) {
     const insights = [];
 
@@ -344,6 +370,11 @@ export function createDashboardModule({ getLatestFinanceRowsState }) {
     return insights.slice(0, 3);
   }
 
+  /**
+   * Renders the full dashboard view from the latest backend payload.
+   *
+   * @param {Record<string, any>} payload
+   */
   function renderDashboard(payload) {
     const latestFinanceRowsState = getLatestFinanceRowsState();
     const metrics = payload.metrics || {};

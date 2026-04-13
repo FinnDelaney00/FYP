@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// These page-level modules are mocked so this suite can focus on orchestration.
 vi.mock("../insights/queryModule.js", () => ({
   createQueryModule: () => ({
     runQuery: vi.fn(),
@@ -19,6 +20,12 @@ vi.mock("../insights/dashboardModule.js", () => ({
   }),
 }));
 
+/**
+ * Creates a successful mocked JSON response for data-orchestration tests.
+ *
+ * @param {unknown} payload
+ * @returns {{ ok: boolean, json: ReturnType<typeof vi.fn> }}
+ */
 function jsonResponse(payload) {
   return {
     ok: true,
@@ -26,11 +33,17 @@ function jsonResponse(payload) {
   };
 }
 
+/**
+ * Waits for pending promises and microtasks triggered by module initialization.
+ */
 async function flushPromises() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Builds the minimal forecast-page DOM required by `initInsightsData`.
+ */
 function setupForecastDom() {
   document.body.innerHTML = `
     <div id="forecast-generated-at"></div>

@@ -9,6 +9,19 @@ import {
 } from "./constants.js";
 import { parseDate, parseNumeric } from "./time.js";
 
+/**
+ * Finance-specific normalization and summary helpers shared by the dashboard
+ * and forecast views.
+ */
+
+/**
+ * Returns the first non-empty string field from a record.
+ *
+ * @param {Record<string, any>} record
+ * @param {string[]} fields
+ * @param {string} [fallback=""]
+ * @returns {string}
+ */
 function extractFirstField(record, fields, fallback = "") {
   for (const field of fields) {
     const value = record?.[field];
@@ -19,6 +32,12 @@ function extractFirstField(record, fields, fallback = "") {
   return fallback;
 }
 
+/**
+ * Discovers the most business-relevant date field available on a finance row.
+ *
+ * @param {Record<string, any>} record
+ * @returns {Date | null}
+ */
 function extractFinanceDate(record) {
   for (const field of FINANCE_DATE_FIELDS) {
     const parsed = parseDate(record?.[field]);
@@ -29,6 +48,15 @@ function extractFinanceDate(record) {
   return null;
 }
 
+/**
+ * Discovers a signed numeric amount from a finance row.
+ *
+ * The helper prefers direct amount fields and falls back to credit/debit pairs
+ * when the schema stores inflows and outflows separately.
+ *
+ * @param {Record<string, any>} record
+ * @returns {number | null}
+ */
 function extractFinanceAmount(record) {
   for (const field of FINANCE_AMOUNT_FIELDS) {
     const parsed = parseNumeric(record?.[field]);
@@ -46,6 +74,13 @@ function extractFinanceAmount(record) {
   return null;
 }
 
+/**
+ * Classifies a finance row as revenue or expenditure.
+ *
+ * @param {Record<string, any>} record
+ * @param {number} amount
+ * @returns {"revenue" | "expenditure"}
+ */
 function classifyFinanceFlow(record, amount) {
   const hintText = [
     record?.transaction_type,
@@ -67,6 +102,12 @@ function classifyFinanceFlow(record, amount) {
   return amount >= 0 ? "revenue" : "expenditure";
 }
 
+/**
+ * Normalizes raw finance rows into a frontend-friendly analytics shape.
+ *
+ * @param {Array<Record<string, any>>} rows
+ * @returns {Array<Record<string, any>>}
+ */
 export function normalizeFinanceRows(rows) {
   return (Array.isArray(rows) ? rows : [])
     .map((record) => {
@@ -91,6 +132,14 @@ export function normalizeFinanceRows(rows) {
     .filter(Boolean);
 }
 
+/**
+ * Aggregates the largest totals for a chosen finance dimension.
+ *
+ * @param {Array<Record<string, any>>} rows
+ * @param {string} key
+ * @param {number} [limit=5]
+ * @returns {{ label: string, value: number }[]}
+ */
 function aggregateTopItems(rows, key, limit = 5) {
   const totals = new Map();
 
@@ -108,6 +157,12 @@ function aggregateTopItems(rows, key, limit = 5) {
     .slice(0, limit);
 }
 
+/**
+ * Produces the dashboard-ready finance summary derived from recent rows.
+ *
+ * @param {Array<Record<string, any>>} rows
+ * @returns {Record<string, any>}
+ */
 export function buildFinanceAnalytics(rows) {
   const normalized = normalizeFinanceRows(rows);
   const expenses = normalized.filter((row) => row.flow === "expenditure");
@@ -159,6 +214,12 @@ export function buildFinanceAnalytics(rows) {
   };
 }
 
+/**
+ * Reads current and prior spend totals from the monthly revenue/expense series.
+ *
+ * @param {Array<Record<string, any>>} monthlySeries
+ * @returns {{ currentSpend: number, previousSpend: number, spendChangePercent: number | null }}
+ */
 export function getMonthlySpendMetrics(monthlySeries) {
   const rows = Array.isArray(monthlySeries) ? monthlySeries : [];
   const latest = rows[rows.length - 1];
@@ -174,6 +235,18 @@ export function getMonthlySpendMetrics(monthlySeries) {
   };
 }
 
+/**
+ * Derives current headcount and near-term movement from dashboard payload data.
+ *
+ * @param {Record<string, any>} charts
+ * @param {Record<string, any>} metrics
+ * @returns {{
+ *   totalEmployees: number,
+ *   growthCount: number,
+ *   totalEmployeeDelta: number,
+ *   projectedGrowthPercent: number
+ * }}
+ */
 export function getEmployeeMetrics(charts, metrics) {
   const points = Array.isArray(charts?.employee_growth) ? charts.employee_growth : [];
   const actualPoints = points.filter((point) => !point.is_forecast);
@@ -190,6 +263,12 @@ export function getEmployeeMetrics(charts, metrics) {
   };
 }
 
+/**
+ * Returns the largest department entry by value.
+ *
+ * @param {Array<{ label: string, value: number }>} items
+ * @returns {{ label: string, value: number } | null}
+ */
 export function getLargestDepartment(items) {
   const departments = Array.isArray(items) ? items : [];
   return departments

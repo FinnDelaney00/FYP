@@ -10,10 +10,26 @@ import {
 import { createElementCache } from "./domCache.js";
 import { escapeHtml } from "./formatters.js";
 
+/**
+ * Query builder and results renderer for the raw data explorer page.
+ */
+
+/**
+ * Sanitizes database names down to safe identifier characters.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
 function normalizeDatabaseName(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
 }
 
+/**
+ * Converts the row selector into a safe SQL projection clause.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
 function sanitizeQueryProjection(value) {
   const normalized = String(value || "").trim();
   if (!normalized) {
@@ -31,6 +47,12 @@ function sanitizeQueryProjection(value) {
   return `"${normalized.replace(/"/g, '""')}"`;
 }
 
+/**
+ * Clamps UI-provided limits into the supported backend range.
+ *
+ * @param {unknown} value
+ * @returns {number}
+ */
 function normalizeQueryLimit(value) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -39,6 +61,15 @@ function normalizeQueryLimit(value) {
   return Math.min(1000, Math.max(1, parsed));
 }
 
+/**
+ * Builds the SQL preview and execution query from the current control values.
+ *
+ * Some views target the synthetic `trusted` table directly while others map to
+ * trusted-path filters under the same source table.
+ *
+ * @param {{ database?: string, projection?: string, limit?: number | string }} payload
+ * @returns {string}
+ */
 function buildQueryFromControls({
   database = DEFAULT_QUERY_TABLE,
   projection = "*",
@@ -63,10 +94,21 @@ function buildQueryFromControls({
   return `SELECT ${safeProjection} FROM ${QUERY_SINGLE_TABLE} WHERE "$path" LIKE '%/${escapedFilter}%' LIMIT ${safeLimit}`;
 }
 
+/**
+ * Creates the query page controller.
+ *
+ * @param {{ getJSON: (path: string, options?: RequestInit, getAuthToken?: (() => string)) => Promise<any> }} dependencies
+ * @returns {{ initializeQueryPage: (getAuthToken: () => string) => Promise<void>, runQuery: (getAuthToken: () => string) => Promise<void> }}
+ */
 export function createQueryModule({ getJSON }) {
   const queryRowsCache = new Map();
   const getElement = createElementCache();
 
+  /**
+   * Collects the DOM elements used by the query builder.
+   *
+   * @returns {Record<string, HTMLElement | null>}
+   */
   function getQueryFormElements() {
     return {
       databaseSelect: getElement("query-database"),
@@ -78,6 +120,13 @@ export function createQueryModule({ getJSON }) {
     };
   }
 
+  /**
+   * Updates the inline status message shown above the results table.
+   *
+   * @param {Record<string, HTMLElement | null>} elements
+   * @param {string} message
+   * @param {string} [state="idle"]
+   */
   function setStatus(elements, message, state = "idle") {
     if (!elements.status) {
       return;
@@ -86,6 +135,9 @@ export function createQueryModule({ getJSON }) {
     elements.status.dataset.state = state;
   }
 
+  /**
+   * Mirrors the current builder state into the SQL preview label.
+   */
   function setQuerySqlPreview() {
     const elements = getQueryFormElements();
     if (!elements.statusPreview || !elements.databaseSelect || !elements.rowSelect || !elements.limitSelect) {
@@ -100,6 +152,13 @@ export function createQueryModule({ getJSON }) {
     elements.statusPreview.textContent = `${QUERY_ROW_SQL_PREVIEW_PREFIX}${query}`;
   }
 
+  /**
+   * Discovers the available columns for the selected dataset and caches them.
+   *
+   * @param {string} database
+   * @param {() => string} getAuthToken
+   * @returns {Promise<string | void>}
+   */
   function setQueryRowOptions(database, getAuthToken) {
     const elements = getQueryFormElements();
     const rowSelect = elements.rowSelect;
@@ -165,6 +224,11 @@ export function createQueryModule({ getJSON }) {
       });
   }
 
+  /**
+   * Renders the tabular query response into the results panel.
+   *
+   * @param {Record<string, any>} payload
+   */
   function renderQueryResult(payload) {
     const head = getElement("query-results-head");
     const body = getElement("query-results-body");
@@ -196,6 +260,12 @@ export function createQueryModule({ getJSON }) {
     meta.textContent = `${payload.row_count || 0} rows returned. Query ID: ${payload.query_execution_id || "n/a"}`;
   }
 
+  /**
+   * Executes the currently selected query and updates the result table.
+   *
+   * @param {() => string} getAuthToken
+   * @returns {Promise<void>}
+   */
   async function runQuery(getAuthToken) {
     const elements = getQueryFormElements();
     const input = getElement("query-input");
@@ -237,6 +307,12 @@ export function createQueryModule({ getJSON }) {
     }
   }
 
+  /**
+   * Hydrates the query builder controls and binds their event handlers once.
+   *
+   * @param {() => string} getAuthToken
+   * @returns {Promise<void>}
+   */
   async function initializeQueryPage(getAuthToken) {
     const elements = getQueryFormElements();
     if (!elements.databaseSelect || !elements.rowSelect || !elements.limitSelect || !elements.form) {
