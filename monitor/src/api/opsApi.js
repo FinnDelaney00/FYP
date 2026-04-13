@@ -7,6 +7,19 @@ import {
   getMockPipelines
 } from "../mock/opsData.js";
 
+/**
+ * Creates the API wrapper used by the monitor UI. Each endpoint returns both
+ * the data payload and metadata describing whether the snapshot came from live
+ * services, partial live data, or mock fallbacks.
+ *
+ * @returns {{
+ *   getOverview: () => Promise<{ data: any, meta: object }>,
+ *   getPipelines: () => Promise<{ data: any, meta: object }>,
+ *   getPipelineDetails: (pipelineId: string) => Promise<{ data: any, meta: object }>,
+ *   getAlarms: () => Promise<{ data: any, meta: object }>,
+ *   getLogSummary: () => Promise<{ data: any, meta: object }>
+ * }}
+ */
 export function createOpsApi() {
   const client = createJsonClient({
     baseUrl: import.meta.env.VITE_MONITOR_API_BASE_URL ?? ""
@@ -26,6 +39,17 @@ export function createOpsApi() {
     getLogSummary: () => requestWithFallback("/ops/log-summary", getMockLogSummary)
   };
 
+  /**
+   * Wraps a live request with the monitor's fallback rules:
+   * - explicit mock mode always wins,
+   * - missing base URLs fall back immediately,
+   * - 5xx/network failures fall back to mock data,
+   * - 4xx responses bubble up so configuration mistakes stay visible.
+   *
+   * @param {string} path
+   * @param {() => any} fallbackFactory
+   * @returns {Promise<{ data: any, meta: { source: string, fallbackReason: string, partialData: boolean, warnings: string[], generatedAt: string | null } }>}
+   */
   async function requestWithFallback(path, fallbackFactory) {
     if (useMockOnly) {
       const fallbackData = fallbackFactory();
@@ -90,6 +114,13 @@ export function createOpsApi() {
   }
 }
 
+/**
+ * Normalizes endpoints that may return either `{ data, meta }` envelopes or raw
+ * JSON payloads depending on which service produced the response.
+ *
+ * @param {any} payload
+ * @returns {{ data: any, meta: object }}
+ */
 function normalizeEnvelope(payload) {
   if (payload && typeof payload === "object" && "data" in payload) {
     return {

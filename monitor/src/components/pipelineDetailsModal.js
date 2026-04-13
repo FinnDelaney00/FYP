@@ -4,6 +4,18 @@ import { renderErrorState, renderLoadingState } from "./states.js";
 import { escapeHtml } from "../utils/dom.js";
 import { formatLag, formatRelativeTime, formatTimestamp } from "../utils/formatters.js";
 
+/**
+ * Renders the pipeline detail modal, including loading/error states while a
+ * detail request is in flight.
+ *
+ * @param {{
+ *   pipeline: object | null,
+ *   detail: object | null,
+ *   isLoading: boolean,
+ *   errorMessage: string
+ * }} options
+ * @returns {string}
+ */
 export function renderPipelineDetailsModal({ pipeline, detail, isLoading, errorMessage }) {
   if (!pipeline) {
     return "";
@@ -38,6 +50,13 @@ export function renderPipelineDetailsModal({ pipeline, detail, isLoading, errorM
   `;
 }
 
+/**
+ * Renders the full detail view once a pipeline detail payload is available.
+ *
+ * @param {object} detail
+ * @param {number} activeAlarmCount
+ * @returns {string}
+ */
 function renderDetailBody(detail, activeAlarmCount) {
   return `
     <div class="modal-panel__body">
@@ -128,6 +147,12 @@ function renderDetailBody(detail, activeAlarmCount) {
   `;
 }
 
+/**
+ * Renders a single component health card inside the modal grid.
+ *
+ * @param {object} component
+ * @returns {string}
+ */
 function renderComponentCard(component) {
   return `
     <article class="component-card">
@@ -144,6 +169,12 @@ function renderComponentCard(component) {
   `;
 }
 
+/**
+ * Renders a recent error entry using the shared list styling.
+ *
+ * @param {object} error
+ * @returns {string}
+ */
 function renderErrorItem(error) {
   return `
     <li class="list-item">
@@ -157,6 +188,12 @@ function renderErrorItem(error) {
   `;
 }
 
+/**
+ * Renders an active alarm entry inside the modal.
+ *
+ * @param {object} alarm
+ * @returns {string}
+ */
 function renderAlarmItem(alarm) {
   return `
     <li class="list-item">

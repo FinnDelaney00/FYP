@@ -1,5 +1,13 @@
 import { escapeHtml } from "../utils/dom.js";
 
+/**
+ * Renders the critical incident banner whenever at least one pipeline is fully
+ * down in the current snapshot.
+ *
+ * @param {Array<{ overall_status: string, name: string }>} pipelines
+ * @param {Array<{ severity: string }>} alarms
+ * @returns {string}
+ */
 export function renderIncidentBanner(pipelines, alarms) {
   const downPipelines = pipelines.filter((pipeline) => pipeline.overall_status === "down");
 

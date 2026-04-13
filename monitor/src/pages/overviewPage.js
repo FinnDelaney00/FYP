@@ -8,6 +8,20 @@ import { renderEmptyState, renderErrorState, renderLoadingState } from "../compo
 import { escapeHtml } from "../utils/dom.js";
 import { formatRelativeTime, formatTimestamp } from "../utils/formatters.js";
 
+/**
+ * Creates the page-level renderer and delegates all user interactions through a
+ * small set of action/control callbacks supplied by the application controller.
+ *
+ * @param {{
+ *   rootElement: HTMLElement,
+ *   onRefresh: () => void,
+ *   onToggleAutoRefresh: () => void,
+ *   onSelectPipeline: (pipelineId: string) => void,
+ *   onCloseModal: () => void,
+ *   onUpdateFilters: (filters: Record<string, string>) => void
+ * }} options
+ * @returns {{ render: (viewModel: object) => void, destroy: () => void }}
+ */
 export function createOverviewPage({
   rootElement,
   onRefresh,
@@ -79,17 +93,33 @@ export function createOverviewPage({
   window.addEventListener("keydown", onKeydown);
 
   return {
+    /**
+     * Replaces the page markup from the latest view model while preserving focus
+     * for filter controls so keyboard users can keep typing through refreshes.
+     *
+     * @param {object} viewModel
+     */
     render(viewModel) {
       const focusedControl = captureFocusedControl(rootElement);
       rootElement.innerHTML = buildPageHtml(viewModel);
       restoreFocusedControl(rootElement, focusedControl);
     },
+    /**
+     * Removes the global Escape listener that is registered for the modal.
+     */
     destroy() {
       window.removeEventListener("keydown", onKeydown);
     }
   };
 }
 
+/**
+ * Builds the complete page shell as a string to keep rendering stateless and
+ * easy to snapshot in tests.
+ *
+ * @param {object} viewModel
+ * @returns {string}
+ */
 function buildPageHtml(viewModel) {
   const headerMessage = getSourceMessage(viewModel.dataSource);
   const filtersSummary = `Showing ${viewModel.pipelines.length} of ${viewModel.totalPipelineCount} pipelines`;
@@ -227,6 +257,13 @@ function buildPageHtml(viewModel) {
   `;
 }
 
+/**
+ * Chooses the correct table state based on both the global load/error status
+ * and the current filter result set.
+ *
+ * @param {object} viewModel
+ * @returns {string}
+ */
 function renderPipelineSection(viewModel) {
   if (viewModel.isLoading && viewModel.totalPipelineCount === 0) {
     return renderLoadingState("Loading monitor snapshot", "Fetching overview, pipeline health, alarms, and logs.");
@@ -247,6 +284,13 @@ function renderPipelineSection(viewModel) {
   return renderPipelineTable(viewModel.pipelines);
 }
 
+/**
+ * Renders a `<select>` option list while preserving the current selected value.
+ *
+ * @param {Array<[string, string]>} options
+ * @param {string} selectedValue
+ * @returns {string}
+ */
 function renderOptions(options, selectedValue) {
   return options
     .map(([value, label]) => {
@@ -256,6 +300,13 @@ function renderOptions(options, selectedValue) {
     .join("");
 }
 
+/**
+ * Maps the aggregated data-source state to a small label/tone pair for the
+ * header badge.
+ *
+ * @param {"live" | "mixed" | "partial" | "mock"} dataSource
+ * @returns {{ label: string, tone: string }}
+ */
 function getSourceMessage(dataSource) {
   if (dataSource === "live") {
     return {
@@ -284,6 +335,13 @@ function getSourceMessage(dataSource) {
   };
 }
 
+/**
+ * Records the currently focused filter control before the page re-renders so it
+ * can be restored afterwards.
+ *
+ * @param {HTMLElement} rootElement
+ * @returns {{ controlName: string, selectionStart: number | null, selectionEnd: number | null } | null}
+ */
 function captureFocusedControl(rootElement) {
   const activeElement = document.activeElement;
 
@@ -304,6 +362,12 @@ function captureFocusedControl(rootElement) {
   };
 }
 
+/**
+ * Restores focus and text selection to the previously active filter control.
+ *
+ * @param {HTMLElement} rootElement
+ * @param {{ controlName: string, selectionStart: number | null, selectionEnd: number | null } | null} focusedControl
+ */
 function restoreFocusedControl(rootElement, focusedControl) {
   if (!focusedControl) {
     return;

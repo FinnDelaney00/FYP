@@ -1,3 +1,14 @@
+/**
+ * Creates a minimal JSON GET client that centralizes auth token lookup and
+ * error normalization for monitor API requests.
+ *
+ * @param {{
+ *   baseUrl?: string,
+ *   fetchImpl?: typeof fetch,
+ *   getAuthToken?: () => string
+ * }} [options]
+ * @returns {{ baseUrl: string, get: (path: string) => Promise<any> }}
+ */
 export function createJsonClient({
   baseUrl = "",
   fetchImpl = typeof window !== "undefined" ? window.fetch.bind(window) : fetch,
@@ -39,6 +50,12 @@ export function createJsonClient({
   };
 }
 
+/**
+ * Resolves the auth token from environment configuration first and then from
+ * local storage so local development can mimic the deployed monitor.
+ *
+ * @returns {string}
+ */
 function getDefaultAuthToken() {
   const envToken = String(import.meta.env.VITE_MONITOR_AUTH_TOKEN ?? "").trim();
   if (envToken) {
@@ -60,6 +77,13 @@ function getDefaultAuthToken() {
   }
 }
 
+/**
+ * Parses a response body as JSON when possible while still surfacing plain-text
+ * responses as structured error messages.
+ *
+ * @param {{ text: () => Promise<string> }} response
+ * @returns {Promise<any>}
+ */
 async function parseJsonResponse(response) {
   const rawBody = await response.text();
   if (!rawBody) {

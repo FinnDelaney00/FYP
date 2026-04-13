@@ -3,6 +3,12 @@ import { renderStatusBadge } from "./statusBadge.js";
 import { escapeAttr, escapeHtml } from "../utils/dom.js";
 import { formatRelativeTime, formatTimestamp } from "../utils/formatters.js";
 
+/**
+ * Renders the main pipeline health table.
+ *
+ * @param {Array<object>} pipelines
+ * @returns {string}
+ */
 export function renderPipelineTable(pipelines) {
   return `
     <div class="table-shell">
@@ -29,6 +35,13 @@ export function renderPipelineTable(pipelines) {
   `;
 }
 
+/**
+ * Renders a single pipeline table row, including the detail action and status
+ * history sparkline.
+ *
+ * @param {object} pipeline
+ * @returns {string}
+ */
 function renderRow(pipeline) {
   const alarmTone = pipeline.alarm_count > 0 ? "alarm-count--active" : "";
 

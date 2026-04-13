@@ -1,3 +1,5 @@
+// A shared formatter keeps timestamp output consistent across the table, header,
+// and modal views without repeatedly constructing Intl formatters.
 const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
@@ -5,6 +7,12 @@ const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit"
 });
 
+/**
+ * Formats a timestamp into a short month/day/time string for compact UI slots.
+ *
+ * @param {string | number | Date | null | undefined} value
+ * @returns {string}
+ */
 export function formatTimestamp(value) {
   if (!value) {
     return "No signal";
@@ -19,6 +27,13 @@ export function formatTimestamp(value) {
   return TIMESTAMP_FORMATTER.format(date);
 }
 
+/**
+ * Formats a timestamp relative to the current time using the same compact style
+ * used throughout the dashboard.
+ *
+ * @param {string | number | Date | null | undefined} value
+ * @returns {string}
+ */
 export function formatRelativeTime(value) {
   if (!value) {
     return "No signal";
@@ -51,6 +66,13 @@ export function formatRelativeTime(value) {
   return diffDays > 0 ? `${diffDays}d ago` : `in ${Math.abs(diffDays)}d`;
 }
 
+/**
+ * Formats freshness lag values into compact minute/hour labels for summary
+ * cards in the pipeline detail modal.
+ *
+ * @param {number | string | null | undefined} minutes
+ * @returns {string}
+ */
 export function formatLag(minutes) {
   if (minutes == null || Number.isNaN(Number(minutes))) {
     return "n/a";

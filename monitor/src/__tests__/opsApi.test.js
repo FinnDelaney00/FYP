@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/**
+ * Creates a lightweight fetch response double that mirrors the part of the
+ * Fetch API consumed by the JSON client.
+ *
+ * @param {object | string} payload
+ * @param {{ ok?: boolean, status?: number }} [options]
+ * @returns {{ ok: boolean, status: number, text: ReturnType<typeof vi.fn> }}
+ */
 function responseWithText(payload, { ok = true, status = 200 } = {}) {
   return {
     ok,

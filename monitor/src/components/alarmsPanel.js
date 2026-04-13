@@ -2,6 +2,13 @@ import { renderSeverityPill } from "./severityPill.js";
 import { escapeAttr, escapeHtml } from "../utils/dom.js";
 import { formatRelativeTime, formatTimestamp } from "../utils/formatters.js";
 
+/**
+ * Renders the alarms rail, capped to the most recent active entries so the side
+ * panel stays scannable.
+ *
+ * @param {Array<object>} alarms
+ * @returns {string}
+ */
 export function renderAlarmsPanel(alarms) {
   const activeAlarms = alarms.slice(0, 5);
 
@@ -16,6 +23,12 @@ export function renderAlarmsPanel(alarms) {
   `;
 }
 
+/**
+ * Renders a single alarm row for the rail list.
+ *
+ * @param {object} alarm
+ * @returns {string}
+ */
 function renderAlarmItem(alarm) {
   return `
     <li class="list-item">

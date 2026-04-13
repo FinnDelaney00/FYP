@@ -1,5 +1,11 @@
 import { normalizeStatus } from "../utils/status.js";
 
+/**
+ * Renders a compact status history sparkline as a row of colored bars.
+ *
+ * @param {string[]} [history=[]]
+ * @returns {string}
+ */
 export function renderSparkline(history = []) {
   if (!history.length) {
     return '<div class="sparkline sparkline--empty"><span class="sparkline__empty">No history</span></div>';

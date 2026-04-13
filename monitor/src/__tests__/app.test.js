@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Stub the ops API at the module boundary so the app test can focus on the DOM
+// contract instead of the transport layer.
 vi.mock("../api/opsApi.js", () => ({
   createOpsApi: () => ({
     getOverview: vi.fn().mockResolvedValue({
@@ -141,6 +143,12 @@ vi.mock("../api/opsApi.js", () => ({
   }),
 }));
 
+/**
+ * Waits for pending microtasks and the next macrotask so async render work can
+ * settle before assertions run.
+ *
+ * @returns {Promise<void>}
+ */
 async function flushPromises() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));

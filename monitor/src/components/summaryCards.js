@@ -1,5 +1,6 @@
 import { escapeHtml } from "../utils/dom.js";
 
+// Card order is fixed so overview metrics always land in a predictable place.
 const CARD_DEFINITIONS = [
   {
     key: "total_pipelines",
@@ -28,6 +29,12 @@ const CARD_DEFINITIONS = [
   }
 ];
 
+/**
+ * Renders the overview summary cards from the aggregated monitor snapshot.
+ *
+ * @param {Record<string, number>} overview
+ * @returns {string}
+ */
 export function renderSummaryCards(overview) {
   return CARD_DEFINITIONS.map((card) => {
     const value = overview?.[card.key] ?? 0;

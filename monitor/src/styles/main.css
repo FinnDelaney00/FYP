@@ -1,5 +1,6 @@
 @import "./theme.css";
 
+/* Top-level app shell and decorative backdrop. */
 body {
   overflow-x: hidden;
 }
@@ -43,6 +44,7 @@ body {
   opacity: 0.18;
 }
 
+/* Shared panel container used by the top bar, cards, tables, and modal. */
 .monitor-shell {
   position: relative;
   width: min(1480px, calc(100vw - 40px));
@@ -73,6 +75,7 @@ body {
   opacity: 0.65;
 }
 
+/* Top bar layout and header typography. */
 .topbar {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.95fr);
@@ -260,6 +263,7 @@ body {
     var(--surface-soft);
 }
 
+/* Shared button styling for page and modal actions. */
 .button {
   min-height: 42px;
   border-radius: var(--radius-sm);
@@ -314,6 +318,7 @@ body {
   white-space: nowrap;
 }
 
+/* Main page layout and critical incident banner. */
 .dashboard-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
@@ -389,6 +394,7 @@ body {
   }
 }
 
+/* Overview metric cards and section headers. */
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -515,6 +521,7 @@ body {
   min-height: 0;
 }
 
+/* Filter controls and list-style rails. */
 .filter-bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, auto));
@@ -670,6 +677,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Status/severity palettes and pipeline table styling. */
 .status-badge--healthy {
   background: var(--healthy-soft);
   color: #cfe8d7;
@@ -832,6 +840,7 @@ body {
   color: #f0d2cd;
 }
 
+/* Sparkline, empty states, and loading/error placeholders. */
 .sparkline {
   display: grid;
   grid-auto-flow: column;
@@ -929,6 +938,7 @@ body {
   }
 }
 
+/* Pipeline detail modal layout and component cards. */
 .modal-shell {
   position: fixed;
   inset: 0;
@@ -1111,6 +1121,7 @@ body {
   font-size: 0.82rem;
 }
 
+/* Custom scrollbar treatment for scrollable containers. */
 .table-shell,
 .modal-panel {
   scrollbar-width: thin;
@@ -1131,6 +1142,8 @@ body {
   background-clip: content-box;
 }
 
+/* Responsive breakpoints progressively collapse the dense desktop layout into
+   stacked sections for tablets and phones. */
 @media (max-width: 1280px) {
   .dashboard-layout {
     grid-template-columns: 1fr;

@@ -1,16 +1,34 @@
+// Rebuild the mock snapshot periodically so relative timestamps keep feeling
+// current during long-running local sessions without changing on every access.
 const CACHE_TTL_MS = 30_000;
 
 let cachedDataset = null;
 let cachedAtMs = 0;
 
+/**
+ * Returns a cloned mock overview payload.
+ *
+ * @returns {object}
+ */
 export function getMockOverview() {
   return cloneValue(getMockDataset().overview);
 }
 
+/**
+ * Returns the pipeline list used by the overview table.
+ *
+ * @returns {Array<object>}
+ */
 export function getMockPipelines() {
   return cloneValue(getMockDataset().pipelines);
 }
 
+/**
+ * Returns a cloned detail payload for a specific pipeline.
+ *
+ * @param {string} pipelineId
+ * @returns {object}
+ */
 export function getMockPipelineDetails(pipelineId) {
   const pipelineDetail = getMockDataset().pipelineDetails[pipelineId];
 
@@ -21,14 +39,30 @@ export function getMockPipelineDetails(pipelineId) {
   return cloneValue(pipelineDetail);
 }
 
+/**
+ * Returns the mock alarms collection.
+ *
+ * @returns {Array<object>}
+ */
 export function getMockAlarms() {
   return cloneValue(getMockDataset().alarms);
 }
 
+/**
+ * Returns the mock log summary shown in the right-hand rail.
+ *
+ * @returns {Array<object>}
+ */
 export function getMockLogSummary() {
   return cloneValue(getMockDataset().logSummary);
 }
 
+/**
+ * Reuses a short-lived in-memory snapshot so all mock endpoints stay internally
+ * consistent during a single render cycle.
+ *
+ * @returns {object}
+ */
 function getMockDataset() {
   const nowMs = Date.now();
 
@@ -40,6 +74,18 @@ function getMockDataset() {
   return cachedDataset;
 }
 
+/**
+ * Builds the monitor's canonical mock dataset. The data is intentionally varied
+ * so the UI exercises healthy, degraded, and down states together.
+ *
+ * @returns {{
+ *   overview: object,
+ *   pipelines: Array<object>,
+ *   alarms: Array<object>,
+ *   pipelineDetails: Record<string, object>,
+ *   logSummary: Array<object>
+ * }}
+ */
 function buildMockDataset() {
   const pipelines = [
     {
@@ -564,14 +610,33 @@ function buildMockDataset() {
   };
 }
 
+/**
+ * Produces a defensive deep clone so consumers cannot mutate the shared cached
+ * dataset by accident.
+ *
+ * @param {any} value
+ * @returns {any}
+ */
 function cloneValue(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+/**
+ * Generates an ISO timestamp relative to the current time.
+ *
+ * @param {number} minutes
+ * @returns {string}
+ */
 function minutesAgo(minutes) {
   return new Date(Date.now() - minutes * 60_000).toISOString();
 }
 
+/**
+ * Generates an ISO timestamp measured in hours.
+ *
+ * @param {number} hours
+ * @returns {string}
+ */
 function hoursAgo(hours) {
   return new Date(Date.now() - hours * 3_600_000).toISOString();
 }

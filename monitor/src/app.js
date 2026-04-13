@@ -2,9 +2,18 @@ import { createOpsApi } from "./api/opsApi.js";
 import { createOverviewPage } from "./pages/overviewPage.js";
 import { compareStatusSeverity } from "./utils/status.js";
 
+// Keep the UI responsive by defaulting to a one-minute poll while still allowing
+// deployments to opt into a faster cadence for demos or operational drills.
 const DEFAULT_REFRESH_INTERVAL_MS = 60_000;
 const MIN_REFRESH_INTERVAL_MS = 15_000;
 
+/**
+ * Creates the monitor application controller and wires together data loading,
+ * filter state, auto-refresh, and the pipeline detail modal.
+ *
+ * @param {HTMLElement} rootElement Root DOM node that owns the monitor UI.
+ * @returns {{ destroy: () => void }} Cleanup API for timers and listeners.
+ */
 export function createMonitorApp(rootElement) {
   const api = createOpsApi();
   const state = {
@@ -43,6 +52,11 @@ export function createMonitorApp(rootElement) {
     onUpdateFilters: (nextFilters) => updateFilters(nextFilters)
   });
 
+  /**
+   * Recomputes the derived view model and hands it to the page renderer.
+   * Keeping the mapping in one place makes it easier to evolve the state shape
+   * without spreading presentation logic across event handlers.
+   */
   function render() {
     const selectedPipeline = state.pipelines.find((pipeline) => pipeline.id === state.selectedPipelineId) ?? null;
 
@@ -68,6 +82,13 @@ export function createMonitorApp(rootElement) {
     });
   }
 
+  /**
+   * Refreshes the top-level monitor snapshot. When the refresh is silent we keep
+   * the existing data on screen so background polling does not flash the layout.
+   *
+   * @param {{ silent?: boolean }} [options]
+   * @returns {Promise<void>}
+   */
   async function refreshSnapshot({ silent = false } = {}) {
     if (!silent) {
       state.isLoading = !state.overview;
@@ -108,6 +129,8 @@ export function createMonitorApp(rootElement) {
       state.isLoading = false;
       state.errorMessage = "";
 
+      // Rehydrate the selected detail view in the background so the modal tracks
+      // the latest pipeline state without blocking the overview refresh.
       if (state.selectedPipelineId) {
         void loadPipelineDetail(state.selectedPipelineId, { background: true });
       }
@@ -119,6 +142,12 @@ export function createMonitorApp(rootElement) {
     render();
   }
 
+  /**
+   * Merges new filter values into the current filter state and re-renders the
+   * derived pipeline list immediately.
+   *
+   * @param {Partial<typeof state.filters>} nextFilters
+   */
   function updateFilters(nextFilters) {
     state.filters = {
       ...state.filters,
@@ -127,12 +156,19 @@ export function createMonitorApp(rootElement) {
     render();
   }
 
+  /**
+   * Toggles polling on or off from the top-bar control.
+   */
   function toggleAutoRefresh() {
     state.autoRefreshEnabled = !state.autoRefreshEnabled;
     configureAutoRefresh();
     render();
   }
 
+  /**
+   * Rebuilds the polling timer to reflect the latest enablement flag and
+   * sanitized refresh interval.
+   */
   function configureAutoRefresh() {
     if (refreshTimerId) {
       window.clearInterval(refreshTimerId);
@@ -148,6 +184,13 @@ export function createMonitorApp(rootElement) {
     }, state.refreshIntervalMs);
   }
 
+  /**
+   * Opens the detail modal and immediately shows cached detail data when it is
+   * available, then refreshes the selected pipeline in the background.
+   *
+   * @param {string} pipelineId
+   * @returns {Promise<void>}
+   */
   async function openPipelineDetails(pipelineId) {
     state.selectedPipelineId = pipelineId;
     state.detailError = "";
@@ -157,6 +200,14 @@ export function createMonitorApp(rootElement) {
     await loadPipelineDetail(pipelineId, { background: Boolean(state.selectedPipelineDetail) });
   }
 
+  /**
+   * Loads pipeline detail data and guards against out-of-order responses by
+   * tagging each request with a monotonically increasing token.
+   *
+   * @param {string} pipelineId
+   * @param {{ background?: boolean }} [options]
+   * @returns {Promise<void>}
+   */
   async function loadPipelineDetail(pipelineId, { background = false } = {}) {
     const requestToken = ++detailRequestToken;
 
@@ -192,6 +243,10 @@ export function createMonitorApp(rootElement) {
     render();
   }
 
+  /**
+   * Clears the current modal selection without touching the cached detail data,
+   * so reopening the same pipeline can show the last known snapshot instantly.
+   */
   function closePipelineDetails() {
     state.selectedPipelineId = null;
     state.selectedPipelineDetail = null;
@@ -200,6 +255,11 @@ export function createMonitorApp(rootElement) {
     render();
   }
 
+  /**
+   * Applies the current status/query filters and sort order to the pipeline list.
+   *
+   * @returns {Array<object>}
+   */
   function getVisiblePipelines() {
     const query = state.filters.query.trim().toLowerCase();
 
@@ -232,6 +292,13 @@ export function createMonitorApp(rootElement) {
   };
 }
 
+/**
+ * Normalizes the refresh interval environment variable and enforces a minimum
+ * cadence so an accidental low value cannot hammer the API.
+ *
+ * @param {string | number | undefined | null} value
+ * @returns {number}
+ */
 function sanitizeRefreshInterval(value) {
   const parsed = Number.parseInt(value ?? "", 10);
 
@@ -242,6 +309,14 @@ function sanitizeRefreshInterval(value) {
   return DEFAULT_REFRESH_INTERVAL_MS;
 }
 
+/**
+ * Collapses endpoint metadata into a single badge value for the page header.
+ * Mixed means at least one resource came from live data while another fell back
+ * to mock data in the same snapshot.
+ *
+ * @param {Array<{ source?: string } | undefined>} metaEntries
+ * @returns {"live" | "mixed" | "mock" | "partial"}
+ */
 function resolveDataSource(metaEntries) {
   const sources = new Set(metaEntries.map((meta) => meta.source).filter(Boolean));
 
@@ -260,6 +335,15 @@ function resolveDataSource(metaEntries) {
   return metaEntries[0]?.source ?? "mock";
 }
 
+/**
+ * Sorts pipelines by the requested order, using name as a stable tie-breaker
+ * when severity alone cannot determine placement.
+ *
+ * @param {{ name: string, overall_status: string }} left
+ * @param {{ name: string, overall_status: string }} right
+ * @param {"severity" | "name-asc" | "name-desc"} sortOrder
+ * @returns {number}
+ */
 function sortPipelines(left, right, sortOrder) {
   if (sortOrder === "name-asc") {
     return left.name.localeCompare(right.name);
@@ -278,6 +362,19 @@ function sortPipelines(left, right, sortOrder) {
   return left.name.localeCompare(right.name);
 }
 
+/**
+ * Provides a stable empty overview model so the renderer does not need to guard
+ * against missing metric keys during the initial load.
+ *
+ * @returns {{
+ *   total_pipelines: number,
+ *   healthy: number,
+ *   degraded: number,
+ *   down: number,
+ *   active_alarms: number,
+ *   last_updated: string | null
+ * }}
+ */
 function createEmptyOverview() {
   return {
     total_pipelines: 0,
