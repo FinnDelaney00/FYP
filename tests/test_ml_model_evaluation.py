@@ -1,3 +1,5 @@
+"""Offline evaluation tests for the forecasting and anomaly-detection models."""
+
 import math
 import os
 import unittest
@@ -13,8 +15,12 @@ RUN_INDEX_PATH = REPORTS_DIR / "ml_model_evaluation_report_index.txt"
 
 
 class MLModelEvaluationTests(unittest.TestCase):
+    """Backtest forecasting quality and score anomaly precision/recall on labelled samples."""
+
     @classmethod
     def setUpClass(cls):
+        """Load both ML lambdas once and prepare optional report-writing metadata."""
+
         cls.run_started_at = datetime.now(timezone.utc)
         cls.write_reports = str(os.environ.get("SMARTSTREAM_WRITE_ML_EVAL_REPORTS", "false")).strip().lower() == "true"
         cls.report_path = REPORTS_DIR / (
@@ -54,6 +60,8 @@ class MLModelEvaluationTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        """Persist the collected evaluation report when report writing is enabled."""
+
         if not cls.write_reports:
             return
         cls.report_path.write_text("\n\n".join(cls.report_sections) + "\n", encoding="utf-8")
@@ -61,6 +69,8 @@ class MLModelEvaluationTests(unittest.TestCase):
             index_file.write(f"{cls.run_started_at.isoformat()} {cls.report_path.name}\n")
 
     def test_forecasting_backtest_metrics(self):
+        """Forecasts should stay within the tolerated error bounds on synthetic holdout data."""
+
         forecast_specs = [
             {
                 "metric_name": "employee_headcount",
@@ -121,6 +131,8 @@ class MLModelEvaluationTests(unittest.TestCase):
         self.report_sections.append("\n".join(lines))
 
     def test_manual_labelled_anomaly_precision_recall_f1(self):
+        """Anomaly detection should achieve acceptable precision and recall on labelled samples."""
+
         transaction_records, transaction_labels = self.build_manual_labelled_transaction_sample()
         daily_records, daily_labels = self.build_manual_labelled_daily_sample()
 
@@ -206,6 +218,8 @@ class MLModelEvaluationTests(unittest.TestCase):
         rmse_limit: float,
         mape_limit: float,
     ) -> Dict[str, Any]:
+        """Train a forecaster on synthetic history and compute holdout error metrics."""
+
         del mae_limit, rmse_limit, mape_limit
         train_values, holdout_values = cls.build_forecast_series(
             base=base,
@@ -263,6 +277,8 @@ class MLModelEvaluationTests(unittest.TestCase):
         train_days: int = 60,
         holdout_days: int = 7,
     ) -> Tuple[Dict[date, float], Dict[date, float]]:
+        """Generate train and holdout time series with trend and weekday seasonality."""
+
         start_date = date(2026, 1, 1)
         all_values: Dict[date, float] = {}
 
@@ -280,6 +296,8 @@ class MLModelEvaluationTests(unittest.TestCase):
 
     @staticmethod
     def build_manual_labelled_transaction_sample() -> Tuple[List[Dict[str, Any]], set[str]]:
+        """Create transaction records plus the ids that should be treated as anomalies."""
+
         records: List[Dict[str, Any]] = []
         labelled_anomalies = {
             "anomaly-major-1",
@@ -339,6 +357,8 @@ class MLModelEvaluationTests(unittest.TestCase):
 
     @staticmethod
     def build_manual_labelled_daily_sample() -> Tuple[List[Dict[str, Any]], set[str]]:
+        """Create daily revenue-like samples and expected aggregate anomaly identifiers."""
+
         records: List[Dict[str, Any]] = []
         labelled_anomalies = {
             "revenue-2026-02-06",
@@ -384,6 +404,8 @@ class MLModelEvaluationTests(unittest.TestCase):
         labelled_positive_ids: set[str],
         predicted_positive_ids: set[str],
     ) -> Dict[str, float]:
+        """Compute precision, recall, and F1 from labelled and predicted anomaly ids."""
+
         true_positives = len(labelled_positive_ids & predicted_positive_ids)
         false_positives = len(predicted_positive_ids - labelled_positive_ids)
         false_negatives = len(labelled_positive_ids - predicted_positive_ids)

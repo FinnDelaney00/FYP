@@ -1,9 +1,13 @@
+"""Regression tests for the Python layer packaging helper script."""
+
 from pathlib import Path
 
 from tests.helpers import load_module
 
 
 def test_strip_package_tree_preserves_numpy_testing_package(tmp_path):
+    """Ensure package pruning keeps NumPy runtime modules while stripping app test trees."""
+
     module = load_module(
         relative_path="smartstream-terraform/scripts/package_python_layer.py",
         module_name="package_python_layer_under_test",

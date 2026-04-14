@@ -1,3 +1,5 @@
+"""Unit tests for the ML forecasting Lambda."""
+
 import json
 import unittest
 from datetime import date, datetime, timedelta, timezone
@@ -6,8 +8,12 @@ from tests.helpers import FakeS3Client, load_module
 
 
 class MLInferenceLambdaTests(unittest.TestCase):
+    """Cover parsing, training data preparation, and end-to-end forecast generation."""
+
     @classmethod
     def setUpClass(cls):
+        """Import the forecasting Lambda with fake storage and deterministic env config."""
+
         cls.fake_s3 = FakeS3Client()
         cls.module = load_module(
             relative_path="smartstream-terraform/lambdas/ml/lambda_function.py",
@@ -23,11 +29,15 @@ class MLInferenceLambdaTests(unittest.TestCase):
         )
 
     def setUp(self):
+        """Clear fake S3 state between tests to keep assertions isolated."""
+
         self.fake_s3.objects.clear()
         self.fake_s3.pages = []
         self.fake_s3.put_calls.clear()
 
     def test_parse_bool_supports_multiple_truthy_and_falsy_values(self):
+        """Boolean coercion should recognize the mixed inputs used in upstream payloads."""
+
         self.assertTrue(self.module.parse_bool("yes"))
         self.assertTrue(self.module.parse_bool(1))
         self.assertFalse(self.module.parse_bool("terminated"))
@@ -35,6 +45,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertIsNone(self.module.parse_bool("maybe"))
 
     def test_parse_datetime_handles_iso_epoch_and_date(self):
+        """Date parsing should normalize ISO strings, epoch milliseconds, and date-only values."""
+
         iso = self.module.parse_datetime("2026-01-01T10:00:00Z")
         epoch_ms = self.module.parse_datetime("1704067200000")
         date_only = self.module.parse_datetime("2026-02-24")
@@ -46,6 +58,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(date_only.tzinfo, timezone.utc)
 
     def test_build_forecast_training_frame_creates_lag_features(self):
+        """Training frames should include the lag features expected by the forecaster."""
+
         start = date(2026, 1, 1)
         values = {start + timedelta(days=offset): float(100 + offset) for offset in range(30)}
         series = self.module.build_daily_series(values_by_date=values, carry_forward=False)
@@ -56,6 +70,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertFalse(frame[self.module.FEATURE_COLUMNS].isnull().any().any())
 
     def test_build_employee_growth_insight_trains_random_forest_forecast(self):
+        """Employee history with enough signal should produce a random-forest forecast."""
+
         records = []
         base_day = datetime(2026, 1, 1, tzinfo=timezone.utc)
         for offset in range(28):
@@ -81,6 +97,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(result["forecast"][0]["status"], "ok")
 
     def test_build_finance_insight_returns_insufficient_data_when_history_is_short(self):
+        """Short finance histories should return explicit insufficient-data diagnostics."""
+
         records = [
             {"transaction_date": "2026-01-01", "amount": "100.00", "type": "sale"},
             {"transaction_date": "2026-01-02", "amount": "$40.00", "type": "expense"},
@@ -96,6 +114,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(result["revenue"]["forecast"], [])
 
     def test_build_finance_insight_trains_random_forest_for_revenue_and_expenditure(self):
+        """Longer finance histories should produce revenue and expenditure forecasts together."""
+
         records = []
         base_day = date(2026, 1, 1)
         for offset in range(35):
@@ -127,6 +147,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertIn("predicted_expenditure", result["expenditure"]["forecast"][0])
 
     def test_parse_records_skips_invalid_json_lines(self):
+        """Malformed JSON rows should be ignored while valid records are preserved."""
+
         payload = "\n".join(
             [
                 '{"employee_id": "emp-1"}',
@@ -140,6 +162,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(records, [{"employee_id": "emp-1"}, {"employee_id": "emp-2"}])
 
     def test_read_records_from_objects_skips_corrupted_payload_and_continues(self):
+        """Corrupted trusted objects should not prevent the loader from returning good rows."""
+
         valid_key = "trusted/smartstream-dev/employees/employees/2026/02/24/valid.json"
         broken_key = "trusted/smartstream-dev/employees/employees/2026/02/24/broken.json.gz"
         now = datetime(2026, 2, 24, 12, 0, tzinfo=timezone.utc)
@@ -159,6 +183,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(records[0]["_source_key"], valid_key)
 
     def test_lambda_handler_returns_no_input_data_when_no_objects_exist(self):
+        """A scheduled run with no inputs should still write a no-input diagnostics payload."""
+
         self.fake_s3.pages = [{"Contents": []}]
 
         response = self.module.lambda_handler({"source": "aws.events"}, context=None)
@@ -170,6 +196,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
         self.assertEqual(len(self.fake_s3.put_calls), 1)
 
     def test_module_rejects_invalid_max_input_files_env(self):
+        """Import-time validation should reject an invalid maximum input file count."""
+
         with self.assertRaises(ValueError):
             load_module(
                 relative_path="smartstream-terraform/lambdas/ml/lambda_function.py",
@@ -182,6 +210,8 @@ class MLInferenceLambdaTests(unittest.TestCase):
             )
 
     def test_lambda_handler_end_to_end_writes_prediction_payload(self):
+        """The Lambda should combine employee and finance histories into one prediction payload."""
+
         employees_key = "trusted/smartstream-dev/employees/employees/2026/02/24/employees.json"
         finance_key = "trusted/smartstream-dev/finance/transactions/2026/02/24/transactions.json"
         self.fake_s3.pages = [

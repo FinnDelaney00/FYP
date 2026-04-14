@@ -1,3 +1,5 @@
+"""Integration-style tests that exercise multiple Lambda stages together."""
+
 import json
 from datetime import date, datetime, timedelta, timezone
 
@@ -8,6 +10,8 @@ from tests.test_live_api_lambda import FakeAthenaClient, FakeDynamoResource, Fak
 
 
 def _refresh_s3_pages(fake_s3):
+    """Rebuild paginator pages from the fake object store after a Lambda writes data."""
+
     base_time = datetime(2026, 3, 1, 10, 0, tzinfo=timezone.utc)
     contents = []
     for index, key in enumerate(sorted(fake_s3.objects.keys())):
@@ -27,6 +31,8 @@ def _refresh_s3_pages(fake_s3):
 
 
 def _load_live_api_module(fake_s3):
+    """Import the live API Lambda with fake Athena, Glue, and DynamoDB dependencies."""
+
     fake_athena = FakeAthenaClient()
     fake_glue = FakeGlueClient()
     fake_glue.tables = [
@@ -69,6 +75,8 @@ def _load_live_api_module(fake_s3):
 
 
 def _auth_headers(module, fake_dynamodb, *, email, company_id="acme", role="member", display_name="Integration User"):
+    """Create a company, seed an account, and return auth headers for API requests."""
+
     company_table = fake_dynamodb.Table("companies")
     company_table.put_item(
         Item={
@@ -95,6 +103,8 @@ def _auth_headers(module, fake_dynamodb, *, email, company_id="acme", role="memb
 
 @pytest.mark.integration
 def test_raw_to_forecast_to_live_api_workflow():
+    """Verify the pipeline from raw CDC input through transform, ML, and live API reads."""
+
     fake_s3 = FakeS3Client()
     raw_key = "raw/2026/03/01/source.json.gz"
     raw_lines = []
@@ -205,6 +215,8 @@ def test_raw_to_forecast_to_live_api_workflow():
 
 @pytest.mark.integration
 def test_trusted_finance_to_anomaly_review_workflow():
+    """Verify anomaly detection output can be surfaced and reviewed through the live API."""
+
     fake_s3 = FakeS3Client()
     finance_key = "trusted/acme/finance/transactions/2026/03/01/transactions.json"
     lines = []

@@ -1,3 +1,5 @@
+"""Unit tests for the finance anomaly detection Lambda."""
+
 import json
 import unittest
 from datetime import date, datetime, timedelta, timezone
@@ -6,8 +8,12 @@ from tests.helpers import FakeS3Client, load_module
 
 
 class AnomalyLambdaTests(unittest.TestCase):
+    """Exercise anomaly feature engineering, detection modes, and output writes."""
+
     @classmethod
     def setUpClass(cls):
+        """Import the anomaly Lambda with stable configuration and fake AWS clients."""
+
         cls.fake_s3 = FakeS3Client()
         cls.module = load_module(
             relative_path="smartstream-terraform/lambdas/anomaly/lambda_function.py",
@@ -24,11 +30,15 @@ class AnomalyLambdaTests(unittest.TestCase):
         )
 
     def setUp(self):
+        """Reset in-memory S3 state before each test case."""
+
         self.fake_s3.objects.clear()
         self.fake_s3.pages = []
         self.fake_s3.put_calls.clear()
 
     def test_build_anomaly_frame_adds_transaction_features(self):
+        """Transaction mode should engineer every feature column required by the model."""
+
         rows = []
         start = datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc)
         for offset in range(25):
@@ -51,6 +61,8 @@ class AnomalyLambdaTests(unittest.TestCase):
             self.assertIn(column, frame.columns)
 
     def test_detect_finance_anomalies_prefers_transaction_mode_and_flags_outlier(self):
+        """With enough transaction-level history, the detector should stay in transaction mode."""
+
         records = []
         start = date(2026, 1, 1)
         for offset in range(30):
@@ -80,6 +92,8 @@ class AnomalyLambdaTests(unittest.TestCase):
         self.assertIn("description", first)
 
     def test_detect_finance_anomalies_falls_back_to_daily_mode(self):
+        """Shorter histories should fall back to daily aggregates and still flag anomalies."""
+
         records = []
         start = date(2026, 1, 1)
         for offset in range(16):
@@ -103,6 +117,8 @@ class AnomalyLambdaTests(unittest.TestCase):
         self.assertIn(result["anomalies"][0]["anomaly_type"], {"daily_revenue_drop", "daily_total_anomaly"})
 
     def test_detect_finance_anomalies_returns_insufficient_data_for_empty_records(self):
+        """An empty finance feed should produce the explicit insufficient-data response."""
+
         result = self.module.detect_finance_anomalies([], detected_at=datetime.now(timezone.utc))
 
         self.assertEqual(result["status"], "insufficient_data")
@@ -110,6 +126,8 @@ class AnomalyLambdaTests(unittest.TestCase):
         self.assertEqual(result["metadata"]["rows_modeled"], 0)
 
     def test_read_records_from_objects_skips_corrupted_payload_and_continues(self):
+        """Corrupted objects should be skipped without preventing valid rows from loading."""
+
         valid_key = "trusted/smartstream-dev/finance/transactions/2026/03/09/valid.json"
         broken_key = "trusted/smartstream-dev/finance/transactions/2026/03/09/broken.json.gz"
         now = datetime(2026, 3, 9, 10, 0, tzinfo=timezone.utc)
@@ -129,6 +147,8 @@ class AnomalyLambdaTests(unittest.TestCase):
         self.assertEqual(records[0]["_source_key"], valid_key)
 
     def test_lambda_handler_falls_back_to_finance_prefix_when_transactions_prefix_is_empty(self):
+        """The handler should search the broader finance prefix if transaction files are absent."""
+
         finance_key = "trusted/smartstream-dev/finance/accounts/2026/03/09/accounts.json"
         now = datetime(2026, 3, 9, 10, 0, tzinfo=timezone.utc)
 
@@ -157,6 +177,8 @@ class AnomalyLambdaTests(unittest.TestCase):
         self.assertEqual(len(self.fake_s3.put_calls), 1)
 
     def test_module_rejects_invalid_max_input_files_env(self):
+        """Import-time validation should reject non-positive input file limits."""
+
         with self.assertRaises(ValueError):
             load_module(
                 relative_path="smartstream-terraform/lambdas/anomaly/lambda_function.py",
@@ -169,6 +191,8 @@ class AnomalyLambdaTests(unittest.TestCase):
             )
 
     def test_lambda_handler_writes_anomaly_payload(self):
+        """A scheduled anomaly run should persist a model output payload to analytics storage."""
+
         transactions_key = "trusted/smartstream-dev/finance/transactions/2026/03/09/transactions.json"
         now = datetime(2026, 3, 9, 10, 0, tzinfo=timezone.utc)
 

@@ -1,1 +1,1 @@
-# Test package marker for unittest discovery imports.
+"""Test package marker so helpers can be imported with ``tests.*`` paths."""

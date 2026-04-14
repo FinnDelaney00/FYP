@@ -1,3 +1,5 @@
+"""Shared fakes and import helpers used by the backend test suite."""
+
 import gzip
 import importlib.util
 import os
@@ -12,6 +14,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _preload_optional_dependencies() -> None:
+    """Best-effort import of optional ML packages before loading Lambda code.
+
+    Several Lambda modules branch on whether scientific Python dependencies are
+    importable at module import time. Preloading them mirrors production imports
+    without making the tests fail when a dependency is intentionally absent.
+    """
+
     module_names = [
         "joblib",
         "numpy",
@@ -29,18 +38,26 @@ def _preload_optional_dependencies() -> None:
 
 
 class FakeStreamingBody:
+    """Minimal stand-in for the boto3 streaming body wrapper."""
+
     def __init__(self, payload: bytes):
         self._payload = payload
 
     def read(self) -> bytes:
+        """Return the full payload in a single read, matching test expectations."""
+
         return self._payload
 
 
 class FakePaginator:
+    """Simple paginator that optionally filters S3 keys by prefix."""
+
     def __init__(self, pages: Iterable[Dict[str, Any]]):
         self._pages = list(pages)
 
     def paginate(self, **kwargs):
+        """Yield stored pages while honoring the ``Prefix`` filter used in tests."""
+
         prefix = kwargs.get("Prefix", "")
         for page in self._pages:
             contents = page.get("Contents", [])
@@ -51,17 +68,23 @@ class FakePaginator:
 
 
 class FakeS3Client:
+    """In-memory S3 fake that supports the subset of calls used by the lambdas."""
+
     def __init__(self, pages: Optional[Iterable[Dict[str, Any]]] = None, objects: Optional[Dict[str, Any]] = None):
         self.pages = list(pages or [])
         self.objects = dict(objects or {})
         self.put_calls = []
 
     def get_paginator(self, name: str) -> FakePaginator:
+        """Return the list-objects paginator expected by the code under test."""
+
         if name != "list_objects_v2":
             raise ValueError(f"Unsupported paginator: {name}")
         return FakePaginator(self.pages)
 
     def get_object(self, Bucket: str, Key: str) -> Dict[str, Any]:
+        """Return an object payload wrapped in a ``FakeStreamingBody``."""
+
         if Key not in self.objects:
             raise KeyError(f"Missing fake object for key: {Key}")
 
@@ -74,6 +97,8 @@ class FakeS3Client:
         return {"Body": FakeStreamingBody(bytes(payload))}
 
     def put_object(self, **kwargs) -> Dict[str, Any]:
+        """Record writes and persist the payload for follow-up assertions."""
+
         self.put_calls.append(kwargs)
         key = kwargs.get("Key")
         body = kwargs.get("Body", b"")
@@ -85,6 +110,8 @@ class FakeS3Client:
 
 
 def gzip_bytes(text: str) -> bytes:
+    """Encode text as UTF-8 and return its gzipped representation."""
+
     return gzip.compress(text.encode("utf-8"))
 
 
@@ -97,6 +124,13 @@ def load_module(
     fake_resources: Optional[Dict[str, Any]] = None,
     env: Optional[Dict[str, str]] = None,
 ):
+    """Import a repository module with fake boto3 clients and temporary env vars.
+
+    This helper lets tests exercise Lambda modules exactly as they are authored,
+    including module-level client initialization, without talking to real AWS
+    services.
+    """
+
     module_path = REPO_ROOT / relative_path
     if not module_path.exists():
         raise FileNotFoundError(f"Module path not found: {module_path}")
@@ -137,6 +171,7 @@ def load_module(
 
         module = importlib.util.module_from_spec(spec)
         sys.modules.pop(module_name, None)
+        # Patch boto3 during import so module-level singletons bind to the fakes.
         with patch.dict(sys.modules, {"boto3": fake_boto3}):
             spec.loader.exec_module(module)
         return module

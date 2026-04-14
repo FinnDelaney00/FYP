@@ -1,3 +1,5 @@
+"""Unit tests for the tenant-aware live API Lambda."""
+
 import json
 import unittest
 from datetime import datetime, timezone
@@ -6,10 +8,14 @@ from tests.helpers import FakeS3Client, load_module
 
 
 class _FakeAthenaResultsPaginator:
+    """Paginator that returns canned Athena query result pages."""
+
     def __init__(self, athena_client):
         self._athena_client = athena_client
 
     def paginate(self, QueryExecutionId):
+        """Yield a single Athena-style page for the requested execution id."""
+
         result = self._athena_client.query_results.get(QueryExecutionId) or {
             "columns": [],
             "rows": [],
@@ -33,6 +39,8 @@ class _FakeAthenaResultsPaginator:
 
 
 class FakeAthenaClient:
+    """Athena fake that records executed SQL and exposes canned result sets."""
+
     def __init__(self):
         self.started_queries = []
         self.query_results = {}
@@ -41,6 +49,8 @@ class FakeAthenaClient:
         self.counter = 0
 
     def start_query_execution(self, QueryString, QueryExecutionContext, WorkGroup, **kwargs):
+        """Record the submitted query and return a synthetic execution id."""
+
         self.counter += 1
         query_id = f"q-{self.counter}"
         self.started_queries.append(
@@ -55,6 +65,8 @@ class FakeAthenaClient:
         return {"QueryExecutionId": query_id}
 
     def get_query_execution(self, QueryExecutionId):
+        """Report either a succeeded or failed execution state for the query."""
+
         if self.fail_reason:
             state = "FAILED"
         else:
@@ -65,29 +77,41 @@ class FakeAthenaClient:
         return {"QueryExecution": {"Status": status}}
 
     def stop_query_execution(self, QueryExecutionId):
+        """Track explicit cancellations so tests can assert cleanup behavior."""
+
         self.stopped_queries.append(QueryExecutionId)
 
     def get_paginator(self, name):
+        """Return the paginator used by the live API query pathway."""
+
         if name != "get_query_results":
             raise ValueError(f"Unsupported paginator: {name}")
         return _FakeAthenaResultsPaginator(self)
 
 
 class FakeGlueClient:
+    """Glue fake that serves a configurable list of tables."""
+
     def __init__(self):
         self.tables = []
 
     def get_tables(self, DatabaseName, NextToken=None):
+        """Return the configured tables without pagination."""
+
         del DatabaseName, NextToken
         return {"TableList": list(self.tables)}
 
 
 class FakeDynamoTable:
+    """Minimal DynamoDB table fake for account, invite, and review records."""
+
     def __init__(self, key_name):
         self.key_name = key_name
         self.items = {}
 
     def get_item(self, Key):
+        """Fetch a single item by hash key."""
+
         key_value = Key.get(self.key_name)
         item = self.items.get(key_value)
         if item is None:
@@ -95,6 +119,8 @@ class FakeDynamoTable:
         return {"Item": dict(item)}
 
     def put_item(self, Item, ConditionExpression=None):
+        """Insert or replace an item, with optional existence checking."""
+
         key_value = Item.get(self.key_name)
         if key_value is None:
             raise ValueError(f"Missing hash key '{self.key_name}' in item.")
@@ -104,6 +130,8 @@ class FakeDynamoTable:
         return {"ResponseMetadata": {"HTTPStatusCode": 200}}
 
     def update_item(self, Key, UpdateExpression=None, ConditionExpression=None, ExpressionAttributeValues=None):
+        """Apply a narrow subset of DynamoDB update expressions used by the Lambda."""
+
         ExpressionAttributeValues = ExpressionAttributeValues or {}
         key_value = Key.get(self.key_name)
         item = self.items.get(key_value)
@@ -136,17 +164,23 @@ class FakeDynamoTable:
         return {"Attributes": dict(item)}
 
     def delete_item(self, Key):
+        """Delete an item by hash key if it exists."""
+
         key_value = Key.get(self.key_name)
         self.items.pop(key_value, None)
         return {"ResponseMetadata": {"HTTPStatusCode": 200}}
 
 
 class FakeDynamoResource:
+    """Factory for table fakes keyed by table name."""
+
     def __init__(self, key_names_by_table):
         self.key_names_by_table = dict(key_names_by_table)
         self.tables = {}
 
     def Table(self, name):
+        """Return a stable table fake for the requested table name."""
+
         if name not in self.tables:
             key_name = self.key_names_by_table.get(name, "id")
             self.tables[name] = FakeDynamoTable(key_name)
@@ -154,8 +188,12 @@ class FakeDynamoResource:
 
 
 class LiveApiLambdaTests(unittest.TestCase):
+    """Cover auth, tenant scoping, query routing, and anomaly review workflows."""
+
     @classmethod
     def setUpClass(cls):
+        """Import the live API Lambda with fake AWS backends and fixed environment values."""
+
         cls.fake_s3 = FakeS3Client()
         cls.fake_athena = FakeAthenaClient()
         cls.fake_glue = FakeGlueClient()
@@ -192,6 +230,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         )
 
     def setUp(self):
+        """Reset every fake service so each test runs against isolated state."""
+
         self.fake_s3.objects.clear()
         self.fake_s3.pages = []
         self.fake_s3.put_calls.clear()
@@ -209,9 +249,13 @@ class LiveApiLambdaTests(unittest.TestCase):
             self.fake_dynamodb.Table(table_name).items.clear()
 
     def _table(self, name):
+        """Return a fake DynamoDB table by name."""
+
         return self.fake_dynamodb.Table(name)
 
     def _event(self, method, path, body=None, headers=None, query=None):
+        """Build an API Gateway v2-style event for the Lambda handler."""
+
         event = {
             "requestContext": {"http": {"method": method}},
             "rawPath": path,
@@ -232,6 +276,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         trusted_prefix=None,
         analytics_prefix=None,
     ):
+        """Insert a company configuration record for tenant-scoped route tests."""
+
         self._table("companies").put_item(
             Item={
                 "company_id": company_id,
@@ -243,6 +289,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         )
 
     def _create_invite(self, invite_code="INVITE1234", company_id="acme", role="member", expires_at=None, used=False):
+        """Insert an invite record with predictable defaults."""
+
         if expires_at is None:
             expires_at = int(datetime(2030, 1, 1, tzinfo=timezone.utc).timestamp())
         self._table("invites").put_item(
@@ -258,6 +306,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         )
 
     def _create_account(self, email, company_id="acme", role="member", display_name="Test User", status="active"):
+        """Insert a user account with a valid hashed password for login tests."""
+
         salt_hex, hash_hex = self.module._hash_password("Password123")
         now_iso = datetime.now(timezone.utc).isoformat()
         item = {
@@ -276,11 +326,15 @@ class LiveApiLambdaTests(unittest.TestCase):
         return item
 
     def _auth_headers(self, email):
+        """Issue a bearer token for a seeded account and return request headers."""
+
         account = self._table("accounts").items[email]
         token = self.module._issue_token(account)
         return {"authorization": f"Bearer {token}"}
 
     def _seed_anomaly_source(self, *, company_id="acme", anomalies=None, last_modified=None):
+        """Seed the latest anomaly payload for a company into fake S3."""
+
         key = f"trusted-analytics/{company_id}/anomalies/2026/03/01/anomalies.json"
         modified_at = last_modified or datetime(2026, 3, 1, 10, 0, tzinfo=timezone.utc)
         self.fake_s3.pages = [{"Contents": [{"Key": key, "LastModified": modified_at}]}]
@@ -293,6 +347,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         return key
 
     def test_signup_fails_with_invalid_invite_code(self):
+        """Signup should reject invite codes that do not exist."""
+
         self._create_company("acme")
         response = self.module.lambda_handler(
             self._event(
@@ -306,6 +362,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertNotIn("new@example.com", self._table("accounts").items)
 
     def test_signup_succeeds_with_valid_invite_and_stores_company(self):
+        """Signup should honor the invite's tenant and role rather than client input."""
+
         self._create_company("acme")
         self._create_invite(invite_code="INVITE1234", company_id="acme", role="analyst")
         response = self.module.lambda_handler(
@@ -335,6 +393,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(invite["used_by"], "new@example.com")
 
     def test_invite_cannot_be_reused(self):
+        """A used invite code should be rejected on subsequent signup attempts."""
+
         self._create_company("acme")
         self._create_invite(invite_code="INVITE1234", company_id="acme")
 
@@ -360,6 +420,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertNotIn("second@example.com", self._table("accounts").items)
 
     def test_login_token_includes_company_id_and_role(self):
+        """Login tokens should carry the tenant and role claims used by protected routes."""
+
         self._create_company("acme")
         self._create_account("login@example.com", company_id="acme", role="analyst")
 
@@ -375,6 +437,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(claims["role"], "analyst")
 
     def test_auth_me_returns_company_and_role(self):
+        """The auth-me route should return both account details and company metadata."""
+
         self._create_company("acme")
         self._create_account("me@example.com", company_id="acme", role="viewer", display_name="Viewer")
         response = self.module.lambda_handler(
@@ -388,6 +452,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(body["company"]["company_id"], "acme")
 
     def test_protected_routes_reject_missing_or_invalid_auth(self):
+        """Protected routes should reject requests with missing or malformed bearer tokens."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme")
 
@@ -401,6 +467,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(invalid["statusCode"], 401)
 
     def test_protected_routes_ignore_forged_client_company_id(self):
+        """Tenant-scoped routes must always use the authenticated account's company id."""
+
         self._create_company("acme")
         self._create_company("beta")
         self._create_account("member@example.com", company_id="acme")
@@ -453,6 +521,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertNotIn('FROM "beta_trusted"', self.fake_athena.started_queries[0]["query"])
 
     def test_query_rejects_non_read_only_sql(self):
+        """Write-style SQL should be rejected before Athena execution starts."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme")
 
@@ -471,6 +541,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertIn("read-only", body["message"])
 
     def test_query_falls_back_to_root_trusted_table_when_tenant_table_missing(self):
+        """Query rewriting should fall back to the shared trusted table when needed."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme")
         self.fake_glue.tables = [
@@ -493,6 +565,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertIn('FROM "trusted" WHERE "$path" LIKE \'%/trusted/acme/%\'', self.fake_athena.started_queries[0]["query"])
 
     def test_admin_can_create_invites_only_for_own_company(self):
+        """Admins should be able to create invites only within their own tenant."""
+
         self._create_company("acme")
         self._create_company("beta")
         self._create_account("admin@example.com", company_id="acme", role="admin", display_name="Admin")
@@ -516,6 +590,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(stored_invite["role"], "viewer")
 
     def test_non_admin_cannot_create_invites(self):
+        """Invite creation should be forbidden for non-admin users."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme", role="member")
 
@@ -531,6 +607,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(response["statusCode"], 403)
 
     def test_inactive_company_returns_403(self):
+        """Requests from accounts in inactive companies should be denied."""
+
         self._create_company("acme", status="inactive")
         self._create_account("member@example.com", company_id="acme", role="member")
 
@@ -541,6 +619,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(response["statusCode"], 403)
 
     def test_data_path_resolution_is_company_scoped(self):
+        """Latest-data routes should ignore other tenants' trusted and analytics prefixes."""
+
         self._create_company("acme")
         self._create_company("beta")
         self._create_account("member@example.com", company_id="acme", role="member")
@@ -627,6 +707,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(anomalies_body["items"][0]["anomaly_id"], "acme-a1")
 
     def test_configured_company_prefixes_override_default_company_id_paths(self):
+        """Company-specific trusted prefixes should override derived default paths."""
+
         self._create_company(
             "acme",
             trusted_prefix="trusted/acme-dev/",
@@ -679,6 +761,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(dashboard_body["sources"]["trusted_prefix"], "trusted/acme-dev/")
 
     def test_dashboard_returns_company_scoped_metrics_and_prediction_sources(self):
+        """Dashboard metrics should be derived from the authenticated tenant's latest data."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme", role="member")
 
@@ -738,6 +822,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(body["sources"]["trusted_prefix"], "trusted/acme/")
 
     def test_forecasts_returns_invalid_prediction_when_payload_is_corrupted(self):
+        """Corrupted prediction payloads should degrade gracefully to an invalid-status response."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme", role="member")
 
@@ -765,6 +851,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(body["employee_growth_forecast"], [])
 
     def test_anomalies_support_filters_and_review_state_merging(self):
+        """Anomaly listing should merge review state and apply request-side filters."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme", role="member")
         self._seed_anomaly_source(
@@ -836,6 +924,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(body["summary"]["confirmed_count"], 1)
 
     def test_anomaly_actions_update_status_and_audit_trail(self):
+        """Review actions should persist status changes, notes, and audit history."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme", role="member", display_name="Member")
         self._seed_anomaly_source(
@@ -884,6 +974,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertEqual(detail_body["item"]["audit_trail"][0]["action"], "mark_confirmed")
 
     def test_anomaly_actions_reject_unsupported_actions(self):
+        """Unknown anomaly review actions should return a validation error."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme", role="member")
         self._seed_anomaly_source(anomalies=[{"anomaly_id": "a-1", "detected_at": "2026-03-01T09:55:00Z"}])
@@ -903,6 +995,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertIn("Unsupported review action", body["message"])
 
     def test_query_returns_service_failure_when_athena_execution_fails(self):
+        """Athena execution failures should be returned as user-visible query errors."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme")
         self.fake_athena.fail_reason = "Athena execution failed"
@@ -922,6 +1016,8 @@ class LiveApiLambdaTests(unittest.TestCase):
         self.assertIn("Athena execution failed", body["message"])
 
     def test_invalid_json_request_body_returns_400(self):
+        """Malformed JSON bodies should produce a clear client-side validation error."""
+
         self._create_company("acme")
         self._create_account("member@example.com", company_id="acme")
 
