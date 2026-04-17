@@ -73,6 +73,18 @@ function setupForecastDom() {
   `;
 }
 
+/**
+ * Finds one summary card by its title text.
+ *
+ * @param {string} title
+ * @returns {HTMLElement | undefined}
+ */
+function getForecastCard(title) {
+  return Array.from(document.querySelectorAll("#forecast-summary-cards article")).find(
+    (card) => card.querySelector("h3")?.textContent === title
+  );
+}
+
 describe("initInsightsData", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -172,6 +184,87 @@ describe("initInsightsData", () => {
     document.querySelector('[data-forecast-focus="headcount"]').click();
     await flushPromises();
     expect(document.getElementById("forecast-highlights-title").textContent).toBe("Headcount Highlights");
+
+    stop();
+  });
+
+  it("uses dashboard monthly totals as the last-month baseline when recent rows only cover the current month", async () => {
+    vi.stubEnv("VITE_API_BASE_URL", "https://api.example.com");
+    globalThis.fetch = vi.fn((url) => {
+      if (String(url).endsWith("/dashboard")) {
+        return Promise.resolve(
+          jsonResponse({
+            metrics: {
+              total_employees: { value: 12 },
+              data_health: { value_percent: 92, subtitle: "prediction status ok, 20 rows processed" },
+            },
+            charts: {
+              revenue_expenses: [
+                { label: "Feb", revenue: 5600, expenditure: 2600 },
+                { label: "Mar", revenue: 6100, expenditure: 1950 },
+              ],
+              employee_growth: [
+                { label: "Mar 01", value: 10, is_forecast: false },
+                { label: "Mar 02", value: 12, is_forecast: false },
+              ],
+              department_distribution: [
+                { label: "Finance", value: 5 },
+                { label: "Operations", value: 4 },
+              ],
+            },
+            sources: {
+              latest_prediction_last_modified: "2026-03-03T09:55:00Z",
+            },
+          })
+        );
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          generated_at: "2026-03-03T10:00:00Z",
+          employee_growth_forecast: [
+            {
+              date: "2026-03-04",
+              predicted_headcount: 13,
+              lower_ci: 12,
+              upper_ci: 14,
+            },
+            {
+              date: "2026-03-05",
+              predicted_headcount: 14,
+              lower_ci: 13,
+              upper_ci: 15,
+            },
+          ],
+          expenditure_forecast: [
+            {
+              date: "2026-03-04",
+              predicted_expenditure: 720,
+              lower_ci: 680,
+              upper_ci: 760,
+            },
+            {
+              date: "2026-03-05",
+              predicted_expenditure: 760,
+              lower_ci: 720,
+              upper_ci: 800,
+            },
+          ],
+        })
+      );
+    });
+
+    const { initInsightsData } = await import("../insightsData.js");
+    const stop = initInsightsData({ getAuthToken: () => "token-123" });
+    await flushPromises();
+
+    const comparisonCard = getForecastCard("Spend Forecast vs Last Month");
+    expect(comparisonCard).toBeTruthy();
+    expect(comparisonCard?.querySelector("strong")?.textContent).not.toBe("--");
+    expect(comparisonCard?.querySelector(".metric-trend")?.textContent).not.toBe("Awaiting prior-month baseline");
+    expect(comparisonCard?.querySelector("p")?.textContent).not.toBe(
+      "Comparison appears after a full prior month is available."
+    );
 
     stop();
   });

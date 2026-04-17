@@ -3,12 +3,7 @@ resource "aws_db_instance" "main" {
   identifier = "${local.name_prefix}-postgres"
   engine     = "postgres"
 
-  # Let AWS pick a supported engine version in the region.
-  # This avoids errors like "Cannot find version 15.4" and keeps things portable.
-  # The parameter group family below is set to postgres17 to match the default you’re seeing.
-  # If your account/region later defaults to a different major version, update the family to match.
-  # engine_version = "17.x" # Optional: pin AFTER verifying availability
-
+  
   instance_class    = var.rds_instance_class
   allocated_storage = var.rds_allocated_storage
   storage_type      = "gp3"

@@ -83,17 +83,19 @@ ANALYTICS_PREFIX = _normalize_prefix(
     os.environ.get("ANALYTICS_PREFIX"),
     "trusted-analytics/anomalies/",
 )
-MAX_INPUT_FILES = _read_int_env("MAX_INPUT_FILES", 20, minimum=1)
+MAX_INPUT_FILES = _read_int_env("MAX_INPUT_FILES", 1000, minimum=1)
 
+# Business-event dates first; updated_at / created_at are DB metadata and go last
+# so a backdated record uses its actual transaction date, not the delivery timestamp.
 DATE_FIELDS = (
-    "updated_at",
-    "created_at",
-    "timestamp",
-    "datetime",
-    "date",
     "transaction_date",
     "event_time",
     "event_timestamp",
+    "date",
+    "datetime",
+    "timestamp",
+    "created_at",
+    "updated_at",
 )
 TRANSACTION_ID_FIELDS = ("transaction_id", "txn_id", "id", "entry_id")
 AMOUNT_FIELDS = ("amount", "transaction_amount", "value", "total", "net_amount")
@@ -205,10 +207,9 @@ def list_recent_objects(bucket: str, prefix: str, limit: int) -> List[Dict[str, 
                 }
             )
 
-    objects.sort(
-        key=lambda item: item.get("LastModified") or datetime.min.replace(tzinfo=timezone.utc),
-        reverse=True,
-    )
+    # Sort by S3 key (encodes the Firehose date partition) so all historical files
+    # are included in chronological order rather than only the most recently uploaded ones.
+    objects.sort(key=lambda item: str(item.get("Key") or ""))
     return objects[:limit]
 
 

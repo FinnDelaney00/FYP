@@ -183,7 +183,7 @@ variable "rds_instance_class" {
 variable "rds_allocated_storage" {
   description = "RDS allocated storage in GB"
   type        = number
-  default     = 80
+  default     = 150
 }
 
 variable "ml_schedule_expression" {

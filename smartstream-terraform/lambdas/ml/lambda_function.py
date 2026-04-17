@@ -71,23 +71,39 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
 DATA_LAKE_BUCKET = os.environ["DATA_LAKE_BUCKET"]
 TRUSTED_PREFIX = _normalize_prefix(os.environ.get("TRUSTED_PREFIX"), "trusted/")
 ANALYTICS_PREFIX = _normalize_prefix(os.environ.get("ANALYTICS_PREFIX"), "trusted-analytics/predictions/")
-MAX_INPUT_FILES = _read_int_env("MAX_INPUT_FILES", 20, minimum=1)
+MAX_INPUT_FILES = _read_int_env("MAX_INPUT_FILES", 1000, minimum=1)
 FORECAST_DAYS = _read_int_env("FORECAST_DAYS", 60, minimum=1)
 
 EMPLOYEES_PREFIX = f"{TRUSTED_PREFIX}employees/"
 FINANCE_PREFIX = f"{TRUSTED_PREFIX}finance/"
 
-DATE_FIELDS = (
-    "updated_at",
-    "created_at",
+# Business-event dates come first so backdated records use their actual date,
+# not the Firehose delivery timestamp stored in updated_at / created_at.
+EMPLOYEE_DATE_FIELDS = (
+    "hire_date",
+    "start_date",
+    "date",
+    "event_time",
+    "event_timestamp",
     "timestamp",
     "datetime",
-    "date",
+    "created_at",
+    "updated_at",
+)
+
+FINANCE_DATE_FIELDS = (
     "transaction_date",
     "event_time",
     "event_timestamp",
-    "hire_date",
+    "date",
+    "datetime",
+    "timestamp",
+    "created_at",
+    "updated_at",
 )
+
+# Fallback used when no domain-specific list is passed.
+DATE_FIELDS = FINANCE_DATE_FIELDS
 
 EMPLOYEE_ID_FIELDS = ("employee_id", "emp_id", "staff_id", "person_id", "id")
 AMOUNT_FIELDS = ("amount", "transaction_amount", "value", "total", "net_amount")
@@ -252,10 +268,9 @@ def list_recent_objects(bucket: str, prefix: str, limit: int) -> List[Dict[str, 
                 }
             )
 
-    objects.sort(
-        key=lambda item: item.get("LastModified") or datetime.min.replace(tzinfo=timezone.utc),
-        reverse=True,
-    )
+    # Sort by S3 key (encodes the Firehose date partition) so all historical files
+    # are included in order rather than only the most recently uploaded N files.
+    objects.sort(key=lambda item: str(item.get("Key") or ""))
     selected = objects[:limit]
     LOGGER.info("Found %d objects under %s, selected %d", len(objects), prefix, len(selected))
     return selected
@@ -342,7 +357,7 @@ def build_employee_growth_insight(records: List[Dict[str, Any]], forecast_days: 
     events: List[Tuple[datetime, str, Optional[bool]]] = []
     for record in records:
         employee_id = extract_employee_id(record)
-        event_dt = extract_record_datetime(record)
+        event_dt = extract_record_datetime(record, EMPLOYEE_DATE_FIELDS)
         if not employee_id or not event_dt:
             continue
         events.append((event_dt, employee_id, infer_employee_active(record)))
@@ -389,7 +404,7 @@ def build_finance_insight(records: List[Dict[str, Any]], forecast_days: int) -> 
     usable_rows = 0
 
     for record in records:
-        event_dt = extract_record_datetime(record)
+        event_dt = extract_record_datetime(record, FINANCE_DATE_FIELDS)
         amount = extract_finance_amount(record)
 
         if event_dt is None or amount is None:
@@ -854,8 +869,11 @@ def parse_float(value: Any) -> Optional[float]:
     return None
 
 
-def extract_record_datetime(record: Dict[str, Any]) -> Optional[datetime]:
-    for field in DATE_FIELDS:
+def extract_record_datetime(
+    record: Dict[str, Any],
+    date_fields: Sequence[str] = DATE_FIELDS,
+) -> Optional[datetime]:
+    for field in date_fields:
         if field not in record:
             continue
         parsed = parse_datetime(record[field])

@@ -14,6 +14,7 @@ import { createDashboardModule } from "./insights/dashboardModule.js";
 import { createElementCache } from "./insights/domCache.js";
 import {
   buildFinanceAnalytics,
+  getMonthlySpendMetrics,
   getLargestDepartment,
   normalizeFinanceRows
 } from "./insights/financeAnalytics.js";
@@ -131,6 +132,34 @@ function averageValues(values) {
     return null;
   }
   return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+}
+
+/**
+ * Converts ML expenditure_history into the same shape as buildDailySpendHistory(),
+ * used when Athena rows are unavailable.
+ *
+ * @param {Array<Record<string, any>>} items
+ * @returns {Array<Record<string, any>>}
+ */
+function buildDailySpendHistoryFromMLHistory(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((point) => {
+      const dayKey = String(point?.date || "").trim();
+      const value = Number(point?.expenditure ?? point?.revenue ?? 0);
+      const date = parseBusinessDate(dayKey);
+      if (!dayKey || !date || !Number.isFinite(value)) {
+        return null;
+      }
+      return {
+        dayKey,
+        date,
+        value: Math.max(0, value),
+        axisLabel: formatDateLabel(dayKey),
+        tooltipLabel: formatLongDate(dayKey),
+        isForecast: false
+      };
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -343,6 +372,34 @@ function calculateMonthEndProjection(actualDailySeries, spendForecastSeries) {
     coverageDays,
     fallbackDays: missingDays,
     latestActualDate: latestActual.date
+  };
+}
+
+/**
+ * Uses the dashboard monthly spend chart as the prior-month baseline.
+ *
+ * The live finance feed intentionally keeps a recent transaction slice, which
+ * can leave the previous month partially represented even when the dashboard
+ * already has a complete monthly total.
+ *
+ * @param {Record<string, any>} monthProjection
+ * @param {Array<Record<string, any>>} monthlySpendSeries
+ * @returns {Record<string, any>}
+ */
+function applyDashboardMonthBaseline(monthProjection, monthlySpendSeries) {
+  const dashboardMetrics = getMonthlySpendMetrics(monthlySpendSeries);
+  const dashboardPreviousSpend = Number(dashboardMetrics.previousSpend);
+
+  if (!(Number.isFinite(dashboardPreviousSpend) && dashboardPreviousSpend > 0)) {
+    return monthProjection;
+  }
+
+  return {
+    ...monthProjection,
+    previousMonthSpend: dashboardPreviousSpend,
+    projectedVsLastMonth: Number.isFinite(monthProjection.projectedMonthEndSpend)
+      ? ((monthProjection.projectedMonthEndSpend - dashboardPreviousSpend) / dashboardPreviousSpend) * 100
+      : monthProjection.projectedVsLastMonth
   };
 }
 
@@ -1168,11 +1225,17 @@ function renderForecastTrendChart({
 function buildForecastViewModel(payload) {
   const dashboardPayload = latestDashboardPayload || {};
   const financeAnalytics = buildFinanceAnalytics(latestFinanceRowsState.rows);
-  const spendHistoryAll = buildDailySpendHistory(latestFinanceRowsState.rows);
+  const spendHistoryFromAthena = buildDailySpendHistory(latestFinanceRowsState.rows);
+  const spendHistoryAll = spendHistoryFromAthena.length > 0
+    ? spendHistoryFromAthena
+    : buildDailySpendHistoryFromMLHistory(payload?.expenditure_history || []);
   const spendActualSeries = buildSpendActualWindow(spendHistoryAll, forecastViewState.horizonDays);
   const spendForecastAll = normalizeSpendForecastSeries(payload?.expenditure_forecast || payload?.revenue_forecast || []);
   const spendForecast = spendForecastAll.slice(0, forecastViewState.horizonDays);
-  const monthProjection = calculateMonthEndProjection(spendHistoryAll, spendForecastAll);
+  const monthProjection = applyDashboardMonthBaseline(
+    calculateMonthEndProjection(spendHistoryAll, spendForecastAll),
+    dashboardPayload?.charts?.revenue_expenses || []
+  );
   const headcountForecastAll = normalizeHeadcountForecastSeries(payload?.employee_growth_forecast || []);
   const currentHeadcount = Number(dashboardPayload?.metrics?.total_employees?.value)
     || Number(getLastItem(headcountForecastAll)?.value)

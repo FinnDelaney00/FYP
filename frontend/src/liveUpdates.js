@@ -25,6 +25,7 @@ const AMOUNT_FIELDS = ["amount", "transaction_amount", "value", "total", "net_am
 const CATEGORY_FIELDS = ["category", "transaction_type", "type", "entry_type"];
 const VENDOR_FIELDS = ["merchant", "merchant_name", "vendor", "vendor_name", "supplier", "payee", "counterparty", "description"];
 const DEPARTMENT_FIELDS = ["department", "dept", "team", "division"];
+const FLOW_HINT_FIELDS = ["transaction_type", "type", "category", "entry_type", "direction"];
 const REVENUE_HINTS = ["revenue", "income", "credit", "sale", "sales", "deposit", "inflow", "received"];
 const EXPENDITURE_HINTS = ["expense", "expenditure", "debit", "cost", "purchase", "withdrawal", "outflow", "payment"];
 const WINDOW_OPTIONS = [7, 30, 90];
@@ -263,7 +264,14 @@ function normalizeFinanceRows(rows) {
  * Checks which extra finance columns exist in the dataset.
  *
  * @param {string[]} columns
- * @returns {{ dateField: string, amountFields: string[], categoryField: string, vendorField: string, departmentField: string }}
+ * @returns {{
+ *   dateField: string,
+ *   amountFields: string[],
+ *   categoryField: string,
+ *   vendorField: string,
+ *   departmentField: string,
+ *   flowHintFields: string[]
+ * }}
  */
 function discoverFinanceColumns(columns) {
   const available = new Set(columns || []);
@@ -272,7 +280,8 @@ function discoverFinanceColumns(columns) {
     amountFields: ["credit", "debit", ...AMOUNT_FIELDS].filter((field) => available.has(field)),
     categoryField: CATEGORY_FIELDS.find((field) => available.has(field)) || "",
     vendorField: VENDOR_FIELDS.find((field) => available.has(field)) || "",
-    departmentField: DEPARTMENT_FIELDS.find((field) => available.has(field)) || ""
+    departmentField: DEPARTMENT_FIELDS.find((field) => available.has(field)) || "",
+    flowHintFields: FLOW_HINT_FIELDS.filter((field) => available.has(field))
   };
 }
 
@@ -284,13 +293,20 @@ function discoverFinanceColumns(columns) {
  * @returns {string | null}
  */
 function buildFinanceRowsQuery(columns, limit = MAX_QUERY_ROWS) {
-  const { dateField, amountFields, categoryField, vendorField, departmentField } = discoverFinanceColumns(columns);
+  const {
+    dateField,
+    amountFields,
+    categoryField,
+    vendorField,
+    departmentField,
+    flowHintFields
+  } = discoverFinanceColumns(columns);
   if (!dateField) {
     return null;
   }
   const projection = Array.from(
     new Set(
-      [dateField, ...amountFields, categoryField, vendorField, departmentField]
+      [dateField, ...amountFields, ...flowHintFields, categoryField, vendorField, departmentField]
         .filter(Boolean)
         .map((field) => quoteIdentifier(field))
     )

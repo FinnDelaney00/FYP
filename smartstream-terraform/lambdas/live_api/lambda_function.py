@@ -69,13 +69,27 @@ SIMPLE_TRUSTED_SQL_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+# Finance: business transaction date first; updated_at is DB metadata and goes last.
 DATE_FIELDS = (
     "transaction_date",
     "event_time",
     "event_timestamp",
+    "date",
+    "datetime",
+    "timestamp",
+    "created_at",
+    "updated_at",
+)
+
+# Employees: hire/start date is the meaningful event date; updated_at goes last.
+EMPLOYEE_DATE_FIELDS = (
+    "hire_date",
+    "start_date",
+    "date",
+    "event_time",
+    "event_timestamp",
     "timestamp",
     "datetime",
-    "date",
     "created_at",
     "updated_at",
 )
@@ -411,8 +425,11 @@ def _classify_amount(record: Dict[str, Any], amount: float) -> str:
     return "revenue" if amount >= 0 else "expenditure"
 
 
-def _extract_record_date(record: Dict[str, Any]) -> Optional[str]:
-    for field in DATE_FIELDS:
+def _extract_record_date(
+    record: Dict[str, Any],
+    date_fields: Sequence[str] = DATE_FIELDS,
+) -> Optional[str]:
+    for field in date_fields:
         parsed = _parse_datetime(record.get(field))
         if parsed is not None:
             return parsed.date().isoformat()
@@ -604,9 +621,10 @@ def _metric_total_employees(employee_history: List[Dict[str, Any]], employee_for
         return {"value": 0, "delta_percent": None, "subtitle": "No employee data available"}
 
     latest = values[-1]
-    baseline = values[0] if values[0] > 0 else None
+    baseline_idx = max(0, len(values) - 31)
+    baseline = values[baseline_idx] if values[baseline_idx] > 0 else None
     delta_percent = None
-    if baseline:
+    if baseline is not None:
         delta_percent = round(((latest - baseline) / baseline) * 100, 2)
 
     return {
@@ -735,6 +753,27 @@ def _build_dashboard_payload(auth_context: Dict[str, Any]) -> Dict[str, Any]:
             for day in sorted(daily_expenditure.keys())
         ]
 
+    if not prediction["employee_history"] and employee_records:
+        daily_employees: Dict[str, set] = defaultdict(set)
+        for record in employee_records:
+            emp_id: Optional[str] = None
+            for id_field in ("employee_id", "emp_id", "staff_id", "person_id", "id"):
+                val = str(record.get(id_field) or "").strip()
+                if val:
+                    emp_id = val
+                    break
+            if not emp_id:
+                continue
+            day = _extract_record_date(record, EMPLOYEE_DATE_FIELDS)
+            if day:
+                daily_employees[day].add(emp_id)
+
+        if daily_employees:
+            prediction["employee_history"] = [
+                {"date": day, "headcount": len(ids)}
+                for day, ids in sorted(daily_employees.items())
+            ]
+
     dashboard = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "metrics": {
@@ -800,7 +839,9 @@ def _forecast_payload(auth_context: Dict[str, Any]) -> Dict[str, Any]:
         "generated_at": prediction.get("generated_at"),
         "source_key": prediction_info.get("key"),
         "employee_growth_forecast": prediction.get("employee_forecast", []),
+        "revenue_history": prediction.get("revenue_history", []),
         "revenue_forecast": prediction.get("revenue_forecast", []),
+        "expenditure_history": prediction.get("expenditure_history", []),
         "expenditure_forecast": prediction.get("expenditure_forecast", []),
         "company_id": auth_context.get("company_id"),
     }
