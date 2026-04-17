@@ -23,6 +23,7 @@ glue_client = boto3.client("glue")
 dynamodb = boto3.resource("dynamodb")
 
 
+# Normalize prefixes once so every route builds S3 keys and tenant paths the same way.
 def _normalize_prefix(raw_prefix: Optional[str], fallback: str) -> str:
     prefix = str(raw_prefix or "").strip()
     if not prefix:
@@ -30,6 +31,8 @@ def _normalize_prefix(raw_prefix: Optional[str], fallback: str) -> str:
     return prefix if prefix.endswith("/") else f"{prefix}/"
 
 
+# Read shared infrastructure settings at cold start. Most routes reuse the same clients,
+# prefixes, and table names during the lifetime of the Lambda container.
 DATA_LAKE_BUCKET = os.environ["DATA_LAKE_BUCKET"]
 TRUSTED_ROOT_PREFIX = _normalize_prefix(os.environ.get("TRUSTED_ROOT_PREFIX"), "trusted/")
 TRUSTED_ANALYTICS_ROOT_PREFIX = _normalize_prefix(
@@ -120,6 +123,8 @@ ANOMALY_REVIEW_ACTIONS = {
 }
 
 
+# These helpers normalize API Gateway input and tenant-specific prefixes before any route
+# starts reading data.
 def _cors_headers() -> Dict[str, str]:
     return {
         "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
@@ -227,6 +232,8 @@ def _parse_limit(event: Dict[str, Any]) -> int:
     return max(1, min(limit, MAX_ITEMS_DEFAULT))
 
 
+# The next block handles S3 reads plus the small parsing and type-conversion helpers that
+# turn mixed trusted-zone data into predictable Python values.
 def _decode_object_bytes(key: str, content_bytes: bytes) -> str:
     if key.endswith(".gz"):
         with gzip.GzipFile(fileobj=BytesIO(content_bytes)) as gz:
@@ -416,6 +423,8 @@ def _extract_record_date(record: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+# Prediction and dashboard helpers reshape the ML output into the smaller frontend payloads
+# used by the dashboard and forecasts screens.
 def _parse_prediction_document(document: Dict[str, Any]) -> Dict[str, Any]:
     insights = document.get("insights") or {}
     employee_insight = insights.get("employee_growth") or {}
@@ -670,6 +679,8 @@ def _metric_data_health(prediction: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# Build the dashboard from both predictions and raw trusted data so the UI can still show
+# useful charts even when one upstream artifact is missing.
 def _build_dashboard_payload(auth_context: Dict[str, Any]) -> Dict[str, Any]:
     prefixes = auth_context["prefixes"]
 
@@ -795,6 +806,8 @@ def _forecast_payload(auth_context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# Anomaly helpers load the latest anomaly batch, merge in review state from DynamoDB, and
+# apply the filters expected by the frontend.
 def _normalize_anomaly_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not isinstance(item, dict):
         return None
@@ -1099,6 +1112,8 @@ def _update_anomaly_review(event: Dict[str, Any], auth_context: Dict[str, Any], 
     return {"item": _merge_anomaly_with_review(anomaly, updated_item), "company_id": company_id}
 
 
+# Query helpers validate the request body, keep SQL read-only, and scope Athena access to
+# the caller's tenant data.
 def _parse_json_body(event: Dict[str, Any]) -> Dict[str, Any]:
     body = event.get("body")
     if not body:
@@ -1340,6 +1355,8 @@ def _run_query(event: Dict[str, Any], auth_context: Dict[str, Any]) -> Dict[str,
     }
 
 
+# The auth block below handles password hashing, token signing, account lookups, and the
+# invite-based signup flow used by the app.
 def _base64url_encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("utf-8").rstrip("=")
 
@@ -1554,6 +1571,8 @@ def _build_auth_context(event: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# Route-specific auth handlers create accounts, sign users in, and let admins issue invite
+# codes without leaking DynamoDB details into the top-level router.
 def _validate_invite_code(value: Any) -> str:
     invite_code = str(value or "").strip()
     if len(invite_code) < 8:
@@ -1787,6 +1806,8 @@ def _handle_auth_me(auth_context: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+# These final handlers return the endpoint-specific payloads used by the frontend once
+# tenant context and auth have already been resolved.
 def _handle_latest(event: Dict[str, Any], auth_context: Dict[str, Any]) -> Dict[str, Any]:
     limit = _parse_limit(event)
     latest = _get_latest_object(auth_context["prefixes"]["finance"])
@@ -1808,6 +1829,8 @@ def _handle_latest(event: Dict[str, Any], auth_context: Dict[str, Any]) -> Dict[
     )
 
 
+# The top-level router keeps endpoint dispatch in one place and makes sure every error comes
+# back as a consistent JSON response.
 def lambda_handler(event, _context):
     method = _event_method(event)
     path = _event_path(event)
@@ -1820,6 +1843,7 @@ def lambda_handler(event, _context):
         }
 
     try:
+        # Auth endpoints are the only routes that can run before we build a tenant context.
         if path == "/auth/signup":
             if method != "POST":
                 return _response(405, {"message": "Method not allowed"})
@@ -1836,6 +1860,7 @@ def lambda_handler(event, _context):
             auth_context = _build_auth_context(event)
             return _handle_auth_me(auth_context)
 
+        # Everything below this point is tenant-scoped and requires a validated account.
         auth_context = _build_auth_context(event)
 
         if path == "/admin/invites":
@@ -1869,6 +1894,7 @@ def lambda_handler(event, _context):
         if method != "GET":
             return _response(405, {"message": "Method not allowed"})
 
+        # The remaining GET routes expose different read-only views over the tenant's data.
         if path in {"/latest", "/"}:
             return _handle_latest(event, auth_context)
         if path == "/dashboard":

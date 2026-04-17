@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Lightweight mocked fetch response used by service tests.
+ * Simple mocked fetch response for service tests.
  *
  * @param {unknown} payload
  * @param {{ ok?: boolean, status?: number }} [options={}]

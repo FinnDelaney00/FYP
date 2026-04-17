@@ -1,13 +1,13 @@
 import { requestJSON } from "../services/apiClient.js";
 
 /**
- * Thin service wrapper for workspace admin invite creation.
+ * Small service helper for admin invite creation.
  */
 const ADMIN_INVITES_PATH = String(import.meta.env.VITE_AUTH_ADMIN_INVITES_PATH || "/admin/invites").trim();
 const ADMIN_INVITES_METHOD = String(import.meta.env.VITE_AUTH_ADMIN_INVITES_METHOD || "POST").trim().toUpperCase();
 
 /**
- * Normalizes the backend invite payload into frontend naming conventions.
+ * Renames the backend invite fields to the names the app uses.
  *
  * @param {Record<string, any>} payload
  * @returns {Record<string, any>}
@@ -26,7 +26,7 @@ function normalizeInvitePayload(payload) {
 }
 
 /**
- * Creates a one-time invite code for onboarding another workspace member.
+ * Creates a one-time invite code for a new workspace member.
  *
  * @param {{ role?: string, expiresInDays?: number }} [options={}]
  * @param {(() => string) | undefined} getAuthToken

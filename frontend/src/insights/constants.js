@@ -1,12 +1,12 @@
 /**
  * Shared constants for the insights and forecast modules.
  *
- * The values below centralize environment configuration, query-builder defaults,
- * and finance field-discovery heuristics so related modules stay aligned.
+ * These values keep environment settings, query defaults, and finance field
+ * names lined up across related files.
  */
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
-// Query builder defaults used by the raw data explorer.
+// Default values for the raw data explorer.
 export const QUERY_SINGLE_TABLE = "trusted";
 export const QUERY_TABLE_OPTIONS = [
   { value: QUERY_SINGLE_TABLE, label: "trusted (all tables)" },
@@ -26,7 +26,7 @@ export const DEFAULT_QUERY_LIMIT = 20;
 export const DEFAULT_QUERY_TABLE = QUERY_SINGLE_TABLE;
 export const QUERY_ROW_SQL_PREVIEW_PREFIX = "Generated SQL: ";
 
-// Forecast controls share one default horizon and actual-data window policy.
+// Default time ranges for the forecast controls.
 export const DEFAULT_FORECAST_HORIZON_DAYS = 30;
 export const FORECAST_ACTUAL_WINDOW_BY_HORIZON = {
   7: 14,
@@ -34,7 +34,7 @@ export const FORECAST_ACTUAL_WINDOW_BY_HORIZON = {
   90: 60
 };
 
-// Finance row discovery prefers business-facing field names when available.
+// Prefer clearer business field names when they are available.
 export const FINANCE_DATE_FIELDS = [
   "transaction_date",
   "event_time",
@@ -69,7 +69,7 @@ export const FINANCE_VENDOR_FIELDS = [
 
 export const FINANCE_DEPARTMENT_FIELDS = ["department", "dept", "team", "division"];
 
-// Keyword hints let the app classify inflows vs outflows without strict schemas.
+// These keyword hints help the app tell money in from money out.
 export const FINANCE_REVENUE_HINTS = [
   "revenue",
   "income",

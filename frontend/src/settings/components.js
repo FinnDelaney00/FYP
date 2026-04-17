@@ -1,14 +1,14 @@
 import { escapeHtml } from "../insights/formatters.js";
 
 /**
- * HTML string builders used by the settings page renderer.
+ * HTML builders used by the settings page.
  *
- * Keeping these templating helpers in one module makes the larger settings page
- * easier to read and keeps the generated markup patterns consistent.
+ * Keeping these helpers here makes the main settings file easier to read and
+ * keeps the markup style consistent.
  */
 
 /**
- * Renders `<option>` markup while preserving the selected value.
+ * Builds the `<option>` tags and keeps the selected value selected.
  *
  * @param {{ value: string, label?: string }[]} options
  * @param {string} selectedValue
@@ -25,7 +25,7 @@ function renderOptions(options, selectedValue) {
 }
 
 /**
- * Creates the overall settings page shell with sidebar navigation and content.
+ * Builds the main settings page layout.
  *
  * @param {{ companyName: string, companyId: string, navHtml: string, contentHtml: string }} payload
  * @returns {string}
@@ -61,7 +61,7 @@ export function createSettingsLayout({ companyName, companyId, navHtml, contentH
 }
 
 /**
- * Builds the sidebar navigation used to jump between settings sections.
+ * Builds the sidebar links for the settings sections.
  *
  * @param {{ sections: Array<{ id: string, label: string, helper: string }>, activeSection: string }} payload
  * @returns {string}
@@ -95,7 +95,7 @@ export function createSettingsNav({ sections, activeSection }) {
 }
 
 /**
- * Wraps a settings section in the shared card frame.
+ * Wraps a settings section in the shared card layout.
  *
  * @param {{ sectionId: string, title: string, description: string, badge?: string, content: string, footer?: string }} payload
  * @returns {string}
@@ -119,7 +119,7 @@ export function createSettingsCard({ sectionId, title, description, badge, conte
 }
 
 /**
- * Builds a labeled text-style input field with helper copy.
+ * Builds a labeled text input with helper text.
  *
  * @param {{
  *   id: string,
@@ -166,7 +166,7 @@ export function createTextField({
 }
 
 /**
- * Builds a non-editable field used for server-sourced account and tenant data.
+ * Builds a read-only field for account and company details from the server.
  *
  * @param {{ label: string, value: string, description?: string }} payload
  * @returns {string}
@@ -182,7 +182,7 @@ export function createReadOnlyField({ label, value, description = "" }) {
 }
 
 /**
- * Builds a labeled select field with helper text.
+ * Builds a labeled select box with helper text.
  *
  * @param {{ id: string, label: string, value: string, options: Array<{ value: string, label: string }>, description?: string }} payload
  * @returns {string}
@@ -205,7 +205,7 @@ export function createSelectField({ id, label, value, options, description = "" 
 }
 
 /**
- * Builds a switch-style checkbox field for boolean preferences.
+ * Builds a switch-style checkbox for on/off preferences.
  *
  * @param {{ id: string, label: string, description?: string, checked?: boolean, disabled?: boolean }} payload
  * @returns {string}
@@ -234,7 +234,7 @@ export function createToggleField({ id, label, description = "", checked = false
 }
 
 /**
- * Renders the small visual preview used in the appearance settings section.
+ * Builds the small preview shown in the appearance section.
  *
  * @returns {string}
  */

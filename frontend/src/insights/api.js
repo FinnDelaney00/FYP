@@ -1,7 +1,7 @@
 /**
- * Re-exports the shared HTTP helpers used by the insights feature modules.
+ * Re-exports the shared API helpers used by the insights modules.
  *
- * Keeping this as a thin wrapper lets the insights folder import API helpers
- * from one local place without duplicating request logic.
+ * This gives the insights folder one local place to import from without
+ * repeating request logic.
  */
 export { buildAuthHeaders, createGetJSON } from "../services/apiClient.js";

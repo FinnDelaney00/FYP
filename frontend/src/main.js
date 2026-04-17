@@ -1,7 +1,7 @@
 /**
  * File purpose:
- * Bootstraps authentication, browser-route navigation, workspace lifecycle,
- * user/company context, and the dedicated settings experience.
+ * Starts sign-in, routing, page setup, user/company details, and the settings
+ * experience for the app.
  */
 import { initAnomaliesData } from "./anomaliesData.js";
 import { initInsightsData } from "./insightsData.js";
@@ -66,7 +66,7 @@ const settingsPage = createSettingsPage({
 });
 
 /**
- * Shows the authenticated workspace shell and hides the login screen.
+ * Shows the signed-in workspace and hides the login screen.
  */
 function openWorkspace() {
   loginView.classList.remove("view-active");
@@ -74,7 +74,7 @@ function openWorkspace() {
 }
 
 /**
- * Returns the user to the login view and closes the mobile sidebar.
+ * Sends the user back to the login view and closes the mobile sidebar.
  */
 function openLogin() {
   workspaceView.classList.remove("view-active");
@@ -83,7 +83,7 @@ function openLogin() {
 }
 
 /**
- * Stops every active poller or feature controller tied to authenticated data.
+ * Stops every running poller or controller that needs signed-in data.
  */
 function stopWorkspaceData() {
   if (typeof stopLiveUpdates === "function") {
@@ -102,7 +102,7 @@ function stopWorkspaceData() {
 }
 
 /**
- * Starts the dashboard, anomaly, and live-update controllers once per session.
+ * Starts the dashboard, alert, and live-update controllers once per session.
  */
 function startWorkspaceData() {
   if (workspaceDataStarted) {
@@ -126,7 +126,7 @@ function startWorkspaceData() {
 }
 
 /**
- * Toggles the login form between sign-in and invite-based signup modes.
+ * Switches the login form between sign-in and invite sign-up.
  *
  * @param {boolean} signupMode
  */
@@ -156,7 +156,7 @@ function setAuthMode(signupMode) {
 }
 
 /**
- * Converts backend role identifiers into user-friendly labels.
+ * Turns backend role names into labels people can read easily.
  *
  * @param {string} role
  * @returns {string}
@@ -167,7 +167,7 @@ function humanizeRole(role) {
 }
 
 /**
- * Mirrors the current session identity into the sidebar and topbar summary UI.
+ * Shows the current session details in the sidebar and top bar.
  *
  * @param {Record<string, any>} sessionState
  */
@@ -201,7 +201,7 @@ function updateWorkspaceIdentity(sessionState) {
 }
 
 /**
- * Activates the requested page, updates nav state, and syncs route copy.
+ * Shows the requested page, updates the nav, and refreshes the page copy.
  *
  * @param {string} pageName
  */
@@ -237,7 +237,7 @@ function setActivePage(pageName) {
 }
 
 /**
- * Pushes or replaces history state for a named page, then re-syncs the shell.
+ * Updates browser history for a page, then refreshes the app shell.
  *
  * @param {string} pageName
  * @param {{ replace?: boolean }} [options={}]
@@ -250,7 +250,7 @@ function navigateToPage(pageName, { replace = false } = {}) {
 }
 
 /**
- * Convenience wrapper for navigating to the public login route.
+ * Simple helper for going to the public login route.
  *
  * @param {{ replace?: boolean }} [options={}]
  */
@@ -259,7 +259,7 @@ function navigateToLogin({ replace = false } = {}) {
 }
 
 /**
- * Decides which route an authenticated user should actually land on.
+ * Chooses the page a signed-in user should land on.
  *
  * @param {ReturnType<typeof resolveRoute>} route
  * @returns {string}
@@ -275,7 +275,7 @@ function resolveAuthenticatedLanding(route) {
 }
 
 /**
- * Aligns the visible shell state with both browser navigation and auth state.
+ * Keeps the visible app shell in sync with routing and sign-in state.
  */
 function syncViewToRoute() {
   const route = resolveRoute(window.location.pathname);

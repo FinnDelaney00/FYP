@@ -10,11 +10,13 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import boto3
 
 
+# Create AWS clients once because each snapshot pulls signals from several services.
 cloudwatch_client = boto3.client("cloudwatch")
 logs_client = boto3.client("logs")
 dms_client = boto3.client("dms")
 s3_client = boto3.client("s3")
 
+# Status rankings let the model collapse many low-level signals into one pipeline status.
 STATUS_PRIORITY = {
     "healthy": 0,
     "warning": 1,
@@ -46,6 +48,7 @@ def _schedule_target_minutes(expression: Optional[str], default_minutes: int) ->
     return int(math.ceil(minutes * 1.5))
 
 
+# Read service names, prefixes, and alert thresholds once at cold start.
 DATA_LAKE_BUCKET = os.environ.get("DATA_LAKE_BUCKET", "").strip()
 NAME_PREFIX = os.environ.get("NAME_PREFIX", "smartstream")
 ALARM_NAME_PREFIX = os.environ.get("OPS_ALARM_NAME_PREFIX", NAME_PREFIX).strip() or NAME_PREFIX
@@ -85,10 +88,13 @@ LOG_LOOKBACK_MINUTES = int(os.environ.get("OPS_LOG_LOOKBACK_MINUTES", "240"))
 LOG_SUMMARY_WINDOW_MINUTES = int(os.environ.get("OPS_LOG_SUMMARY_WINDOW_MINUTES", "15"))
 
 
+# This is the main entry point for the ops API. It gathers live telemetry, rolls it up by
+# pipeline, and returns the shape the frontend expects.
 def build_ops_snapshot() -> Dict[str, Any]:
     warnings: List[str] = []
     now = datetime.now(timezone.utc)
 
+    # Collect freshness, service health, alarms, and logs before we build the final view.
     freshness = {
         "employees": _load_s3_prefix_freshness(
             prefix=EMPLOYEE_TRUSTED_PREFIX or _join_prefix(TRUSTED_ROOT_PREFIX, "employees"),
@@ -185,6 +191,8 @@ def build_ops_snapshot() -> Dict[str, Any]:
     }
 
 
+# The next block translates raw signals into the four pipeline summaries and detail payloads
+# shown in the operations UI.
 def _build_pipeline_models(
     *,
     freshness: Dict[str, Dict[str, Any]],
@@ -409,6 +417,8 @@ def _pipeline_summary_text(
     return f"{name} is {overall_status}. {body}."
 
 
+# These helpers gather recent log and alarm context so operators can quickly see why a
+# pipeline is unhealthy.
 def _group_recent_errors_by_pipeline(log_payload: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
     grouped = defaultdict(list)
     for service in log_payload.values():
@@ -577,6 +587,8 @@ def _load_active_alarms(warnings: List[str]) -> List[Dict[str, Any]]:
     return alarms
 
 
+# Freshness and service signal loaders each translate one AWS source into the same common
+# status shape used by the pipeline model above.
 def _load_s3_prefix_freshness(
     *,
     prefix: str,
@@ -903,6 +915,8 @@ def _load_lambda_signal(
     }
 
 
+# Generic metric and alarm helpers live together so each loader can stay focused on its own
+# thresholds instead of repeating CloudWatch parsing code.
 def _metric_value(
     *,
     namespace: str,
@@ -1061,6 +1075,8 @@ def _impacted_resources(components: Sequence[Dict[str, Any]], alarms: Sequence[D
     return resources
 
 
+# Shared status, time, and formatting helpers keep the final snapshot consistent even when
+# upstream services return different timestamp or metric formats.
 def _dms_task_state_status(task_status: str) -> str:
     normalized = str(task_status or "unknown").lower()
     if normalized in {"running", "starting", "ready"}:

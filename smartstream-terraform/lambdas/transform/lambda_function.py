@@ -22,9 +22,12 @@ from datetime import datetime, timezone
 from urllib.parse import unquote_plus
 from io import BytesIO
 
+# Keep one S3 client around because Lambda may reuse the same execution environment.
 s3_client = boto3.client("s3")
 
 
+# Normalize environment-driven prefixes and IDs once so the rest of the file can rely on
+# consistent values.
 def _normalize_prefix(prefix, default):
     value = (prefix or default).strip().lstrip("/")
     if not value:
@@ -38,6 +41,7 @@ def _normalize_company_id(value):
     return str(value or "").strip().lower()
 
 
+# Read routing configuration at cold start so every invocation uses the same rules.
 FINANCE_SCHEMA_NAME = os.environ.get("FINANCE_SCHEMA_NAME", "finance").lower()
 FINANCE_TABLE_LIST = {
     t.strip().lower()
@@ -49,6 +53,8 @@ TRUSTED_PREFIX = _normalize_prefix(os.environ.get("TRUSTED_PREFIX"), "trusted/")
 PIPELINE_COMPANY_ID = _normalize_company_id(os.environ.get("PIPELINE_COMPANY_ID"))
 
 
+# The handler loops over each S3 event record, transforms the raw file, and writes one or
+# more trusted-zone outputs without changing the source object.
 def lambda_handler(event, context):
     """
     Main Lambda handler for S3 event triggers.
@@ -66,6 +72,7 @@ def lambda_handler(event, context):
     }
     """
     try:
+        # S3 can bundle multiple object notifications into one event, so process them one by one.
         for record in event.get("Records", []):
             bucket = record["s3"]["bucket"]["name"]
             key = unquote_plus(record["s3"]["object"]["key"])
@@ -97,6 +104,8 @@ def lambda_handler(event, context):
         raise
 
 
+# These helpers handle the raw-to-trusted flow in stages: read the file, clean the payload,
+# standardize common fields, and then write the trusted result back to S3.
 def read_s3_object(bucket, key):
     """Read and decompress S3 object (handles GZIP from Firehose)."""
     response = s3_client.get_object(Bucket=bucket, Key=key)
@@ -206,6 +215,8 @@ def transform_data(raw_data, source_key):
     return transformed_groups
 
 
+# Keep timestamp values and output paths consistent so downstream jobs can read the trusted
+# zone without special-case parsing.
 def standardize_timestamps(record):
     """
     Standardize timestamp fields to ISO 8601 (UTC) where possible.

@@ -1,5 +1,5 @@
 /**
- * Converts chart coordinates into a smooth SVG cubic-bezier path.
+ * Turns chart points into a smooth SVG path.
  *
  * @param {{ x: number, y: number }[]} points
  * @returns {string}
@@ -34,7 +34,7 @@ export function buildSmoothLinePath(points) {
 }
 
 /**
- * Closes a line path back to a baseline so it can be rendered as an SVG area.
+ * Closes a line path back to the baseline so it can be filled as an area.
  *
  * @param {{ x: number, y: number }[]} points
  * @param {number} baselineY
@@ -52,7 +52,7 @@ export function buildAreaPath(points, baselineY, linePath) {
 }
 
 /**
- * Creates a straight-line SVG path through the supplied coordinates.
+ * Builds a straight SVG path through the given points.
  *
  * @param {{ x: number, y: number }[]} points
  * @param {boolean} [closePath=false]
@@ -73,7 +73,7 @@ export function buildLinearPath(points, closePath = false) {
 }
 
 /**
- * Samples labels across a series so x-axes stay readable at fixed slot counts.
+ * Picks labels across a series so the x-axis stays easy to read.
  *
  * @param {Array<Record<string, unknown>>} series
  * @param {number} [slots=6]

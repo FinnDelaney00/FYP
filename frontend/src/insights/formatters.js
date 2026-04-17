@@ -1,10 +1,10 @@
 import { parseBusinessDate } from "./time.js";
 
 /**
- * Presentation helpers for dashboard copy, labels, and safe HTML output.
+ * Formatting helpers for labels, written summaries, and safe HTML output.
  *
- * These helpers keep formatting rules consistent across dashboard, forecasts,
- * settings, and anomaly views.
+ * These helpers keep the same formatting rules across dashboards, forecasts,
+ * settings, and alerts.
  */
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -40,7 +40,7 @@ export function formatCurrency(value) {
 }
 
 /**
- * Formats large numbers as compact USD currency while keeping small values legible.
+ * Formats large numbers as shorter USD currency while keeping small numbers clear.
  *
  * @param {number} value
  * @returns {string}
@@ -53,7 +53,7 @@ export function formatCompactCurrency(value) {
 }
 
 /**
- * Formats a value into a short chart-friendly date label.
+ * Formats a value into a short date label for charts.
  *
  * @param {string | number | Date} value
  * @returns {string}
@@ -67,7 +67,7 @@ export function formatDateLabel(value) {
 }
 
 /**
- * Formats a timestamp for "last updated" style UI copy.
+ * Formats a time for "last updated" style text.
  *
  * @param {string | number | Date} value
  * @returns {string}
@@ -106,7 +106,7 @@ export function formatLongDate(value) {
 }
 
 /**
- * Formats a numeric count without decimal places.
+ * Formats a count with no decimal places.
  *
  * @param {number} value
  * @returns {string}
@@ -133,7 +133,7 @@ export function formatWholePercent(value) {
 }
 
 /**
- * Formats an integer delta while keeping the sign visible.
+ * Formats a whole-number change and keeps the sign visible.
  *
  * @param {number} value
  * @returns {string}
@@ -149,7 +149,7 @@ export function formatSignedCount(value) {
 }
 
 /**
- * Escapes user-visible text before inserting it into HTML strings.
+ * Escapes text before putting it into HTML.
  *
  * @param {unknown} value
  * @returns {string}

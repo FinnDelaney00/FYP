@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
+# Add the packaged Lambda directory to sys.path so sibling modules can be imported reliably.
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
@@ -13,11 +14,14 @@ from auth_utils import ForbiddenError, build_auth_context
 from health_model import build_ops_snapshot
 
 
+# Read lightweight API settings once at cold start.
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
 OPS_API_REQUIRE_AUTH = str(os.environ.get("OPS_API_REQUIRE_AUTH", "false")).strip().lower() == "true"
 OPS_API_REQUIRED_ROLE = str(os.environ.get("OPS_API_REQUIRED_ROLE", "admin") or "admin").strip().lower() or "admin"
 
 
+# This handler stays intentionally thin: it authenticates once, builds the shared snapshot,
+# and then returns the slice requested by the route.
 def lambda_handler(event: Dict[str, Any], _context: Optional[Any]):
     method = _event_method(event)
     path = _event_path(event)
@@ -30,6 +34,7 @@ def lambda_handler(event: Dict[str, Any], _context: Optional[Any]):
         }
 
     try:
+        # Build the caller context up front so every route sees the same auth decision.
         auth_context = build_auth_context(
             event,
             require_auth=OPS_API_REQUIRE_AUTH,
@@ -45,6 +50,7 @@ def lambda_handler(event: Dict[str, Any], _context: Optional[Any]):
             meta["authenticated_as"] = auth_context["email"]
             meta["role"] = auth_context["role"]
 
+        # Each GET route exposes a different view over the same live ops snapshot.
         if path == "/ops/overview":
             return _response(200, {"data": snapshot["overview"], "meta": meta})
 
@@ -76,6 +82,7 @@ def lambda_handler(event: Dict[str, Any], _context: Optional[Any]):
         return _response(500, {"message": f"Internal server error: {exc}"})
 
 
+# Shared HTTP helpers keep API Gateway input and output handling consistent across routes.
 def _cors_headers() -> Dict[str, str]:
     return {
         "Access-Control-Allow-Origin": ALLOWED_ORIGIN,

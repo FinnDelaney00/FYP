@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 
+# Set up logging, AWS access, and model defaults once per execution environment.
 LOGGER = logging.getLogger()
 if not LOGGER.handlers:
     logging.basicConfig()
@@ -48,6 +49,8 @@ MIN_DAILY_ROWS = 14
 MAX_ANOMALIES = 200
 
 
+# Normalize environment-driven prefixes and numeric settings before the handler starts
+# touching S3 or training the model.
 def _normalize_prefix(prefix: Optional[str], default: str) -> str:
     value = (prefix or default).strip().lstrip("/")
     if not value:
@@ -68,6 +71,7 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
     return parsed
 
 
+# Read dataset locations and feature-related settings once at cold start.
 DATA_LAKE_BUCKET = os.environ["DATA_LAKE_BUCKET"]
 TRUSTED_PREFIX = _normalize_prefix(os.environ.get("TRUSTED_PREFIX"), "trusted/")
 FINANCE_PREFIX = _normalize_prefix(os.environ.get("FINANCE_PREFIX"), f"{TRUSTED_PREFIX}finance/")
@@ -106,6 +110,8 @@ EXPENDITURE_HINTS = (
 )
 
 
+# The handler runs the whole anomaly job in one pass: load recent finance data, score it,
+# and publish a single analytics document for downstream APIs.
 def lambda_handler(event, context):
     del context
     run_started_at = datetime.now(timezone.utc)
@@ -121,11 +127,14 @@ def lambda_handler(event, context):
         MAX_INPUT_FILES,
     )
 
+    # Prefer the dedicated transactions folder, but fall back to the broader finance folder
+    # if that dataset has not been split out yet.
     transaction_objects = list_recent_objects(DATA_LAKE_BUCKET, TRANSACTIONS_PREFIX, MAX_INPUT_FILES)
     fallback_finance_objects = [] if transaction_objects else list_recent_objects(DATA_LAKE_BUCKET, FINANCE_PREFIX, MAX_INPUT_FILES)
     input_objects = transaction_objects or fallback_finance_objects
     records = read_records_from_objects(DATA_LAKE_BUCKET, input_objects)
 
+    # Score the combined finance history and package it into one anomaly payload.
     anomaly_result = detect_finance_anomalies(records, detected_at=run_started_at)
     anomalies = anomaly_result["anomalies"]
 
@@ -167,6 +176,8 @@ def lambda_handler(event, context):
     }
 
 
+# These helpers read recent trusted objects from S3 and turn them into plain record lists
+# the model code can work with.
 def summarize_event(event: Any) -> Dict[str, Any]:
     if isinstance(event, dict):
         return {
@@ -261,6 +272,8 @@ def parse_records(raw_text: str, source_key: str) -> List[Dict[str, Any]]:
     return records
 
 
+# The next group prepares finance rows, builds model features, and chooses the safest
+# scoring strategy based on how much history is available.
 def detect_finance_anomalies(records: Sequence[Dict[str, Any]], detected_at: datetime) -> Dict[str, Any]:
     rows = normalize_finance_rows(records)
     if not rows:
@@ -493,6 +506,8 @@ def add_scores(
     return result
 
 
+# These helpers turn raw model output into the richer anomaly objects stored in S3 and
+# later surfaced by the API.
 def build_anomaly_output(
     *,
     scored_rows: pd.DataFrame,
@@ -671,6 +686,8 @@ def serialize_anomaly_metadata(
     return payload
 
 
+# Shared parsing helpers below smooth over inconsistent source fields so the detector can
+# handle mixed finance records without lots of special cases.
 def summarize_counts(items: Sequence[Dict[str, Any]], field_name: str) -> Dict[str, int]:
     counts: Dict[str, int] = defaultdict(int)
     for item in items:

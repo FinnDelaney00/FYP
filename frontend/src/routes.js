@@ -1,5 +1,5 @@
 /**
- * Central route definitions for the shell navigation and page metadata.
+ * The app's route list and page labels.
  */
 const routeDefinitions = [
   {
@@ -61,7 +61,7 @@ const routeDefinitions = [
 ];
 
 /**
- * Normalizes browser paths so alias matching stays case- and slash-insensitive.
+ * Cleans up a browser path so matching is more forgiving.
  *
  * @param {string} pathname
  * @returns {string}
@@ -76,7 +76,7 @@ function normalizePath(pathname) {
 }
 
 /**
- * Looks up a route definition by its internal page id.
+ * Finds a route by its page name.
  *
  * @param {string} pageName
  * @returns {typeof routeDefinitions[number]}
@@ -86,7 +86,7 @@ export function getRouteByPageName(pageName) {
 }
 
 /**
- * Resolves a browser pathname into the route metadata used by the shell.
+ * Turns a browser path into the route details the app uses.
  *
  * @param {string} pathname
  * @returns {typeof routeDefinitions[number] & { normalizedPath: string, isRootAlias?: boolean, isUnknown?: boolean }}
@@ -114,7 +114,7 @@ export function resolveRoute(pathname) {
 }
 
 /**
- * Returns the canonical browser path for a page.
+ * Gets the main browser path for a page.
  *
  * @param {string} pageName
  * @returns {string}

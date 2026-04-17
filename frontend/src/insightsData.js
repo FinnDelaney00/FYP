@@ -1,7 +1,7 @@
 /**
  * File purpose:
- * Fetches dashboard, forecast, and query data from the backend API and renders
- * metrics, charts, forecast panels, and query result tables in the UI.
+ * Loads dashboard, forecast, and query data from the backend and shows
+ * metrics, charts, forecast panels, and query tables in the UI.
  */
 import { createGetJSON } from "./insights/api.js";
 import { buildAreaPath, buildSmoothLinePath, pickSeriesAxisLabels } from "./insights/chartUtils.js";
@@ -64,7 +64,7 @@ const graphModule = createGraphModule({
 const getElement = createElementCache();
 
 /**
- * Delegates dashboard rendering to the dedicated dashboard module.
+ * Lets the dashboard module draw the dashboard section.
  *
  * @param {Record<string, any>} payload
  */
@@ -73,7 +73,7 @@ function renderDashboard(payload) {
 }
 
 /**
- * Runs the query page action through the query module.
+ * Runs the query page.
  *
  * @param {() => string} getAuthToken
  * @returns {Promise<void>}
@@ -83,7 +83,7 @@ async function runQuery(getAuthToken) {
 }
 
 /**
- * Hydrates the query page builder controls.
+ * Sets up the query page controls.
  *
  * @param {() => string} getAuthToken
  * @returns {Promise<void>}
@@ -93,7 +93,7 @@ async function initializeQueryPage(getAuthToken) {
 }
 
 /**
- * Binds the custom graph preview page once.
+ * Sets up the custom graph page once.
  */
 function initializeCreateGraphPage() {
   graphModule.initializeCreateGraphPage();
@@ -106,10 +106,10 @@ const FORECAST_TEXT = {
   headcountProjection: (current, projected, days) => `Headcount is projected to move from ${formatCount(current)} to ${formatCount(projected)} over the selected ${days}-day outlook.`
 };
 
-// Generic helpers used across the forecast view-model pipeline.
+// Small helper functions used by the forecast page.
 
 /**
- * Safely returns the last item in a collection.
+ * Gets the last item in a list.
  *
  * @template T
  * @param {T[]} items
@@ -120,7 +120,7 @@ function getLastItem(items) {
 }
 
 /**
- * Computes the average of only finite numeric values.
+ * Gets the average of the valid numbers in a list.
  *
  * @param {unknown[]} values
  * @returns {number | null}
@@ -134,7 +134,7 @@ function averageValues(values) {
 }
 
 /**
- * Aggregates normalized finance rows into a chronological daily spend history.
+ * Turns finance rows into daily spend totals in date order.
  *
  * @param {Array<Record<string, any>>} rows
  * @returns {Array<Record<string, any>>}
@@ -162,7 +162,7 @@ function buildDailySpendHistory(rows) {
 }
 
 /**
- * Selects the recent actual-spend window used alongside the forecast line.
+ * Picks the recent actual spend points to show next to the forecast.
  *
  * @param {Array<Record<string, any>>} dailySeries
  * @param {number} horizonDays
@@ -197,7 +197,7 @@ function buildSpendActualWindow(dailySeries, horizonDays) {
 }
 
 /**
- * Normalizes forecast rows into a shared chart-friendly series shape.
+ * Turns forecast rows into one shared shape the charts can use.
  *
  * @param {Array<Record<string, any>>} items
  * @param {(item: Record<string, any>) => number} valueAccessor
@@ -229,7 +229,7 @@ function normalizeForecastSeries(items, valueAccessor, valueFormatter = (value) 
 }
 
 /**
- * Normalizes spend forecast rows into non-negative values.
+ * Turns spend forecast rows into non-negative values.
  *
  * @param {Array<Record<string, any>>} items
  * @returns {Array<Record<string, any>>}
@@ -243,7 +243,7 @@ function normalizeSpendForecastSeries(items) {
 }
 
 /**
- * Normalizes headcount forecast rows into rounded employee counts.
+ * Turns headcount forecast rows into rounded employee counts.
  *
  * @param {Array<Record<string, any>>} items
  * @returns {Array<Record<string, any>>}
@@ -257,7 +257,7 @@ function normalizeHeadcountForecastSeries(items) {
 }
 
 /**
- * Builds the recent actual headcount series shown before the forecast starts.
+ * Builds the recent headcount history shown before the forecast starts.
  *
  * @param {Record<string, any>} dashboardPayload
  * @param {number} currentHeadcount
@@ -292,7 +292,7 @@ function buildHeadcountActualSeries(dashboardPayload, currentHeadcount) {
 }
 
 /**
- * Estimates month-end spend by combining current-month actuals with forecast rows.
+ * Estimates end-of-month spend from current spend plus the forecast.
  *
  * @param {Array<Record<string, any>>} actualDailySeries
  * @param {Array<Record<string, any>>} spendForecastSeries
@@ -347,7 +347,7 @@ function calculateMonthEndProjection(actualDailySeries, spendForecastSeries) {
 }
 
 /**
- * Measures how wide forecast confidence intervals are relative to point values.
+ * Measures how wide the forecast ranges are compared with the main values.
  *
  * @param {Array<Record<string, any>>} series
  * @returns {number | null}
@@ -368,7 +368,7 @@ function getAverageIntervalRatio(series) {
 }
 
 /**
- * Derives a user-facing confidence score from data health and interval width.
+ * Turns data quality and forecast spread into a simple confidence score.
  *
  * @param {Record<string, any>} dashboardPayload
  * @param {Array<Record<string, any>>} spendForecastSeries
@@ -427,7 +427,7 @@ function deriveForecastConfidence(dashboardPayload, spendForecastSeries, headcou
 }
 
 /**
- * Builds a simple risk label from projected spend, anomalies, confidence, and hiring.
+ * Builds a simple risk label from spend, alerts, confidence, and hiring.
  *
  * @param {{ projectedVsLastMonth: number | null, unusualExpenseCount: number, confidenceScore: number, headcountChange: number | null }} payload
  * @returns {{ label: string, tone: string, summary: string }}
@@ -492,7 +492,7 @@ function deriveForecastRisk({
 }
 
 /**
- * Builds the KPI cards shown at the top of the forecasts page.
+ * Builds the summary cards shown at the top of the forecasts page.
  *
  * @param {Record<string, any>} payload
  * @returns {Array<Record<string, any>>}
@@ -563,7 +563,7 @@ function buildForecastSummaryCards({
 }
 
 /**
- * Produces the primary plain-English highlights for the current forecast window.
+ * Builds the main highlights for the current forecast window.
  *
  * @param {Record<string, any>} payload
  * @returns {Array<Record<string, any>>}
@@ -642,7 +642,7 @@ function buildForecastHighlights({
 }
 
 /**
- * Produces the "risks" note stack for the current forecast window.
+ * Builds the risk notes for the current forecast window.
  *
  * @param {Record<string, any>} payload
  * @returns {Array<Record<string, any>>}
@@ -719,7 +719,7 @@ function buildForecastRisks({
 }
 
 /**
- * Produces the recommended actions note stack for the current forecast window.
+ * Builds the recommended action notes for the current forecast window.
  *
  * @param {Record<string, any>} payload
  * @returns {Array<Record<string, any>>}
@@ -778,7 +778,7 @@ function buildForecastActions({
 }
 
 /**
- * Reorders note cards to favor the selected focus area while preserving variety.
+ * Reorders the note cards to put the selected focus first without repeating too much.
  *
  * @param {Array<Record<string, any>>} items
  * @param {"all" | "spend" | "headcount"} focus
@@ -799,7 +799,7 @@ function prioritizeForecastNotes(items, focus, limit = 4) {
 }
 
 /**
- * Renders a collection of HTML fragments into a container.
+ * Puts a list of HTML snippets into a container.
  *
  * @param {HTMLElement} container
  * @param {Array<Record<string, any>>} items
@@ -812,7 +812,7 @@ function renderHtmlCollection(container, items, renderItem) {
 }
 
 /**
- * Renders the forecast KPI card row.
+ * Shows the forecast summary card row.
  *
  * @param {Array<Record<string, any>>} cards
  */
@@ -835,7 +835,7 @@ function renderForecastSummaryCards(cards) {
 }
 
 /**
- * Renders one of the forecast note columns with a fallback empty state.
+ * Shows one forecast note column, or an empty state if needed.
  *
  * @param {string} containerId
  * @param {Array<Record<string, any>>} items
@@ -870,7 +870,7 @@ function renderForecastNotes(containerId, items, emptyTitle, emptyBody) {
 }
 
 /**
- * Renders the trust/explainer rows that describe forecast freshness and confidence.
+ * Shows the rows that explain how fresh and reliable the forecast is.
  *
  * @param {Array<Record<string, any>>} rows
  */
@@ -890,7 +890,7 @@ function renderForecastTrustRows(rows) {
 }
 
 /**
- * Renders the compact headcount summary cards.
+ * Shows the smaller headcount summary cards.
  *
  * @param {Array<Record<string, any>>} items
  */
@@ -910,7 +910,7 @@ function renderHeadcountStatCards(items) {
 }
 
 /**
- * Renders the department mix chips used to contextualize workforce projections.
+ * Shows the department chips that add context to the headcount forecast.
  *
  * @param {Array<Record<string, any>>} items
  */
@@ -947,7 +947,7 @@ function renderForecastDepartmentSummary(items) {
 }
 
 /**
- * Builds a straight SVG path, used here for confidence-band polygons.
+ * Builds a straight SVG path. This file uses it for the confidence band.
  *
  * @param {{ x: number, y: number }[]} points
  * @param {boolean} [closePath=false]
@@ -968,7 +968,7 @@ function buildLinearPath(points, closePath = false) {
 }
 
 /**
- * Attaches hover tooltips to a rendered forecast chart.
+ * Adds hover tooltips to a forecast chart.
  *
  * @param {string} containerId
  */
@@ -1017,7 +1017,7 @@ function bindForecastTooltip(containerId) {
 }
 
 /**
- * Renders either the spend or headcount forecast chart.
+ * Shows either the spend or headcount forecast chart.
  *
  * @param {Record<string, any>} config
  */
@@ -1160,7 +1160,7 @@ function renderForecastTrendChart({
 }
 
 /**
- * Combines dashboard, finance-row, and forecast payloads into one render model.
+ * Combines dashboard data, finance rows, and forecast data into one view model.
  *
  * @param {Record<string, any>} payload
  * @returns {Record<string, any>}
@@ -1310,7 +1310,7 @@ function buildForecastViewModel(payload) {
 }
 
 /**
- * Renders the complete forecasts page from the latest forecast payload.
+ * Shows the full forecasts page using the latest forecast data.
  *
  * @param {Record<string, any>} payload
  */
@@ -1398,7 +1398,7 @@ function renderForecasts(payload) {
 }
 
 /**
- * Syncs horizon and focus toggle button state with the view model.
+ * Keeps the horizon and focus buttons in sync with the current view.
  */
 function syncForecastControls() {
   document.querySelectorAll("[data-forecast-horizon]").forEach((button) => {
@@ -1411,7 +1411,7 @@ function syncForecastControls() {
 }
 
 /**
- * Binds the forecast horizon and focus segmented controls once.
+ * Sets up the horizon and focus buttons once.
  */
 function initializeForecastControls() {
   const horizonControl = getElement("forecast-horizon-control");
@@ -1453,7 +1453,7 @@ function initializeForecastControls() {
 }
 
 /**
- * Fetches and renders the dashboard payload.
+ * Loads and shows the dashboard data.
  *
  * @param {() => string} getAuthToken
  * @returns {Promise<void>}
@@ -1468,7 +1468,7 @@ async function refreshDashboard(getAuthToken) {
 }
 
 /**
- * Fetches and renders the forecast payload.
+ * Loads and shows the forecast data.
  *
  * @param {() => string} getAuthToken
  * @returns {Promise<void>}
@@ -1480,7 +1480,7 @@ async function refreshForecasts(getAuthToken) {
 }
 
 /**
- * Initializes dashboard, forecast, query, and graph rendering for the workspace.
+ * Starts the dashboard, forecasts, query page, and graph page for the workspace.
  *
  * @param {{ getAuthToken?: () => string }} [options={}]
  * @returns {() => void}

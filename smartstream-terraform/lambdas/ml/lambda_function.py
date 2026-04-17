@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 
+# Set up logging, AWS access, and forecasting defaults once per execution environment.
 LOGGER = logging.getLogger()
 if not LOGGER.handlers:
     logging.basicConfig()
@@ -43,6 +44,7 @@ MODEL_PARAMS = {
 }
 
 
+# Normalize environment settings before the handler starts reading data or training models.
 def _normalize_prefix(prefix: Optional[str], default: str) -> str:
     value = (prefix or default).strip().lstrip("/")
     if not value:
@@ -65,6 +67,7 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
     return parsed
 
 
+# Read bucket, prefix, and forecasting settings once at cold start.
 DATA_LAKE_BUCKET = os.environ["DATA_LAKE_BUCKET"]
 TRUSTED_PREFIX = _normalize_prefix(os.environ.get("TRUSTED_PREFIX"), "trusted/")
 ANALYTICS_PREFIX = _normalize_prefix(os.environ.get("ANALYTICS_PREFIX"), "trusted-analytics/predictions/")
@@ -102,6 +105,8 @@ EXPENDITURE_HINTS = (
 )
 
 
+# The handler loads recent trusted data, builds the employee and finance forecasts, and
+# writes one combined predictions document for the rest of the platform.
 def lambda_handler(event, context):
     del context
     run_started_at = datetime.now(timezone.utc)
@@ -120,6 +125,7 @@ def lambda_handler(event, context):
     )
 
     try:
+        # Pull the most recent trusted employee and finance snapshots for model input.
         employee_objects = list_recent_objects(DATA_LAKE_BUCKET, EMPLOYEES_PREFIX, MAX_INPUT_FILES)
         finance_objects = list_recent_objects(DATA_LAKE_BUCKET, FINANCE_PREFIX, MAX_INPUT_FILES)
 
@@ -148,6 +154,7 @@ def lambda_handler(event, context):
             "finance": len(finance_records),
         }
 
+        # Build each forecast separately, then roll the result up into one overall status.
         employee_insight = build_employee_growth_insight(employee_records, FORECAST_DAYS)
         finance_insight = build_finance_insight(finance_records, FORECAST_DAYS)
 
@@ -190,6 +197,7 @@ def lambda_handler(event, context):
         raise
 
 
+# These helpers read trusted S3 objects and normalize them into plain record lists.
 def derive_overall_status(
     *,
     employee_records: Sequence[Dict[str, Any]],
@@ -320,6 +328,8 @@ def parse_records(raw_text: str, source_key: str) -> List[Dict[str, Any]]:
     return records
 
 
+# The next group turns raw employee and finance events into daily time series that the
+# forecasting model can learn from.
 def build_employee_growth_insight(records: List[Dict[str, Any]], forecast_days: int) -> Dict[str, Any]:
     if not records:
         return insufficient_metric_result(
@@ -479,6 +489,8 @@ def build_daily_series(
     return series.astype("float64")
 
 
+# These functions build lag features, fit the random forest model, and then walk forward
+# one day at a time to generate the forecast horizon.
 def build_forecast_training_frame(series: pd.Series) -> pd.DataFrame:
     frame = pd.DataFrame({"target": series.astype("float64")})
     shifted = frame["target"].shift(1)
@@ -733,6 +745,8 @@ def insufficient_finance_result(message: str) -> Dict[str, Any]:
     }
 
 
+# The remaining helpers keep parsing, classification, and output formatting consistent
+# across both forecasting paths.
 def format_numeric(value: float, integer_output: bool) -> Any:
     value = max(0.0, float(value))
     if integer_output:

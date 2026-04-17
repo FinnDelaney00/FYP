@@ -11,11 +11,11 @@ import { createElementCache } from "./domCache.js";
 import { escapeHtml } from "./formatters.js";
 
 /**
- * Query builder and results renderer for the raw data explorer page.
+ * Query builder and results view for the raw data explorer page.
  */
 
 /**
- * Sanitizes database names down to safe identifier characters.
+ * Keeps only safe characters in a database name.
  *
  * @param {unknown} value
  * @returns {string}
@@ -25,7 +25,7 @@ function normalizeDatabaseName(value) {
 }
 
 /**
- * Converts the row selector into a safe SQL projection clause.
+ * Turns the row selector into a safe SQL select clause.
  *
  * @param {unknown} value
  * @returns {string}
@@ -48,7 +48,7 @@ function sanitizeQueryProjection(value) {
 }
 
 /**
- * Clamps UI-provided limits into the supported backend range.
+ * Keeps the row limit inside the range the backend supports.
  *
  * @param {unknown} value
  * @returns {number}
@@ -62,10 +62,10 @@ function normalizeQueryLimit(value) {
 }
 
 /**
- * Builds the SQL preview and execution query from the current control values.
+ * Builds the SQL preview and run query from the current form values.
  *
- * Some views target the synthetic `trusted` table directly while others map to
- * trusted-path filters under the same source table.
+ * Some views query the `trusted` table directly, while others use trusted-path
+ * filters on that same source table.
  *
  * @param {{ database?: string, projection?: string, limit?: number | string }} payload
  * @returns {string}
@@ -105,7 +105,7 @@ export function createQueryModule({ getJSON }) {
   const getElement = createElementCache();
 
   /**
-   * Collects the DOM elements used by the query builder.
+   * Finds the DOM elements used by the query builder.
    *
    * @returns {Record<string, HTMLElement | null>}
    */
@@ -121,7 +121,7 @@ export function createQueryModule({ getJSON }) {
   }
 
   /**
-   * Updates the inline status message shown above the results table.
+   * Updates the status message shown above the results table.
    *
    * @param {Record<string, HTMLElement | null>} elements
    * @param {string} message
@@ -136,7 +136,7 @@ export function createQueryModule({ getJSON }) {
   }
 
   /**
-   * Mirrors the current builder state into the SQL preview label.
+   * Copies the current builder state into the SQL preview label.
    */
   function setQuerySqlPreview() {
     const elements = getQueryFormElements();
@@ -153,7 +153,7 @@ export function createQueryModule({ getJSON }) {
   }
 
   /**
-   * Discovers the available columns for the selected dataset and caches them.
+   * Loads the available columns for the selected dataset and caches them.
    *
    * @param {string} database
    * @param {() => string} getAuthToken
@@ -225,7 +225,7 @@ export function createQueryModule({ getJSON }) {
   }
 
   /**
-   * Renders the tabular query response into the results panel.
+   * Shows the table results in the results panel.
    *
    * @param {Record<string, any>} payload
    */
@@ -261,7 +261,7 @@ export function createQueryModule({ getJSON }) {
   }
 
   /**
-   * Executes the currently selected query and updates the result table.
+   * Runs the selected query and updates the results table.
    *
    * @param {() => string} getAuthToken
    * @returns {Promise<void>}
@@ -308,7 +308,7 @@ export function createQueryModule({ getJSON }) {
   }
 
   /**
-   * Hydrates the query builder controls and binds their event handlers once.
+   * Sets up the query builder controls and event handlers once.
    *
    * @param {() => string} getAuthToken
    * @returns {Promise<void>}

@@ -1,9 +1,9 @@
 /*
   File purpose:
-  Provides the visual system for the frontend display, including global theme variables,
-  layout, component styles, chart visuals, and responsive behavior for login and dashboard views.
+  Provides the main app styles, including shared variables, layout,
+  component styling, chart styling, and responsive behavior.
 */
-/* Global resets and decorative background tokens */
+/* Global resets and background styles */
 :root {
   --bg-deep: #eef4fb;
   --bg-mid: #d9e6f5;
@@ -146,7 +146,7 @@ textarea {
   }
 }
 
-/* Authentication view */
+/* Login screen */
 .view {
   position: relative;
   min-height: 100vh;
@@ -291,7 +291,7 @@ textarea:focus-visible {
   color: #b91c1c;
 }
 
-/* Workspace shell and shared navigation */
+/* App shell and shared navigation */
 #workspace-view {
   width: 100%;
 }
@@ -944,7 +944,7 @@ textarea {
   color: #172f58;
 }
 
-/* Query explorer and graph builder */
+/* Query page and chart builder */
 .query-shell {
   display: grid;
   gap: 1rem;
@@ -1537,7 +1537,7 @@ textarea {
   color: #3d5988;
 }
 
-/* Anomaly inbox and detail panel */
+/* Alert inbox and detail panel */
 .anomaly-list {
   display: grid;
   gap: 0.75rem;
@@ -1812,7 +1812,7 @@ textarea {
   font-size: 0.8rem;
 }
 
-/* Forecast experience */
+/* Forecast page */
 .forecasts-shell {
   display: grid;
   gap: 1rem;
@@ -2243,7 +2243,7 @@ textarea {
   text-transform: uppercase;
 }
 
-/* Executive dashboard */
+/* Dashboard page */
 .dashboard-intro {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
@@ -2773,7 +2773,7 @@ textarea {
   font-size: 0.78rem;
 }
 
-/* Shared loading states and responsive adjustments */
+/* Shared loading styles and responsive tweaks */
 .skeleton,
 .skeleton-line,
 .skeleton-value,

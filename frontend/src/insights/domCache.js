@@ -1,9 +1,8 @@
 /**
- * Builds a tiny DOM lookup cache keyed by element id.
+ * Builds a small DOM lookup cache by element id.
  *
- * Repeated dashboard renders touch the same DOM nodes many times, so caching
- * `getElementById` results avoids unnecessary lookups while still returning
- * `null` for missing elements in a predictable way.
+ * Dashboard renders hit the same elements many times, so this avoids repeated
+ * lookups while still returning `null` when something is missing.
  *
  * @returns {(id: string) => HTMLElement | null}
  */
@@ -11,7 +10,7 @@ export function createElementCache() {
   const cache = new Map();
 
   /**
-   * Returns the cached element for an id, resolving it on first access only.
+   * Gets the cached element for an id, looking it up the first time only.
    *
    * @param {string} id
    * @returns {HTMLElement | null}

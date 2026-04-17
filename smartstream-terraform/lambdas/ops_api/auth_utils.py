@@ -10,12 +10,15 @@ from typing import Any, Dict, Optional
 import boto3
 
 
+# The ops API reuses these helpers to validate bearer tokens and confirm the caller still
+# has a live account and company in DynamoDB.
 class ForbiddenError(Exception):
     pass
 
 
 dynamodb = boto3.resource("dynamodb")
 
+# Resolve table names and auth settings once when the Lambda starts.
 ACCOUNTS_TABLE_NAME = os.environ.get("ACCOUNTS_TABLE", "").strip()
 COMPANIES_TABLE_NAME = os.environ.get("COMPANIES_TABLE", "").strip()
 AUTH_TOKEN_SECRET = os.environ.get("AUTH_TOKEN_SECRET", "dev-secret-change-me")
@@ -40,6 +43,8 @@ if DEFAULT_ACCOUNT_ROLE not in ALLOWED_ACCOUNT_ROLES or DEFAULT_ACCOUNT_ROLE == 
     DEFAULT_ACCOUNT_ROLE = "member"
 
 
+# Validate the signed token first, then compare it with the latest account and company state
+# in DynamoDB so stale or revoked access is caught server-side.
 def build_auth_context(
     event: Dict[str, Any],
     *,
@@ -99,6 +104,8 @@ def build_auth_context(
     }
 
 
+# The helpers below are split by responsibility: role checks, DynamoDB lookups, header and
+# token parsing, and a final set of small input normalizers.
 def role_meets_required(role: str, required_role: str) -> bool:
     normalized_role = _normalize_role(role)
     normalized_required = _normalize_role(required_role, fallback="admin")
@@ -166,6 +173,8 @@ def _base64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + padding)
 
 
+# Keep role, email, company, and status values in a predictable format before permission
+# checks depend on them.
 def _normalize_role(value: Any, *, fallback: str = DEFAULT_ACCOUNT_ROLE) -> str:
     role = str(value or "").strip().lower()
     if role not in ALLOWED_ACCOUNT_ROLES:

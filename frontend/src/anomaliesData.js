@@ -1,5 +1,5 @@
 /**
- * Polls anomaly data, renders the anomaly inbox, and handles review actions.
+ * Loads alert data, shows the alert inbox, and handles review actions.
  */
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
@@ -22,8 +22,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
 });
 
 /**
- * Builds a bearer-token header when the anomaly feed is accessed by an
- * authenticated user.
+ * Builds the auth header when a signed-in user opens the alert feed.
  *
  * @param {(() => string) | undefined} getAuthToken
  * @returns {Record<string, string>}
@@ -34,7 +33,7 @@ function buildAuthHeaders(getAuthToken) {
 }
 
 /**
- * Sends an authenticated GET request and parses the JSON response.
+ * Sends an authenticated GET request and reads the JSON response.
  *
  * @param {string} path
  * @param {(() => string) | undefined} getAuthToken
@@ -55,7 +54,7 @@ function getJSON(path, getAuthToken) {
 }
 
 /**
- * Sends an authenticated POST request and parses the JSON response.
+ * Sends an authenticated POST request and reads the JSON response.
  *
  * @param {string} path
  * @param {unknown} body
@@ -80,7 +79,7 @@ function postJSON(path, body, getAuthToken) {
 }
 
 /**
- * Escapes text before it is injected into HTML strings.
+ * Escapes text before it is added to HTML.
  *
  * @param {unknown} value
  * @returns {string}
@@ -96,7 +95,7 @@ function escapeHtml(value) {
 }
 
 /**
- * Formats anomaly timestamps for list and detail views.
+ * Formats alert times for the list and detail views.
  *
  * @param {string | number | Date} value
  * @returns {string}
@@ -110,7 +109,7 @@ function formatDate(value) {
 }
 
 /**
- * Formats general numeric values for anomaly metrics.
+ * Formats regular numbers for alert metrics.
  *
  * @param {unknown} value
  * @returns {string}
@@ -121,7 +120,7 @@ function formatNumber(value) {
 }
 
 /**
- * Formats percentage metrics for anomaly details.
+ * Formats percentage values for alert details.
  *
  * @param {unknown} value
  * @returns {string}
@@ -132,7 +131,7 @@ function formatPercent(value) {
 }
 
 /**
- * Chooses the correct formatter for each anomaly metric field.
+ * Picks the right formatter for each alert metric.
  *
  * @param {string} name
  * @param {unknown} value
@@ -146,7 +145,7 @@ function formatMetricValue(name, value) {
 }
 
 /**
- * Converts the active filter state into a query string.
+ * Turns the current filters into a query string.
  *
  * @param {Record<string, string>} filters
  * @returns {string}
@@ -164,7 +163,7 @@ function queryFromFilters(filters) {
 }
 
 /**
- * Truncates long anomaly descriptions for the list view.
+ * Shortens long alert descriptions for the list view.
  *
  * @param {unknown} value
  * @param {number} maxLength
@@ -179,7 +178,7 @@ function truncate(value, maxLength) {
 }
 
 /**
- * Maps anomaly severity into the CSS class used by list cards.
+ * Turns alert severity into the CSS class used by the list cards.
  *
  * @param {string} severity
  * @returns {"high" | "medium" | "low"}
@@ -196,7 +195,7 @@ function severityClass(severity) {
 }
 
 /**
- * Converts backend status tokens into human-readable labels.
+ * Turns backend status names into labels people can read easily.
  *
  * @param {string} status
  * @returns {string}
@@ -206,7 +205,7 @@ function statusLabel(status) {
 }
 
 /**
- * Formats attached anomaly payloads for inspection in the detail panel.
+ * Formats attached alert data for the detail panel.
  *
  * @param {unknown} value
  * @returns {string}
@@ -216,7 +215,7 @@ function toPrettyJson(value) {
 }
 
 /**
- * Collects the DOM nodes that show anomaly summary counts.
+ * Finds the DOM nodes that show the alert summary counts.
  *
  * @returns {Record<string, HTMLElement | null>}
  */
@@ -231,7 +230,7 @@ function summaryElements() {
 }
 
 /**
- * Collects the anomaly filter controls and related status elements.
+ * Finds the alert filters and their related status elements.
  *
  * @returns {Record<string, HTMLElement | null | Element[]>}
  */
@@ -250,7 +249,7 @@ function filterElements() {
 }
 
 /**
- * Collects the DOM nodes used by the anomaly detail drawer.
+ * Finds the DOM nodes used by the alert detail drawer.
  *
  * @returns {Record<string, any>}
  */
@@ -274,7 +273,7 @@ function detailElements() {
 }
 
 /**
- * Renders the top-line anomaly summary counters.
+ * Shows the top alert summary counters.
  *
  * @param {Record<string, any>} summary
  */
@@ -292,7 +291,7 @@ function renderSummary(summary) {
 }
 
 /**
- * Renders the anomaly inbox list and its empty state.
+ * Shows the alert inbox list and its empty state.
  *
  * @param {Array<Record<string, any>>} items
  */
@@ -334,7 +333,7 @@ function renderAnomalyList(items) {
 }
 
 /**
- * Renders the selected anomaly into the side detail panel.
+ * Shows the selected alert in the side detail panel.
  *
  * @param {Record<string, any>} item
  */
@@ -400,7 +399,7 @@ function renderAnomalyDetail(item) {
 }
 
 /**
- * Hides the detail panel and clears transient input state.
+ * Hides the detail panel and clears temporary form state.
  */
 function clearAnomalyDetail() {
   const elements = detailElements();
@@ -415,7 +414,7 @@ function clearAnomalyDetail() {
 }
 
 /**
- * Initializes anomaly polling, filters, detail loading, and action handling.
+ * Starts alert polling, filters, detail loading, and action handling.
  *
  * @param {{ getAuthToken?: () => string }} [options={}]
  * @returns {() => void}

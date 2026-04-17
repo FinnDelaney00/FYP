@@ -1,13 +1,13 @@
 import { requestJSON } from "../services/apiClient.js";
 
 /**
- * Service helpers for user profile updates.
+ * Service helpers for profile updates.
  */
 const PROFILE_UPDATE_PATH = String(import.meta.env.VITE_AUTH_PROFILE_UPDATE_PATH || "").trim();
 const PROFILE_UPDATE_METHOD = String(import.meta.env.VITE_AUTH_PROFILE_UPDATE_METHOD || "PATCH").trim().toUpperCase();
 
 /**
- * Reports whether this environment exposes profile update endpoints.
+ * Tells the UI whether profile updates are available in this environment.
  *
  * @returns {{ supported: boolean, path: string | null, method: string }}
  */
@@ -20,7 +20,7 @@ export function getProfileUpdateCapability() {
 }
 
 /**
- * Saves profile changes when the current deployment supports it.
+ * Saves profile changes when this deployment supports it.
  *
  * @param {{ fullName: string }} payload
  * @param {(() => string) | undefined} getAuthToken

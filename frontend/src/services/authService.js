@@ -1,8 +1,8 @@
 import { postJSON, requestJSON } from "./apiClient.js";
 
 /**
- * Session lifecycle helpers for login, signup, token persistence, and
- * subscriber notifications across the workspace shell.
+ * Helpers for sign-in, sign-up, saved tokens, and session updates across the
+ * app shell.
  */
 const AUTH_TOKEN_KEY = "smartstream_auth_token";
 
@@ -17,7 +17,7 @@ let sessionState = anonymousSession;
 const listeners = new Set();
 
 /**
- * Notifies every subscriber that the in-memory session state changed.
+ * Tells every subscriber that the saved session state changed.
  */
 function emitSessionChange() {
   listeners.forEach((listener) => {
@@ -26,7 +26,7 @@ function emitSessionChange() {
 }
 
 /**
- * Replaces the current session snapshot and broadcasts the update.
+ * Replaces the current session state and shares the update.
  *
  * @param {Record<string, unknown>} nextState
  * @returns {Record<string, unknown>}
@@ -38,7 +38,7 @@ function setSessionState(nextState) {
 }
 
 /**
- * Normalizes the `/auth/me` payload into the shape the UI expects.
+ * Turns the `/auth/me` response into the shape the UI uses.
  *
  * @param {Record<string, any>} payload
  * @returns {Record<string, any>}
@@ -71,7 +71,7 @@ function normalizeSessionPayload(payload) {
 }
 
 /**
- * Detects auth failures that should clear the stored token.
+ * Checks whether an auth error should clear the saved token.
  *
  * @param {any} error
  * @returns {boolean}
@@ -81,7 +81,7 @@ function isAuthError(error) {
 }
 
 /**
- * Reads the persisted auth token from local storage.
+ * Gets the saved auth token from local storage.
  *
  * @returns {string}
  */
@@ -90,7 +90,7 @@ export function getStoredToken() {
 }
 
 /**
- * Persists a bearer token for later session restoration.
+ * Saves a token so the session can be restored later.
  *
  * @param {string} token
  */
@@ -99,14 +99,14 @@ export function setStoredToken(token) {
 }
 
 /**
- * Removes the persisted auth token.
+ * Removes the saved auth token.
  */
 export function clearStoredToken() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
 /**
- * Returns the latest in-memory session snapshot.
+ * Gets the latest session state kept in memory.
  *
  * @returns {Record<string, any>}
  */
@@ -115,7 +115,7 @@ export function getSessionState() {
 }
 
 /**
- * Subscribes to session updates and immediately receives the current state.
+ * Subscribes to session updates and sends the current state right away.
  *
  * @param {(state: Record<string, any>) => void} listener
  * @returns {() => void}
@@ -133,7 +133,7 @@ export function subscribeSession(listener) {
 }
 
 /**
- * Refreshes the authenticated session from the backend when a token exists.
+ * Reloads the signed-in session from the backend when a token exists.
  *
  * @returns {Promise<Record<string, any>>}
  */
@@ -160,7 +160,7 @@ export async function refreshSession() {
 }
 
 /**
- * Restores the previous session on startup, falling back to anonymous state.
+ * Restores the previous session on startup, or falls back to logged out.
  *
  * @returns {Promise<Record<string, any>>}
  */
@@ -177,7 +177,7 @@ export async function restoreSession() {
 }
 
 /**
- * Authenticates a user via login or signup, then hydrates the full session.
+ * Signs a user in or up, then loads the full session.
  *
  * @param {{
  *   signupMode?: boolean,
@@ -227,7 +227,7 @@ export async function authenticate({
 }
 
 /**
- * Clears the active session locally and returns the UI to anonymous mode.
+ * Clears the local session and returns the UI to logged-out mode.
  */
 export function logoutSession() {
   clearStoredToken();
@@ -235,7 +235,7 @@ export function logoutSession() {
 }
 
 /**
- * Explicit alias used by settings screens after account mutations.
+ * Alias the settings page uses after account changes.
  *
  * @returns {Promise<Record<string, any>>}
  */

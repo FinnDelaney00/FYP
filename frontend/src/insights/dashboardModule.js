@@ -16,14 +16,14 @@ import {
 } from "./formatters.js";
 
 /**
- * Dashboard renderer for the main executive overview page.
+ * Dashboard renderer for the main overview page.
  *
- * The module combines API payload data with normalized finance row analytics to
- * populate metrics, charts, breakdowns, and plain-English summaries.
+ * It mixes API data with finance summaries to fill in metrics, charts,
+ * breakdowns, and short written summaries.
  */
 
 /**
- * Removes loading placeholders once real content is ready to render.
+ * Removes loading placeholders when real content is ready.
  *
  * @param {HTMLElement | null} element
  */
@@ -35,7 +35,7 @@ function clearLoadingClasses(element) {
 }
 
 /**
- * Reads the current theme's donut palette from CSS custom properties.
+ * Reads the donut chart colors from the current theme.
  *
  * @returns {string[]}
  */
@@ -60,7 +60,7 @@ function getThemeChartColors() {
 export function createDashboardModule({ getLatestFinanceRowsState }) {
   const getElement = createElementCache();
 
-  // Metric card helpers keep the render path readable and consistent.
+  // These helpers keep the metric card code easier to read.
   function setMetric(id, value, subtitle) {
     const valueElement = getElement(`${id}-value`);
     const subtitleElement = getElement(`${id}-subtitle`);
@@ -84,7 +84,7 @@ export function createDashboardModule({ getLatestFinanceRowsState }) {
     trendElement.dataset.tone = tone;
   }
 
-  // Chart renderers drive the visual summaries shown above the fold.
+  // These chart helpers build the main summaries shown near the top.
   function renderEmployeeGrowth(series) {
     const container = getElement("employee-growth-chart");
     if (!container) {
@@ -327,7 +327,7 @@ export function createDashboardModule({ getLatestFinanceRowsState }) {
       .join("");
   }
 
-  // Insight builders convert raw metrics into business-facing copy.
+  // These helpers turn raw metrics into short written summaries.
   function buildKeyInsights({ spendMetrics, employeeMetrics, largestDepartment, financeAnalytics }) {
     const insights = [];
 
@@ -371,7 +371,7 @@ export function createDashboardModule({ getLatestFinanceRowsState }) {
   }
 
   /**
-   * Renders the full dashboard view from the latest backend payload.
+   * Shows the full dashboard using the latest backend data.
    *
    * @param {Record<string, any>} payload
    */

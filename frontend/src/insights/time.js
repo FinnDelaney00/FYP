@@ -1,5 +1,5 @@
 /**
- * Parses a number from user-facing strings and backend payload values.
+ * Turns user input or backend values into a number when possible.
  *
  * @param {unknown} value
  * @returns {number | null}
@@ -22,9 +22,9 @@ export function parseNumeric(value) {
 }
 
 /**
- * Parses timestamps expressed as Date objects, epoch values, or date strings.
+ * Turns dates into `Date` objects from objects, timestamps, or strings.
  *
- * Numeric inputs are treated as seconds unless they already look like
+ * Number values are treated as seconds unless they already look like
  * millisecond timestamps.
  *
  * @param {unknown} value
@@ -62,10 +62,10 @@ export function parseDate(value) {
 }
 
 /**
- * Parses a date while preserving day-based business semantics.
+ * Parses a date while keeping the business day stable.
  *
- * Bare `YYYY-MM-DD` values are normalized to local midday so timezone offsets do
- * not accidentally shift them into the previous or next day.
+ * Plain `YYYY-MM-DD` values are set to local midday so timezone offsets do not
+ * shift them into the day before or after.
  *
  * @param {unknown} value
  * @returns {Date | null}
@@ -84,7 +84,7 @@ export function parseBusinessDate(value) {
 }
 
 /**
- * Converts a date-like value into a stable `YYYY-MM-DD` key.
+ * Turns a date-like value into a stable `YYYY-MM-DD` key.
  *
  * @param {unknown} value
  * @returns {string}
@@ -120,7 +120,7 @@ export function addDays(value, days) {
 }
 
 /**
- * Returns a month bucket key in `YYYY-M` form for grouping comparisons.
+ * Gets a month key in `YYYY-M` format for grouping.
  *
  * @param {unknown} value
  * @returns {string}
@@ -134,7 +134,7 @@ export function getMonthKey(value) {
 }
 
 /**
- * Returns the prior month bucket for a given business date.
+ * Gets the previous month key for a business date.
  *
  * @param {unknown} value
  * @returns {string}
@@ -148,7 +148,7 @@ export function getPreviousMonthKey(value) {
 }
 
 /**
- * Calculates how many calendar days remain in the same month.
+ * Counts how many calendar days are left in the same month.
  *
  * @param {unknown} value
  * @returns {number}
@@ -164,7 +164,7 @@ export function getDaysRemainingInMonth(value) {
 }
 
 /**
- * Returns the average of finite numeric values only.
+ * Gets the average of the valid numbers in a list.
  *
  * @param {unknown[]} values
  * @returns {number | null}
@@ -178,7 +178,7 @@ export function averageValues(values) {
 }
 
 /**
- * Safely returns the final item in an array.
+ * Gets the last item in an array.
  *
  * @template T
  * @param {T[]} items

@@ -15,10 +15,10 @@ import { getProfileUpdateCapability, saveProfileChanges } from "./profileService
 import { changePassword, getSecurityCapabilities, signOutAllSessions } from "./securityService.js";
 
 /**
- * Renders and controls the dedicated workspace settings experience.
+ * Renders and controls the workspace settings page.
  *
- * This module coordinates session-backed account details, browser-stored
- * preferences, and optional admin/security actions in one place.
+ * This module brings together account details, browser-saved preferences, and
+ * optional admin and security actions in one place.
  */
 
 const SETTINGS_SECTIONS = [
@@ -57,7 +57,7 @@ const INVITE_ROLE_OPTIONS = [
 const DEFAULT_INVITE_EXPIRY_DAYS = "14";
 
 /**
- * Normalizes blank values into a readable placeholder.
+ * Replaces blank values with an easy-to-read fallback.
  *
  * @param {unknown} value
  * @param {string} [fallback="Not available"]
@@ -69,7 +69,7 @@ function humanizeValue(value, fallback = "Not available") {
 }
 
 /**
- * Converts backend role tokens into user-facing labels.
+ * Turns backend role names into labels people can read easily.
  *
  * @param {string} role
  * @returns {string}
@@ -80,7 +80,7 @@ function humanizeRole(role) {
 }
 
 /**
- * Converts backend status tokens into user-facing labels.
+ * Turns backend status names into labels people can read easily.
  *
  * @param {string} value
  * @returns {string}
@@ -91,7 +91,7 @@ function humanizeStatus(value) {
 }
 
 /**
- * Reuses route copy so landing-page settings reflect the current navigation labels.
+ * Reuses route labels so the landing-page setting matches the app nav.
  *
  * @param {string} pageName
  * @returns {string}
@@ -101,7 +101,7 @@ function getLandingPageLabel(pageName) {
 }
 
 /**
- * Extracts the session fields the settings page needs for display.
+ * Pulls out the session fields the settings page needs to show.
  *
  * @param {Record<string, any>} sessionState
  * @returns {Record<string, string>}
@@ -123,7 +123,7 @@ function buildSessionSummary(sessionState) {
 }
 
 /**
- * Checks whether the current session has admin privileges.
+ * Checks whether the current user is an admin.
  *
  * @param {Record<string, any>} sessionState
  * @returns {boolean}
@@ -133,7 +133,7 @@ function isAdminSession(sessionState) {
 }
 
 /**
- * Formats invite timestamps that may arrive as seconds or ISO strings.
+ * Formats invite times that may come in as seconds or date strings.
  *
  * @param {string | number | Date} value
  * @returns {string}
@@ -146,7 +146,7 @@ function formatInviteDateTime(value) {
 }
 
 /**
- * Returns the skeleton UI shown while the session is refreshing.
+ * Builds the loading UI shown while the session is refreshing.
  *
  * @returns {string}
  */
@@ -161,7 +161,7 @@ function createLoadingMarkup() {
 }
 
 /**
- * Builds the shared inline status message used in card footers.
+ * Builds the shared status message shown in card footers.
  *
  * @param {string} id
  * @param {string} tone
@@ -239,7 +239,7 @@ export function createSettingsPage({
   let isCreatingInvite = false;
 
   /**
-   * Compares the editable name draft with the latest session-backed value.
+   * Checks whether the edited name is different from the saved one.
    *
    * @param {Record<string, string>} sessionSummary
    * @returns {boolean}
@@ -249,7 +249,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Rehydrates editable drafts when the authenticated user changes.
+   * Reloads the editable drafts when the signed-in user changes.
    *
    * @param {Record<string, string>} sessionSummary
    * @param {boolean} [force=false]
@@ -264,7 +264,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Returns the baseline company-access helper message for the current role.
+   * Gets the default company-access helper message for the current role.
    *
    * @param {Record<string, any>} sessionState
    * @returns {{ tone: string, message: string }}
@@ -285,7 +285,7 @@ export function createSettingsPage({
     return companyAccessStatusOverride || getDefaultCompanyAccessStatus(sessionState);
   }
 
-  // Card builders keep the main render function focused on composition.
+  // These card builders keep the main render function easier to read.
   function buildAccountCard(sessionSummary) {
     const accountDirty = getAccountDirtyState(sessionSummary);
     const footer = `
@@ -642,7 +642,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Re-renders the whole settings page from the latest session and preference state.
+   * Rebuilds the whole settings page from the latest session and preferences.
    */
   function render() {
     if (!rootElement) {
@@ -684,7 +684,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Updates an already-rendered inline status node without a full re-render.
+   * Updates a status message in place without redrawing the whole page.
    *
    * @param {string} id
    * @param {string} tone
@@ -701,7 +701,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Syncs current preference values into the rendered controls and preview UI.
+   * Copies the current preferences into the rendered controls and preview.
    */
   function syncPreferenceControls() {
     const preferences = preferencesStore.getState();
@@ -752,7 +752,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Persists the edited display name when the backend supports profile updates.
+   * Saves the edited display name when the backend supports it.
    *
    * @returns {Promise<void>}
    */
@@ -808,7 +808,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Validates and submits the password change form.
+   * Checks and submits the password change form.
    *
    * @returns {Promise<void>}
    */
@@ -871,7 +871,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Revokes other active sessions for the current account.
+   * Signs out the other active sessions for this account.
    *
    * @returns {Promise<void>}
    */
@@ -897,7 +897,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Validates invite settings and requests a new invite code from the backend.
+   * Checks the invite settings and asks the backend for a new invite code.
    *
    * @returns {Promise<void>}
    */
@@ -1026,7 +1026,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Restores all appearance and accessibility settings to defaults.
+   * Resets all appearance and accessibility settings to the defaults.
    */
   function resetPreferences() {
     preferencesStore.reset();
@@ -1042,7 +1042,7 @@ export function createSettingsPage({
   }
 
   /**
-   * Activates and scrolls to a settings section from the sidebar navigation.
+   * Opens a settings section from the sidebar and scrolls to it.
    *
    * @param {string} sectionId
    */

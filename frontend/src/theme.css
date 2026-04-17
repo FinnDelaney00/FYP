@@ -1,10 +1,10 @@
 /*
   File purpose:
-  Applies theme tokens and state-driven visual overrides for light/dark mode,
-  accessibility preferences, and shared component color bindings.
+  Sets the shared theme values and page-wide color changes for light/dark mode,
+  accessibility settings, and common components.
 */
 
-/* Base token map for the default resolved theme */
+/* Main theme values for the default theme */
 :root {
   --app-background:
     radial-gradient(circle at 12% 18%, rgba(59, 130, 246, 0.16) 0%, transparent 32%),
@@ -141,7 +141,7 @@
   --skeleton-surface: linear-gradient(90deg, rgba(30, 41, 59, 0.86), rgba(51, 65, 85, 0.96), rgba(30, 41, 59, 0.86));
 }
 
-/* Accessibility and preference overrides layered on top of the theme tokens */
+/* Extra theme changes for accessibility and user preferences */
 :root[data-high-contrast="true"] {
   --border-soft: rgba(148, 163, 184, 0.44);
   --border-strong: rgba(96, 165, 250, 0.5);
@@ -175,7 +175,7 @@
   scroll-behavior: auto !important;
 }
 
-/* Component-level token bindings */
+/* Shared color bindings for components */
 body {
   background: var(--app-background);
   color: var(--text-primary);

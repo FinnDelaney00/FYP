@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Creates a mocked fetch response object for auth-service tests.
+ * Builds a mocked fetch response for auth service tests.
  *
  * @param {unknown} payload
  * @param {{ ok?: boolean, status?: number }} [options={}]

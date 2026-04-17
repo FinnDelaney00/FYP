@@ -10,12 +10,11 @@ import {
 import { parseDate, parseNumeric } from "./time.js";
 
 /**
- * Finance-specific normalization and summary helpers shared by the dashboard
- * and forecast views.
+ * Finance helpers shared by the dashboard and forecast views.
  */
 
 /**
- * Returns the first non-empty string field from a record.
+ * Gets the first filled-in text field from a record.
  *
  * @param {Record<string, any>} record
  * @param {string[]} fields
@@ -33,7 +32,7 @@ function extractFirstField(record, fields, fallback = "") {
 }
 
 /**
- * Discovers the most business-relevant date field available on a finance row.
+ * Finds the best date to use from a finance row.
  *
  * @param {Record<string, any>} record
  * @returns {Date | null}
@@ -49,10 +48,10 @@ function extractFinanceDate(record) {
 }
 
 /**
- * Discovers a signed numeric amount from a finance row.
+ * Finds the signed amount in a finance row.
  *
- * The helper prefers direct amount fields and falls back to credit/debit pairs
- * when the schema stores inflows and outflows separately.
+ * It uses direct amount fields first, then falls back to credit and debit
+ * fields when needed.
  *
  * @param {Record<string, any>} record
  * @returns {number | null}
@@ -75,7 +74,7 @@ function extractFinanceAmount(record) {
 }
 
 /**
- * Classifies a finance row as revenue or expenditure.
+ * Decides whether a finance row is revenue or spending.
  *
  * @param {Record<string, any>} record
  * @param {number} amount
@@ -103,7 +102,7 @@ function classifyFinanceFlow(record, amount) {
 }
 
 /**
- * Normalizes raw finance rows into a frontend-friendly analytics shape.
+ * Turns raw finance rows into a simpler shape for the app.
  *
  * @param {Array<Record<string, any>>} rows
  * @returns {Array<Record<string, any>>}
@@ -133,7 +132,7 @@ export function normalizeFinanceRows(rows) {
 }
 
 /**
- * Aggregates the largest totals for a chosen finance dimension.
+ * Adds up the biggest totals for a chosen finance field.
  *
  * @param {Array<Record<string, any>>} rows
  * @param {string} key
@@ -158,7 +157,7 @@ function aggregateTopItems(rows, key, limit = 5) {
 }
 
 /**
- * Produces the dashboard-ready finance summary derived from recent rows.
+ * Builds the finance summary the dashboard needs from recent rows.
  *
  * @param {Array<Record<string, any>>} rows
  * @returns {Record<string, any>}
@@ -215,7 +214,7 @@ export function buildFinanceAnalytics(rows) {
 }
 
 /**
- * Reads current and prior spend totals from the monthly revenue/expense series.
+ * Gets the current and previous spend totals from the monthly series.
  *
  * @param {Array<Record<string, any>>} monthlySeries
  * @returns {{ currentSpend: number, previousSpend: number, spendChangePercent: number | null }}
@@ -236,7 +235,7 @@ export function getMonthlySpendMetrics(monthlySeries) {
 }
 
 /**
- * Derives current headcount and near-term movement from dashboard payload data.
+ * Works out current headcount and near-term movement from dashboard data.
  *
  * @param {Record<string, any>} charts
  * @param {Record<string, any>} metrics
@@ -264,7 +263,7 @@ export function getEmployeeMetrics(charts, metrics) {
 }
 
 /**
- * Returns the largest department entry by value.
+ * Gets the department with the biggest value.
  *
  * @param {Array<{ label: string, value: number }>} items
  * @returns {{ label: string, value: number } | null}
