@@ -133,6 +133,7 @@ run "override_pipeline_wiring" {
 
   variables {
     db_password                = "UnitTestPassword123!"
+    legacy_workspace_name      = "default"
     finance_schema_name        = "ledger"
     finance_table_list         = ["transactions", "accounts", "balances"]
     data_lake_bucket_name      = "external-live-api-bucket"

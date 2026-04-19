@@ -53,8 +53,9 @@ run "query_max_rows_validation" {
   command = plan
 
   variables {
-    db_password    = "UnitTestPassword123!"
-    query_max_rows = 1001
+    db_password           = "UnitTestPassword123!"
+    legacy_workspace_name = "default"
+    query_max_rows        = 1001
   }
 
   expect_failures = [var.query_max_rows]
@@ -64,8 +65,9 @@ run "ml_forecast_days_validation" {
   command = plan
 
   variables {
-    db_password      = "UnitTestPassword123!"
-    ml_forecast_days = 10
+    db_password           = "UnitTestPassword123!"
+    legacy_workspace_name = "default"
+    ml_forecast_days      = 10
   }
 
   expect_failures = [var.ml_forecast_days]
@@ -76,6 +78,7 @@ run "auth_token_ttl_validation" {
 
   variables {
     db_password            = "UnitTestPassword123!"
+    legacy_workspace_name  = "default"
     auth_token_ttl_seconds = 120
   }
 
