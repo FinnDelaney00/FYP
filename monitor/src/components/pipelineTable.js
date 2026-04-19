@@ -36,6 +36,32 @@ export function renderPipelineTable(pipelines) {
 }
 
 /**
+ * Returns the pipeline group, inferring it from the ID when pipeline_group is absent.
+ *
+ * @param {{ pipeline_group?: string, id: string }} pipeline
+ * @returns {string}
+ */
+function resolvePipelineGroup(pipeline) {
+  if (pipeline.pipeline_group) {
+    return pipeline.pipeline_group;
+  }
+
+  return pipeline.id.startsWith("acme-") ? "acme" : "smartstream";
+}
+
+/**
+ * Renders the group badge shown below the pipeline ID in the name cell.
+ *
+ * @param {object} pipeline
+ * @returns {string}
+ */
+function renderGroupBadge(pipeline) {
+  const group = resolvePipelineGroup(pipeline);
+
+  return `<span class="pipeline-group-badge pipeline-group-badge--${escapeHtml(group)}">${escapeHtml(group)}</span>`;
+}
+
+/**
  * Renders a single pipeline table row, including the detail action and status
  * history sparkline.
  *
@@ -51,6 +77,7 @@ function renderRow(pipeline) {
         <div class="pipeline-cell">
           <strong>${escapeHtml(pipeline.name)}</strong>
           <span>${escapeHtml(pipeline.id)}</span>
+          ${renderGroupBadge(pipeline)}
         </div>
       </td>
       <td>${renderStatusBadge(pipeline.overall_status)}</td>

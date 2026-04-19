@@ -29,3 +29,5 @@ tests/artifacts/tmp/
 .coverage.*
 coverage/
 htmlcov/
+
+.claude

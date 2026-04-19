@@ -840,6 +840,113 @@ body {
   color: #f0d2cd;
 }
 
+/* Pipeline group tabs and row badges. */
+.pipeline-group-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--divider);
+  margin-bottom: 4px;
+}
+
+.group-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.group-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
+    var(--surface-strong);
+}
+
+.group-tab--active {
+  border-color: rgba(127, 179, 169, 0.38);
+  background:
+    linear-gradient(180deg, rgba(127, 179, 169, 0.06), rgba(127, 179, 169, 0)),
+    rgba(127, 179, 169, 0.1);
+  color: var(--accent-strong);
+}
+
+.group-tab__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-strong);
+}
+
+.group-tab--active .group-tab__count {
+  background: rgba(127, 179, 169, 0.14);
+  border-color: rgba(127, 179, 169, 0.28);
+  color: var(--accent-strong);
+}
+
+.group-tab__issues {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(213, 121, 112, 0.14);
+  border: 1px solid rgba(213, 121, 112, 0.26);
+  color: #f0d2cd;
+  font-size: 0.7rem;
+}
+
+.pipeline-group-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pipeline-group-badge--smartstream {
+  background: rgba(127, 179, 169, 0.08);
+  border-color: rgba(127, 179, 169, 0.2);
+  color: var(--accent-strong);
+}
+
+.pipeline-group-badge--acme {
+  background: rgba(185, 149, 224, 0.1);
+  border-color: rgba(185, 149, 224, 0.22);
+  color: #d4b8f0;
+}
+
 /* Sparkline, empty states, and loading/error placeholders. */
 .sparkline {
   display: grid;

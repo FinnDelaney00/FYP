@@ -26,7 +26,8 @@ export function createMonitorApp(rootElement) {
     filters: {
       status: "all",
       query: "",
-      sort: "severity"
+      sort: "severity",
+      pipelineGroup: "all"
     },
     autoRefreshEnabled: true,
     refreshIntervalMs: sanitizeRefreshInterval(import.meta.env.VITE_MONITOR_REFRESH_INTERVAL_MS),
@@ -59,16 +60,36 @@ export function createMonitorApp(rootElement) {
    */
   function render() {
     const selectedPipeline = state.pipelines.find((pipeline) => pipeline.id === state.selectedPipelineId) ?? null;
+    const visiblePipelines = getVisiblePipelines();
+    const activeGroup = state.filters.pipelineGroup;
+
+    // When a group filter is active, scope alarms and logs to that group so the
+    // side rail reflects the same slice of the fleet as the main table.
+    const groupAlarms = activeGroup === "all"
+      ? state.alarms
+      : state.alarms.filter((alarm) => alarm.pipeline_group === activeGroup);
+    const groupLogSummary = activeGroup === "all"
+      ? state.logSummary
+      : state.logSummary.filter((entry) => entry.pipeline_group === activeGroup);
+
+    // When a group filter is active, derive the summary card metrics from that
+    // group's full pipeline list rather than the API aggregate (which spans all groups).
+    const groupPipelines = activeGroup === "all"
+      ? state.pipelines
+      : state.pipelines.filter((p) => resolvePipelineGroup(p) === activeGroup);
+    const overview = activeGroup === "all"
+      ? (state.overview ?? createEmptyOverview())
+      : computeGroupOverview(groupPipelines, state.alarms);
 
     page.render({
       isLoading: state.isLoading,
       errorMessage: state.errorMessage,
-      overview: state.overview ?? createEmptyOverview(),
+      overview,
       allPipelines: state.pipelines,
-      totalPipelineCount: state.pipelines.length,
-      pipelines: getVisiblePipelines(),
-      alarms: state.alarms,
-      logSummary: state.logSummary,
+      totalPipelineCount: groupPipelines.length,
+      pipelines: visiblePipelines,
+      alarms: groupAlarms,
+      logSummary: groupLogSummary,
       filters: state.filters,
       autoRefreshEnabled: state.autoRefreshEnabled,
       refreshIntervalMs: state.refreshIntervalMs,
@@ -256,7 +277,7 @@ export function createMonitorApp(rootElement) {
   }
 
   /**
-   * Applies the current status/query filters and sort order to the pipeline list.
+   * Applies the current group/status/query filters and sort order to the pipeline list.
    *
    * @returns {Array<object>}
    */
@@ -265,6 +286,10 @@ export function createMonitorApp(rootElement) {
 
     return [...state.pipelines]
       .filter((pipeline) => {
+        if (state.filters.pipelineGroup !== "all" && resolvePipelineGroup(pipeline) !== state.filters.pipelineGroup) {
+          return false;
+        }
+
         if (state.filters.status !== "all" && pipeline.overall_status !== state.filters.status) {
           return false;
         }
@@ -360,6 +385,43 @@ function sortPipelines(left, right, sortOrder) {
   }
 
   return left.name.localeCompare(right.name);
+}
+
+/**
+ * Returns the pipeline group for a pipeline object. Falls back to inferring the
+ * group from the pipeline ID when the API response does not include a
+ * pipeline_group field — live deployments use the "acme-" ID prefix convention.
+ *
+ * @param {{ pipeline_group?: string, id: string }} pipeline
+ * @returns {string}
+ */
+function resolvePipelineGroup(pipeline) {
+  if (pipeline.pipeline_group) {
+    return pipeline.pipeline_group;
+  }
+
+  return pipeline.id.startsWith("acme-") ? "acme" : "smartstream";
+}
+
+/**
+ * Derives an overview metrics object from a subset of pipelines and alarms so
+ * the summary cards stay accurate when a pipeline-group filter is active.
+ *
+ * @param {Array<object>} pipelines
+ * @param {Array<object>} alarms
+ * @returns {object}
+ */
+function computeGroupOverview(pipelines, alarms) {
+  const pipelineIds = new Set(pipelines.map((p) => p.id));
+
+  return {
+    total_pipelines: pipelines.length,
+    healthy: pipelines.filter((p) => p.overall_status === "healthy").length,
+    degraded: pipelines.filter((p) => p.overall_status === "degraded" || p.overall_status === "warning").length,
+    down: pipelines.filter((p) => p.overall_status === "down").length,
+    active_alarms: alarms.filter((a) => pipelineIds.has(a.pipeline_id)).length,
+    last_updated: null
+  };
 }
 
 /**

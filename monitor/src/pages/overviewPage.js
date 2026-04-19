@@ -54,6 +54,10 @@ export function createOverviewPage({
     if (action === "close-modal") {
       onCloseModal();
     }
+
+    if (action === "set-group" && actionTarget.dataset.group) {
+      onUpdateFilters({ pipelineGroup: actionTarget.dataset.group });
+    }
   });
 
   rootElement.addEventListener("change", (event) => {
@@ -218,6 +222,9 @@ function buildPageHtml(viewModel) {
                   </label>
                 </div>
               </div>
+              <div class="pipeline-group-tabs">
+                ${renderGroupTabs(viewModel.allPipelines, viewModel.filters.pipelineGroup)}
+              </div>
               ${renderPipelineSection(viewModel)}
             </section>
           </main>
@@ -282,6 +289,61 @@ function renderPipelineSection(viewModel) {
   }
 
   return renderPipelineTable(viewModel.pipelines);
+}
+
+/**
+ * Returns the pipeline group for a pipeline, inferring it from the ID when the
+ * API response does not include a pipeline_group field.
+ *
+ * @param {{ pipeline_group?: string, id: string }} pipeline
+ * @returns {string}
+ */
+function resolvePipelineGroup(pipeline) {
+  if (pipeline.pipeline_group) {
+    return pipeline.pipeline_group;
+  }
+
+  return pipeline.id.startsWith("acme-") ? "acme" : "smartstream";
+}
+
+/**
+ * Renders the pipeline-group tab strip above the health table. Each tab shows
+ * the pipeline count for that group and an issue badge when unhealthy pipelines
+ * are present, so engineers can see at a glance which deployment needs attention.
+ *
+ * @param {Array<object>} allPipelines
+ * @param {string} activeGroup
+ * @returns {string}
+ */
+function renderGroupTabs(allPipelines, activeGroup) {
+  const groups = [
+    { key: "all", label: "All pipelines" },
+    { key: "smartstream", label: "SmartStream (Legacy)" },
+    { key: "acme", label: "Acme" }
+  ];
+
+  return groups
+    .map(({ key, label }) => {
+      const groupPipelines = key === "all" ? allPipelines : allPipelines.filter((p) => resolvePipelineGroup(p) === key);
+      const issueCount = groupPipelines.filter(
+        (p) => p.overall_status === "degraded" || p.overall_status === "warning" || p.overall_status === "down"
+      ).length;
+      const isActive = activeGroup === key;
+
+      return `
+        <button
+          class="group-tab${isActive ? " group-tab--active" : ""}"
+          type="button"
+          data-action="set-group"
+          data-group="${escapeHtml(key)}"
+        >
+          ${escapeHtml(label)}
+          <span class="group-tab__count">${escapeHtml(String(groupPipelines.length))}</span>
+          ${issueCount > 0 ? `<span class="group-tab__issues">${escapeHtml(String(issueCount))} issue${issueCount > 1 ? "s" : ""}</span>` : ""}
+        </button>
+      `;
+    })
+    .join("");
 }
 
 /**

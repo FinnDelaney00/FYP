@@ -91,6 +91,7 @@ function buildMockDataset() {
     {
       id: "employee-pipeline",
       name: "Employee pipeline",
+      pipeline_group: "smartstream",
       overall_status: "healthy",
       source_status: "healthy",
       processing_status: "healthy",
@@ -116,6 +117,7 @@ function buildMockDataset() {
     {
       id: "finance-pipeline",
       name: "Finance pipeline",
+      pipeline_group: "smartstream",
       overall_status: "degraded",
       source_status: "healthy",
       processing_status: "degraded",
@@ -141,6 +143,7 @@ function buildMockDataset() {
     {
       id: "forecast-pipeline",
       name: "Forecast pipeline",
+      pipeline_group: "smartstream",
       overall_status: "degraded",
       source_status: "healthy",
       processing_status: "degraded",
@@ -166,6 +169,7 @@ function buildMockDataset() {
     {
       id: "anomaly-pipeline",
       name: "Anomaly pipeline",
+      pipeline_group: "smartstream",
       overall_status: "down",
       source_status: "healthy",
       processing_status: "down",
@@ -187,6 +191,110 @@ function buildMockDataset() {
         "down",
         "down"
       ]
+    },
+    {
+      id: "acme-employee-pipeline",
+      name: "Employee pipeline",
+      pipeline_group: "acme",
+      overall_status: "healthy",
+      source_status: "healthy",
+      processing_status: "healthy",
+      delivery_status: "healthy",
+      freshness_status: "healthy",
+      last_success_at: minutesAgo(3),
+      alarm_count: 0,
+      status_history: [
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy"
+      ]
+    },
+    {
+      id: "acme-finance-pipeline",
+      name: "Finance pipeline",
+      pipeline_group: "acme",
+      overall_status: "healthy",
+      source_status: "healthy",
+      processing_status: "healthy",
+      delivery_status: "healthy",
+      freshness_status: "healthy",
+      last_success_at: minutesAgo(4),
+      alarm_count: 0,
+      status_history: [
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy"
+      ]
+    },
+    {
+      id: "acme-forecast-pipeline",
+      name: "Forecast pipeline",
+      pipeline_group: "acme",
+      overall_status: "degraded",
+      source_status: "healthy",
+      processing_status: "degraded",
+      delivery_status: "healthy",
+      freshness_status: "warning",
+      last_success_at: minutesAgo(19),
+      alarm_count: 1,
+      status_history: [
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "healthy",
+        "warning",
+        "warning",
+        "healthy",
+        "warning",
+        "warning",
+        "degraded",
+        "degraded"
+      ]
+    },
+    {
+      id: "acme-anomaly-pipeline",
+      name: "Anomaly pipeline",
+      pipeline_group: "acme",
+      overall_status: "degraded",
+      source_status: "healthy",
+      processing_status: "degraded",
+      delivery_status: "degraded",
+      freshness_status: "warning",
+      last_success_at: minutesAgo(47),
+      alarm_count: 1,
+      status_history: [
+        "healthy",
+        "healthy",
+        "healthy",
+        "warning",
+        "warning",
+        "degraded",
+        "healthy",
+        "warning",
+        "degraded",
+        "degraded",
+        "degraded",
+        "degraded"
+      ]
     }
   ];
 
@@ -195,6 +303,7 @@ function buildMockDataset() {
       id: "alarm-finance-transform-errors",
       pipeline_id: "finance-pipeline",
       pipeline_name: "Finance pipeline",
+      pipeline_group: "smartstream",
       name: "FinanceTransformErrorRate",
       severity: "high",
       summary: "Transform Lambda retry rate exceeded 8% after a payroll currency field drift.",
@@ -206,6 +315,7 @@ function buildMockDataset() {
       id: "alarm-finance-freshness",
       pipeline_id: "finance-pipeline",
       pipeline_name: "Finance pipeline",
+      pipeline_group: "smartstream",
       name: "FinanceFreshnessLag",
       severity: "medium",
       summary: "Trusted finance partitions are 16 minutes behind the expected 5 minute SLA.",
@@ -217,6 +327,7 @@ function buildMockDataset() {
       id: "alarm-forecast-lag",
       pipeline_id: "forecast-pipeline",
       pipeline_name: "Forecast pipeline",
+      pipeline_group: "smartstream",
       name: "ForecastPredictionLag",
       severity: "medium",
       summary: "Latest predictions have not landed within the 15 minute inference window.",
@@ -228,6 +339,7 @@ function buildMockDataset() {
       id: "alarm-anomaly-failures",
       pipeline_id: "anomaly-pipeline",
       pipeline_name: "Anomaly pipeline",
+      pipeline_group: "smartstream",
       name: "AnomalyLambdaFailures",
       severity: "critical",
       summary: "Anomaly Lambda has failed 5 consecutive invocations with validation exceptions.",
@@ -239,6 +351,7 @@ function buildMockDataset() {
       id: "alarm-anomaly-delivery",
       pipeline_id: "anomaly-pipeline",
       pipeline_name: "Anomaly pipeline",
+      pipeline_group: "smartstream",
       name: "AnomalyDeliveryStalled",
       severity: "critical",
       summary: "No new objects have been written to trusted-analytics anomalies in the last 3 hours.",
@@ -250,11 +363,36 @@ function buildMockDataset() {
       id: "alarm-anomaly-freshness",
       pipeline_id: "anomaly-pipeline",
       pipeline_name: "Anomaly pipeline",
+      pipeline_group: "smartstream",
       name: "AnomalyFreshnessCritical",
       severity: "critical",
       summary: "Anomaly output freshness exceeded the 20 minute critical threshold.",
       resource: "api:live-api/anomalies",
       triggered_at: minutesAgo(15),
+      state: "ALARM"
+    },
+    {
+      id: "alarm-acme-forecast-lag",
+      pipeline_id: "acme-forecast-pipeline",
+      pipeline_name: "Forecast pipeline",
+      pipeline_group: "acme",
+      name: "AcmeForecastPredictionLag",
+      severity: "medium",
+      summary: "Acme forecast predictions have not landed within the 15 minute freshness target.",
+      resource: "lambda:acme-dev-forecast-ml",
+      triggered_at: minutesAgo(14),
+      state: "ALARM"
+    },
+    {
+      id: "alarm-acme-anomaly-errors",
+      pipeline_id: "acme-anomaly-pipeline",
+      pipeline_name: "Anomaly pipeline",
+      pipeline_group: "acme",
+      name: "AcmeAnomalyLambdaErrors",
+      severity: "high",
+      summary: "Acme anomaly detection Lambda error rate elevated after a cold-start initialisation timeout.",
+      resource: "lambda:acme-dev-anomaly-detector",
+      triggered_at: minutesAgo(22),
       state: "ALARM"
     }
   ];
@@ -560,12 +698,271 @@ function buildMockDataset() {
         "api:live-api/anomalies",
         "cloudwatch:AnomalyLambdaFailures"
       ]
+    },
+    "acme-employee-pipeline": {
+      id: "acme-employee-pipeline",
+      name: "Employee pipeline",
+      pipeline_group: "acme",
+      overall_status: "healthy",
+      summary: "Acme employee ingestion is within SLA from PostgreSQL replication through trusted delivery.",
+      freshness: {
+        status: "healthy",
+        lag_minutes: 3,
+        target_minutes: 5,
+        message: "Freshness is inside the expected replication window for tenant acme-dev."
+      },
+      last_success_at: minutesAgo(3),
+      last_failure_at: hoursAgo(14),
+      components: [
+        {
+          name: "PostgreSQL public.employee",
+          area: "Source",
+          status: "healthy",
+          resource: "rds:acme-dev-postgres",
+          detail: "CDC writes are flowing without replication lag."
+        },
+        {
+          name: "DMS task public-schema",
+          area: "Ingestion",
+          status: "healthy",
+          resource: "dms:acme-dev-public-task",
+          detail: "Applied changes are current with no backlog."
+        },
+        {
+          name: "Kinesis ingest stream",
+          area: "Streaming",
+          status: "healthy",
+          resource: "kinesis:acme-dev-ingest",
+          detail: "Shard iterator age is below 5 seconds."
+        },
+        {
+          name: "Transform Lambda",
+          area: "Processing",
+          status: "healthy",
+          resource: "lambda:acme-dev-transform",
+          detail: "Employee record normalization is succeeding on the first attempt."
+        },
+        {
+          name: "Trusted employee dataset",
+          area: "Delivery",
+          status: "healthy",
+          resource: "s3://acme-dev-lake/trusted/acme/employees/",
+          detail: "Trusted partitions are receiving new objects every cycle."
+        }
+      ],
+      recent_errors: [],
+      active_alarms: [],
+      impacted_resources: [
+        "rds:acme-dev-postgres",
+        "dms:acme-dev-public-task",
+        "kinesis:acme-dev-ingest",
+        "lambda:acme-dev-transform",
+        "s3://acme-dev-lake/trusted/acme/employees/"
+      ]
+    },
+    "acme-finance-pipeline": {
+      id: "acme-finance-pipeline",
+      name: "Finance pipeline",
+      pipeline_group: "acme",
+      overall_status: "healthy",
+      summary: "Acme finance ingestion is healthy and delivering within the freshness SLA.",
+      freshness: {
+        status: "healthy",
+        lag_minutes: 4,
+        target_minutes: 5,
+        message: "Finance partitions are landing on time for tenant acme-dev."
+      },
+      last_success_at: minutesAgo(4),
+      last_failure_at: hoursAgo(18),
+      components: [
+        {
+          name: "PostgreSQL finance schema",
+          area: "Source",
+          status: "healthy",
+          resource: "rds:acme-dev-postgres",
+          detail: "Source writes are available and replication volume is normal."
+        },
+        {
+          name: "DMS task finance-schema",
+          area: "Ingestion",
+          status: "healthy",
+          resource: "dms:acme-dev-finance-task",
+          detail: "CDC capture is current with no task restarts."
+        },
+        {
+          name: "Transform Lambda",
+          area: "Processing",
+          status: "healthy",
+          resource: "lambda:acme-dev-transform",
+          detail: "Finance record normalization is completing within the expected duration."
+        },
+        {
+          name: "Trusted finance dataset",
+          area: "Delivery",
+          status: "healthy",
+          resource: "s3://acme-dev-lake/trusted/acme/finance/",
+          detail: "Objects are landing within the cadence window."
+        },
+        {
+          name: "Glue crawler finance-trusted",
+          area: "Catalog",
+          status: "healthy",
+          resource: "glue:acme-dev-finance-crawler",
+          detail: "Catalog refresh is current with no missed runs."
+        }
+      ],
+      recent_errors: [],
+      active_alarms: [],
+      impacted_resources: [
+        "dms:acme-dev-finance-task",
+        "lambda:acme-dev-transform",
+        "s3://acme-dev-lake/trusted/acme/finance/",
+        "glue:acme-dev-finance-crawler"
+      ]
+    },
+    "acme-forecast-pipeline": {
+      id: "acme-forecast-pipeline",
+      name: "Forecast pipeline",
+      pipeline_group: "acme",
+      overall_status: "degraded",
+      summary: "Acme forecast generation is delayed by elevated ML Lambda duration; predictions are still publishing but behind schedule.",
+      freshness: {
+        status: "warning",
+        lag_minutes: 19,
+        target_minutes: 15,
+        message: "Prediction freshness is above the 15 minute target due to longer-than-normal inference runs."
+      },
+      last_success_at: minutesAgo(19),
+      last_failure_at: minutesAgo(14),
+      components: [
+        {
+          name: "Trusted finance + employee inputs",
+          area: "Source",
+          status: "healthy",
+          resource: "s3://acme-dev-lake/trusted/acme/",
+          detail: "Required input partitions are complete for the current window."
+        },
+        {
+          name: "ML forecast Lambda",
+          area: "Processing",
+          status: "degraded",
+          resource: "lambda:acme-dev-forecast-ml",
+          detail: "Inference duration increased after a model artefact refresh; P95 is above the timeout threshold."
+        },
+        {
+          name: "Predictions dataset",
+          area: "Delivery",
+          status: "healthy",
+          resource: "s3://acme-dev-lake/trusted-analytics/acme/predictions/",
+          detail: "Predictions are publishing, but later than the target run window."
+        },
+        {
+          name: "Live API forecast cache",
+          area: "Serving",
+          status: "warning",
+          resource: "api:acme-dev-live-api/forecasts",
+          detail: "API is serving the previous completed prediction set while the delayed run finishes."
+        }
+      ],
+      recent_errors: [
+        {
+          timestamp: minutesAgo(14),
+          service: "acme-dev-forecast-ml",
+          summary: "Forecast batch exceeded the expected duration envelope; inference run approaching Lambda timeout."
+        }
+      ],
+      active_alarms: [
+        {
+          name: "AcmeForecastPredictionLag",
+          severity: "medium",
+          triggered_at: minutesAgo(14),
+          resource: "lambda:acme-dev-forecast-ml",
+          summary: "Acme prediction output has missed the 15 minute freshness target."
+        }
+      ],
+      impacted_resources: [
+        "lambda:acme-dev-forecast-ml",
+        "s3://acme-dev-lake/trusted-analytics/acme/predictions/",
+        "api:acme-dev-live-api/forecasts"
+      ]
+    },
+    "acme-anomaly-pipeline": {
+      id: "acme-anomaly-pipeline",
+      name: "Anomaly pipeline",
+      pipeline_group: "acme",
+      overall_status: "degraded",
+      summary: "Acme anomaly detection is experiencing elevated error rates after a cold-start timeout; some outputs are not reaching trusted analytics.",
+      freshness: {
+        status: "warning",
+        lag_minutes: 47,
+        target_minutes: 20,
+        message: "Anomaly freshness is above the 20 minute target while Lambda recovers from cold-start failures."
+      },
+      last_success_at: minutesAgo(47),
+      last_failure_at: minutesAgo(22),
+      components: [
+        {
+          name: "Predictions input set",
+          area: "Source",
+          status: "healthy",
+          resource: "s3://acme-dev-lake/trusted-analytics/acme/predictions/",
+          detail: "Input predictions are present for the expected windows."
+        },
+        {
+          name: "Anomaly Lambda",
+          area: "Processing",
+          status: "degraded",
+          resource: "lambda:acme-dev-anomaly-detector",
+          detail: "Cold-start initialisation timeouts are causing intermittent invocation failures."
+        },
+        {
+          name: "Anomalies dataset",
+          area: "Delivery",
+          status: "degraded",
+          resource: "s3://acme-dev-lake/trusted-analytics/acme/anomalies/",
+          detail: "Some anomaly batches are not completing, leaving gaps in the delivery schedule."
+        },
+        {
+          name: "Live API anomalies route",
+          area: "Serving",
+          status: "warning",
+          resource: "api:acme-dev-live-api/anomalies",
+          detail: "API is serving partially stale anomalies from the last successful batch."
+        }
+      ],
+      recent_errors: [
+        {
+          timestamp: minutesAgo(22),
+          service: "acme-dev-anomaly-detector",
+          summary: "Cold-start initialisation timeout caused Lambda invocation to fail before processing began."
+        },
+        {
+          timestamp: minutesAgo(31),
+          service: "acme-dev-anomaly-detector",
+          summary: "Anomaly batch terminated early; S3 write skipped for incomplete detection window."
+        }
+      ],
+      active_alarms: [
+        {
+          name: "AcmeAnomalyLambdaErrors",
+          severity: "high",
+          triggered_at: minutesAgo(22),
+          resource: "lambda:acme-dev-anomaly-detector",
+          summary: "Acme anomaly Lambda error rate elevated after cold-start initialisation failures."
+        }
+      ],
+      impacted_resources: [
+        "lambda:acme-dev-anomaly-detector",
+        "s3://acme-dev-lake/trusted-analytics/acme/anomalies/",
+        "api:acme-dev-live-api/anomalies"
+      ]
     }
   };
 
   const logSummary = [
     {
       service: "transform-lambda",
+      pipeline_group: "smartstream",
       level: "ERROR",
       count_15m: 17,
       latest_message: "Finance record normalization retried after payroll_currency shape mismatch.",
@@ -573,13 +970,15 @@ function buildMockDataset() {
     },
     {
       service: "forecast-ml-lambda",
+      pipeline_group: "smartstream",
       level: "WARN",
       count_15m: 9,
-      latest_message: "Forecast generation exceeded the expected duration envelope for tenant acme-dev.",
+      latest_message: "Forecast generation exceeded the expected duration envelope.",
       updated_at: minutesAgo(11)
     },
     {
       service: "anomaly-lambda",
+      pipeline_group: "smartstream",
       level: "ERROR",
       count_15m: 34,
       latest_message: "ValidationError on missing expected_upper_bound halted anomaly batch execution.",
@@ -587,10 +986,27 @@ function buildMockDataset() {
     },
     {
       service: "live-api",
+      pipeline_group: "smartstream",
       level: "INFO",
       count_15m: 4,
       latest_message: "Anomalies endpoint served cached results while upstream pipeline stayed unhealthy.",
       updated_at: minutesAgo(3)
+    },
+    {
+      service: "acme-dev-forecast-ml",
+      pipeline_group: "acme",
+      level: "WARN",
+      count_15m: 5,
+      latest_message: "Forecast batch duration exceeded the expected run envelope for tenant acme-dev.",
+      updated_at: minutesAgo(14)
+    },
+    {
+      service: "acme-dev-anomaly-detector",
+      pipeline_group: "acme",
+      level: "ERROR",
+      count_15m: 8,
+      latest_message: "Cold-start initialisation timeout caused Lambda invocation failure for tenant acme-dev.",
+      updated_at: minutesAgo(22)
     }
   ];
 
