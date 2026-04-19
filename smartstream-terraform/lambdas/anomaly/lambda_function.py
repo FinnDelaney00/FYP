@@ -7,7 +7,7 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from io import BytesIO
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import boto3
 import numpy as np
@@ -623,8 +623,6 @@ def build_anomaly_output(
 def describe_anomaly(row: Dict[str, Any], mode: str, source_area: str) -> Tuple[str, str, str]:
     daily_total = float(row.get("daily_total") or 0.0)
     rolling_mean = float(row.get("rolling_mean_7") or 0.0)
-    amount = float(row.get("amount") or 0.0)
-
     if mode == "daily":
         if source_area == "expenditure" and daily_total >= rolling_mean:
             return (

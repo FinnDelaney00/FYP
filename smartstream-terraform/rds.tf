@@ -3,7 +3,6 @@ resource "aws_db_instance" "main" {
   identifier = "${local.name_prefix}-postgres"
   engine     = "postgres"
 
-  
   instance_class    = var.rds_instance_class
   allocated_storage = var.rds_allocated_storage
   storage_type      = "gp3"
