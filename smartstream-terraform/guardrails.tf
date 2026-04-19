@@ -14,7 +14,7 @@ check "tenant_requires_short_company_name" {
 
 check "tenant_workspace_matches_company" {
   assert {
-    condition     = !var.enable_tenant_prefix || terraform.workspace == local.company_name_normalized
+    condition     = !var.enable_tenant_prefix || local.effective_workspace == local.company_name_normalized
     error_message = "Tenant workspace must match normalized company_name."
   }
 }
@@ -28,7 +28,7 @@ check "tenant_cannot_create_shared_iam" {
 
 check "shared_iam_workspace_restriction" {
   assert {
-    condition     = !var.create_shared_iam || terraform.workspace == var.legacy_workspace_name
+    condition     = !var.create_shared_iam || local.effective_workspace == var.legacy_workspace_name
     error_message = "create_shared_iam=true is restricted to the legacy workspace."
   }
 }

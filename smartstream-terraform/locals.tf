@@ -20,6 +20,8 @@ locals {
   )
   company_name_normalized = substr(local.company_name_normalized_raw, 0, 30)
 
+  effective_workspace = var.workspace_name_override != "" ? var.workspace_name_override : terraform.workspace
+
   legacy_prefix = var.legacy_name_prefix
   tenant_prefix = var.name_prefix_override != "" ? var.name_prefix_override : "${var.company_name}-${var.environment}"
   name_prefix   = var.enable_tenant_prefix ? local.tenant_prefix : local.legacy_prefix

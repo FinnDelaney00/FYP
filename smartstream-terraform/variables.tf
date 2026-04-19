@@ -52,6 +52,12 @@ variable "legacy_workspace_name" {
   default     = "newaccount"
 }
 
+variable "workspace_name_override" {
+  description = "Override terraform.workspace for testing. Leave empty in real deployments."
+  type        = string
+  default     = ""
+}
+
 variable "shared_dms_secrets_role_name" {
   description = "Optional override for shared DMS secrets access role name"
   type        = string

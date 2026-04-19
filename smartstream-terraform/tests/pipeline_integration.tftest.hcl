@@ -200,6 +200,7 @@ run "tenant_mode_shared_iam_reuse" {
     db_password                       = "UnitTestPassword123!"
     enable_tenant_prefix              = true
     company_name                      = "newaccount"
+    workspace_name_override           = "newaccount"
     environment                       = "dev"
     create_shared_iam                 = false
     shared_dms_secrets_role_name      = "shared-dms-secrets-role"
