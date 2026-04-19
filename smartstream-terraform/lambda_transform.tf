@@ -21,7 +21,7 @@ resource "aws_lambda_function" "transform" {
       DATA_LAKE_BUCKET    = aws_s3_bucket.data_lake.id
       RAW_PREFIX          = local.s3_raw_prefix
       TRUSTED_PREFIX      = local.s3_trusted_prefix
-      PIPELINE_COMPANY_ID = local.name_prefix
+      PIPELINE_COMPANY_ID = var.enable_tenant_prefix ? local.company_name_normalized : local.name_prefix
       FINANCE_SCHEMA_NAME = var.finance_schema_name
       FINANCE_TABLE_LIST  = join(",", var.finance_table_list)
       LOG_LEVEL           = "INFO"

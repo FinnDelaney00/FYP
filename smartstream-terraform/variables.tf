@@ -278,7 +278,7 @@ variable "small_transaction_floor_ratio" {
 variable "glue_crawler_schedule" {
   description = "Cron expression for Glue crawler (UTC)"
   type        = string
-  default     = "cron(0 2 * * ? *)" # Run daily at 2 AM UTC
+  default     = "cron(0 * * * ? *)" # Run hourly
 }
 
 variable "web_bucket_name" {

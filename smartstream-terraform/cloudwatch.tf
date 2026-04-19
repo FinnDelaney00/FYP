@@ -161,13 +161,3 @@ resource "aws_cloudwatch_log_metric_filter" "dms_task_errors" {
   depends_on = [aws_cloudwatch_log_group.dms_task]
 }
 
-
-# Additional log groups for DMS
-resource "aws_cloudwatch_log_group" "dms_tasks" {
-  name              = "/aws/dms/tasks/${aws_dms_replication_task.cdc_task.replication_task_id}"
-  retention_in_days = var.log_retention_days
-
-  tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-dms-task-logs"
-  })
-}

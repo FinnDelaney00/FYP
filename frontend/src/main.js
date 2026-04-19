@@ -15,6 +15,9 @@ import {
   subscribeSession,
   syncSessionFromServer
 } from "./services/authService.js";
+import { clearActiveApiUrl, setActiveApiUrl } from "./services/apiClient.js";
+
+const TENANT_URLS = JSON.parse(import.meta.env.VITE_TENANT_URLS || "{}");
 import { createPreferencesStore } from "./preferences/preferencesManager.js";
 import { getPathForPage, getRouteByPageName, resolveRoute } from "./routes.js";
 import { createSettingsPage } from "./settings/settingsPage.js";
@@ -319,10 +322,16 @@ loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const formData = new FormData(loginForm);
+  const tenant = String(formData.get("tenant") || "").trim();
   const email = String(formData.get("email") || "").trim();
   const password = String(formData.get("password") || "").trim();
   const displayName = String(formData.get("display_name") || "").trim();
   const inviteCode = String(formData.get("invite_code") || "").trim();
+
+  const tenantUrl = TENANT_URLS[tenant];
+  if (tenantUrl) {
+    setActiveApiUrl(tenantUrl);
+  }
 
   if (!email || !password) {
     loginError.textContent = "Please enter both email and password.";
@@ -370,6 +379,7 @@ navLinks.forEach((link) => {
 logoutButton.addEventListener("click", () => {
   stopWorkspaceData();
   logoutSession();
+  clearActiveApiUrl();
   loginForm.reset();
   setAuthMode(false);
   navigateToLogin({ replace: true });

@@ -1,7 +1,7 @@
 /**
  * Loads alert data, shows the alert inbox, and handles review actions.
  */
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+import { getActiveApiUrl } from "./services/apiClient.js";
 
 const ACTION_LABELS = {
   mark_reviewed: "Reviewed",
@@ -40,7 +40,7 @@ function buildAuthHeaders(getAuthToken) {
  * @returns {Promise<any>}
  */
 function getJSON(path, getAuthToken) {
-  return fetch(`${API_BASE_URL}${path}`, {
+  return fetch(`${getActiveApiUrl()}${path}`, {
     headers: {
       ...buildAuthHeaders(getAuthToken)
     }
@@ -62,7 +62,7 @@ function getJSON(path, getAuthToken) {
  * @returns {Promise<any>}
  */
 function postJSON(path, body, getAuthToken) {
-  return fetch(`${API_BASE_URL}${path}`, {
+  return fetch(`${getActiveApiUrl()}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -427,9 +427,9 @@ export function initAnomaliesData({ getAuthToken = () => "" } = {}) {
     return () => {};
   }
 
-  if (!API_BASE_URL) {
+  if (!getActiveApiUrl()) {
     if (filters.stateText) {
-      filters.stateText.textContent = "VITE_API_BASE_URL is missing.";
+      filters.stateText.textContent = "VITE_getActiveApiUrl() is missing.";
     }
     return () => {};
   }

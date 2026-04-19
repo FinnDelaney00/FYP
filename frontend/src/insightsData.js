@@ -6,10 +6,10 @@
 import { createGetJSON } from "./insights/api.js";
 import { buildAreaPath, buildSmoothLinePath, pickSeriesAxisLabels } from "./insights/chartUtils.js";
 import {
-  API_BASE_URL,
   DEFAULT_FORECAST_HORIZON_DAYS,
   FORECAST_ACTUAL_WINDOW_BY_HORIZON
 } from "./insights/constants.js";
+import { getActiveApiUrl } from "./services/apiClient.js";
 import { createDashboardModule } from "./insights/dashboardModule.js";
 import { createElementCache } from "./insights/domCache.js";
 import {
@@ -54,7 +54,7 @@ const forecastViewState = {
   focus: "all"
 };
 
-const getJSON = createGetJSON(API_BASE_URL);
+const getJSON = createGetJSON();
 const dashboardModule = createDashboardModule({
   getLatestFinanceRowsState: () => latestFinanceRowsState
 });
@@ -1574,7 +1574,7 @@ export function initInsightsData({ getAuthToken = () => "" } = {}) {
     });
   }
 
-  if (!API_BASE_URL) {
+  if (!getActiveApiUrl()) {
     const status = getElement("query-status");
     if (status) {
       status.textContent = "VITE_API_BASE_URL is missing.";

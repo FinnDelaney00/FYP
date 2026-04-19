@@ -78,12 +78,7 @@ resource "aws_glue_crawler" "analytics" {
   })
 }
 
-# CloudWatch Log Group for Glue Crawlers
-resource "aws_cloudwatch_log_group" "glue_crawlers" {
-  name              = "/aws-glue/crawlers"
-  retention_in_days = var.log_retention_days
-
-  tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-glue-crawler-logs"
-  })
+# /aws-glue/crawlers is account-wide and created automatically by AWS Glue
+data "aws_cloudwatch_log_group" "glue_crawlers" {
+  name = "/aws-glue/crawlers"
 }

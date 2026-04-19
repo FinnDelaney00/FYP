@@ -4,9 +4,22 @@
  * These helpers keep URL building, auth headers, and error handling the same
  * across the app.
  */
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const FALLBACK_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const ACTIVE_API_URL_KEY = "smartstream_api_url";
 
-export { API_BASE_URL };
+export function getActiveApiUrl() {
+  return (localStorage.getItem(ACTIVE_API_URL_KEY) || FALLBACK_API_BASE_URL).replace(/\/$/, "");
+}
+
+export function setActiveApiUrl(url) {
+  localStorage.setItem(ACTIVE_API_URL_KEY, (url || "").replace(/\/$/, ""));
+}
+
+export function clearActiveApiUrl() {
+  localStorage.removeItem(ACTIVE_API_URL_KEY);
+}
+
+export { FALLBACK_API_BASE_URL as API_BASE_URL };
 
 /**
  * Builds the auth header when a token is available.
@@ -26,10 +39,11 @@ export function buildAuthHeaders(getAuthToken) {
  * @returns {string}
  */
 function buildUrl(path) {
-  if (!API_BASE_URL) {
+  const base = getActiveApiUrl();
+  if (!base) {
     throw new Error("VITE_API_BASE_URL is not configured.");
   }
-  return `${API_BASE_URL}${path}`;
+  return `${base}${path}`;
 }
 
 /**
@@ -103,13 +117,14 @@ export function postJSON(path, body, getAuthToken, options = {}) {
  * @param {string} [baseUrl=API_BASE_URL]
  * @returns {(path: string, options?: RequestInit, getAuthToken?: (() => string)) => Promise<any>}
  */
-export function createGetJSON(baseUrl = API_BASE_URL) {
+export function createGetJSON(baseUrl) {
   return async function getJSONWithBase(path, options, getAuthToken) {
-    if (!baseUrl) {
+    const resolvedBase = baseUrl !== undefined ? baseUrl : getActiveApiUrl();
+    if (!resolvedBase) {
       throw new Error("VITE_API_BASE_URL is not configured.");
     }
 
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(`${resolvedBase}${path}`, {
       ...(options || {}),
       headers: {
         ...(options?.headers || {}),

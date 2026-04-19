@@ -3,7 +3,7 @@
  * Loads recent finance rows from the backend and shows a spend trend chart with
  * related status text and details in the dashboard.
  */
-const DEFAULT_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+import { getActiveApiUrl } from "./services/apiClient.js";
 const DEFAULT_POLL_INTERVAL_MS = 60000;
 const MAX_QUERY_ROWS = 1000;
 const FINANCE_PATH_FILTER = "trusted/%/finance/transactions/";
@@ -59,7 +59,7 @@ function buildAuthHeaders(getAuthToken) {
  * @returns {Promise<any>}
  */
 async function postJSON(path, body, getAuthToken) {
-  const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
+  const response = await fetch(`${getActiveApiUrl()}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -764,7 +764,7 @@ export function startLiveUpdates({
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   getAuthToken = () => ""
 }) {
-  if (!DEFAULT_API_BASE_URL) {
+  if (!getActiveApiUrl()) {
     metaElement.textContent = "Set VITE_API_BASE_URL to load dashboard data.";
     statusElement.textContent = "Configuration needed";
     statusElement.classList.add("is-error");

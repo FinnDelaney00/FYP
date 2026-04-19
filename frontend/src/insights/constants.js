@@ -4,7 +4,7 @@
  * These values keep environment settings, query defaults, and finance field
  * names lined up across related files.
  */
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+export { getActiveApiUrl as API_BASE_URL } from "../services/apiClient.js";
 
 // Default values for the raw data explorer.
 export const QUERY_SINGLE_TABLE = "trusted";
